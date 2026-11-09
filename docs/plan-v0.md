@@ -77,7 +77,7 @@ sessions incrementally by byte offset, keeps the raw JSONL lines (lossless, zstd
 `search` = FTS5 + bm25 with DigUp's term rules (stopwords, prefix on the last word, lookup detection for ids). Index
 location `~/.sessionkit/` (never under ~/Library).
 
-**M4 Serve.** `serve --socket <path>`: `GET /sessions`, `GET /sessions/{id}`, `GET /sessions/{id}/stats`,
+**M4 Serve (DONE).** `serve --socket <path>`: `GET /sessions`, `GET /sessions/{id}`, `GET /sessions/{id}/stats`,
 `GET /search?q=`, `GET /status`, `POST /archive`. Same JSON as the CLI's `--json`. Hand-written, versioned under `/v0/`.
 Watches `~/.claude/projects` with fsnotify so the archive stays current; a hooks installer lands later.
 

@@ -12,6 +12,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
 )
@@ -40,18 +41,12 @@ parsed session is emitted (image bytes replaced by their size).`,
 			s := r.Session
 			w := cmd.OutOrStdout()
 			if jsonWanted(cmd) {
-				s.StripImages()
-				return writeJSON(w, struct {
-					*transcript.Session
-					Project  string        `json:"project"`
-					Archived bool          `json:"archived_only,omitempty"`
-					Summary  stats.Summary `json:"summary"`
-				}{s, r.Project, r.Archived, stats.Compute(s, r.Project, stats.Options{Context: true})})
+				return writeJSON(w, archive.Document(r))
 			}
 			if cmd.Flags().Changed("turn") {
 				return printTurn(w, s, turn, width)
 			}
-			if r.Archived {
+			if r.ArchivedOnly {
 				fmt.Fprintln(w, "Source   gone from ~/.claude; showing the archived copy")
 			}
 			printTimeline(w, s, r.Project, width, showContext)

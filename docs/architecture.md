@@ -21,7 +21,9 @@ sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no
   search          FTS5 + bm25 candidates, coverage of the query's words, lookup queries weigh words more; v0.5 adds
                   vectors with DigUp's z-scaled fusion
   embed           (v0.5) Embedder interface + JSON-lines worker client
-  serve           (M4) HTTP over a Unix socket; same operations as the CLI
+  serve           HTTP on a Unix socket ($SKIT_HOME/skit.sock), routes under /v0/, same JSON as --json; the same engine
+                  functions the CLI calls (archive.List/Resolve/Document, stats, search, Ingest). Watches
+                  ~/.claude/projects with fsnotify and archives a session once its transcript settles.
 client/SessionVisualizer   (M6) Swift app; talks only to `skit serve`
 runtime/LlamaRuntime       (v0.5) Swift embedding worker over llama.cpp
 ```

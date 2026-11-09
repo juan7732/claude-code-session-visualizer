@@ -1,0 +1,376 @@
+// Package serve exposes the engine over HTTP on a Unix domain socket. It is a
+// thin face: every route calls the same functions the CLI calls and returns
+// the same JSON shapes (`--json`). Routes live under /v0/ and only gain fields
+// before 1.0 (docs/decisions/0004-json-shapes.md).
+//
+//	GET  /v0                          route list
+//	GET  /v0/status                   version, Claude Code data dir, index counts, live sessions
+//	GET  /v0/sessions?project=&limit= list rows (archive.ListRow)
+//	GET  /v0/sessions/{id}            session document (archive.SessionDoc)
+//	GET  /v0/sessions/{id}/stats      stats.Summary with the context curve
+//	GET  /v0/sessions/{id}/turns/{n}  one turn with its tool calls and results
+//	GET  /v0/search?q=&limit=&project=&session=&kind=&prefix=
+//	POST /v0/archive                  {"ids": [...], "project": "", "debug": false} → archive results
+package serve
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net"
+	"net/http"
+	"os"
+	"path/filepath"
+	"strconv"
+	"strings"
+	"sync"
+	"time"
+
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/search"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
+)
+
+// Server holds the engine handles. One Archive means one SQLite writer; the
+// mutex serialises requests that touch it.
+type Server struct {
+	Version string
+	Archive *archive.Archive
+	// Inspect finds Claude Code's data; defaults to catalog.Inspect.
+	Inspect func() (*catalog.Report, error)
+	Logf    func(format string, args ...any)
+
+	mu      sync.Mutex
+	started time.Time
+}
+
+// New makes a server over an open archive.
+func New(version string, a *archive.Archive) *Server {
+	return &Server{Version: version, Archive: a, Inspect: catalog.Inspect, Logf: func(string, ...any) {}, started: time.Now()}
+}
+
+// Handler returns the HTTP handler (for a socket listener or for tests).
+func (s *Server) Handler() http.Handler {
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /v0", s.routes)
+	mux.HandleFunc("GET /v0/{$}", s.routes)
+	mux.HandleFunc("GET /v0/status", s.status)
+	mux.HandleFunc("GET /v0/sessions", s.sessions)
+	mux.HandleFunc("GET /v0/sessions/{id}", s.session)
+	mux.HandleFunc("GET /v0/sessions/{id}/stats", s.sessionStats)
+	mux.HandleFunc("GET /v0/sessions/{id}/turns/{n}", s.turn)
+	mux.HandleFunc("GET /v0/search", s.search)
+	mux.HandleFunc("POST /v0/archive", s.archive)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("no route %s %s (see GET /v0)", r.Method, r.URL.Path))
+	})
+	return logging(s.Logf, mux)
+}
+
+// Status is GET /v0/status.
+type Status struct {
+	Version   string                `json:"version"`
+	Uptime    string                `json:"uptime"`
+	ClaudeDir string                `json:"claude_dir"`
+	SkitHome  string                `json:"skit_home"`
+	Index     IndexCounts           `json:"index"`
+	Live      []catalog.LiveSession `json:"live"`
+	Sessions  int                   `json:"sessions_on_disk"`
+}
+
+// IndexCounts mirrors store.Counts for JSON.
+type IndexCounts struct {
+	Sessions int   `json:"sessions"`
+	Archived int   `json:"archived"`
+	Segments int   `json:"segments"`
+	Bytes    int64 `json:"bytes"`
+}
+
+func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{
+		"version": s.Version,
+		"routes": []string{
+			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
+			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive",
+		},
+	})
+}
+
+func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rep, err := s.Inspect()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	c, err := s.Archive.Store.Counts()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	live := rep.Live
+	if live == nil {
+		live = []catalog.LiveSession{}
+	}
+	writeJSON(w, http.StatusOK, Status{Version: s.Version, Uptime: stats.FormatDuration(time.Since(s.started)), ClaudeDir: rep.ClaudeDir,
+		SkitHome: s.Archive.Home, Index: IndexCounts(c), Live: live, Sessions: rep.Totals.Sessions})
+}
+
+func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rep, err := s.Inspect()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	limit, _ := strconv.Atoi(r.URL.Query().Get("limit"))
+	rows, err := s.Archive.List(rep, r.URL.Query().Get("project"), true, limit, func(err error) { s.Logf("list: %v", err) })
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, rows)
+}
+
+func (s *Server) resolve(w http.ResponseWriter, id string) (archive.Resolved, bool) {
+	rep, err := s.Inspect()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return archive.Resolved{}, false
+	}
+	res, err := s.Archive.Resolve(rep, id)
+	if err != nil {
+		var nf *archive.NotFoundError
+		if errors.As(err, &nf) {
+			writeError(w, http.StatusNotFound, err.Error())
+		} else {
+			writeError(w, http.StatusBadRequest, err.Error())
+		}
+		return archive.Resolved{}, false
+	}
+	return res, true
+}
+
+func (s *Server) session(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, archive.Document(res))
+}
+
+func (s *Server) sessionStats(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, stats.Compute(res.Session, res.Project, stats.Options{Context: true}))
+}
+
+// TurnDoc is GET /v0/sessions/{id}/turns/{n}.
+type TurnDoc struct {
+	*transcript.Turn
+	ToolCalls []TurnToolCall `json:"tool_calls"`
+}
+
+// TurnToolCall is a tool call with its result text.
+type TurnToolCall struct {
+	*transcript.ToolCall
+	Result       string `json:"result,omitempty"`
+	ResultSource string `json:"result_source,omitempty"` // "transcript" or the spilled file path
+}
+
+func (s *Server) turn(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil || n < 0 || n >= len(res.Session.Turns) {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("turn %q out of range (session has %d requests)", r.PathValue("n"), len(res.Session.Turns)))
+		return
+	}
+	res.Session.StripImages()
+	t := res.Session.Turns[n]
+	doc := TurnDoc{Turn: t, ToolCalls: []TurnToolCall{}}
+	for _, c := range t.ToolCalls {
+		tc := TurnToolCall{ToolCall: c}
+		if c.Paired {
+			tc.Result, tc.ResultSource = c.ResultText(), "transcript"
+			if p, ok := res.Session.SpilledPath(c); ok {
+				if b, err := os.ReadFile(p); err == nil {
+					tc.Result, tc.ResultSource = string(b), p
+				}
+			}
+		}
+		doc.ToolCalls = append(doc.ToolCalls, tc)
+	}
+	writeJSON(w, http.StatusOK, doc)
+}
+
+func (s *Server) search(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	hits, err := search.Run(s.Archive.Store, q.Get("q"), search.Options{Limit: limit, Project: q.Get("project"), Session: q.Get("session"),
+		Kind: q.Get("kind"), PrefixLast: q.Get("prefix") == "1" || q.Get("prefix") == "true"})
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if hits == nil {
+		hits = []search.Hit{}
+	}
+	writeJSON(w, http.StatusOK, hits)
+}
+
+// ArchiveRequest is the body of POST /v0/archive.
+type ArchiveRequest struct {
+	IDs     []string `json:"ids"`
+	Project string   `json:"project"`
+	Debug   bool     `json:"debug"`
+}
+
+func (s *Server) archive(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var req ArchiveRequest
+	if r.Body != nil && r.ContentLength != 0 {
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "body must be JSON: "+err.Error())
+			return
+		}
+	}
+	rep, err := s.Inspect()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	results, err := s.ingest(rep, req)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, results)
+}
+
+// ingest archives the requested sessions (all matching when IDs is empty).
+func (s *Server) ingest(rep *catalog.Report, req ArchiveRequest) ([]archive.Result, error) {
+	var targets []catalog.Located
+	if len(req.IDs) > 0 {
+		for _, id := range req.IDs {
+			l, err := rep.Find(id)
+			if err != nil {
+				return nil, err
+			}
+			targets = append(targets, l)
+		}
+	} else {
+		for _, l := range rep.Sessions() {
+			if l.File.Kind == "main" && (req.Project == "" || strings.Contains(strings.ToLower(l.Project.Slug), strings.ToLower(req.Project))) {
+				targets = append(targets, l)
+			}
+		}
+	}
+	results := []archive.Result{}
+	for _, l := range targets {
+		res, err := s.Archive.Ingest(l, archive.Options{Debug: req.Debug})
+		if err != nil {
+			s.Logf("archive %s: %v", l.File.ID, err)
+			res.Action = "failed"
+		}
+		results = append(results, res)
+	}
+	return results, nil
+}
+
+// IngestPath archives the session whose transcript is at path (used by the watcher).
+func (s *Server) IngestPath(path string) (archive.Result, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rep, err := s.Inspect()
+	if err != nil {
+		return archive.Result{}, err
+	}
+	l, err := rep.Find(path)
+	if err != nil {
+		return archive.Result{}, err
+	}
+	return s.Archive.Ingest(l, archive.Options{})
+}
+
+// maxSocketPath is the longest Unix socket path the kernel accepts (sun_path
+// is 104 bytes on macOS, 108 on Linux; the NUL terminator takes one).
+const maxSocketPath = 103
+
+// ListenAndServe serves on a Unix socket until ctx is done, then removes the
+// socket file. A stale socket file from a crashed server is replaced.
+func (s *Server) ListenAndServe(ctx context.Context, socket string) error {
+	if len(socket) > maxSocketPath {
+		return fmt.Errorf("socket path is %d bytes; Unix sockets allow at most %d on this platform. Use a shorter --socket path", len(socket), maxSocketPath)
+	}
+	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
+		return err
+	}
+	if _, err := os.Stat(socket); err == nil {
+		if conn, err := net.DialTimeout("unix", socket, 200*time.Millisecond); err == nil {
+			conn.Close()
+			return fmt.Errorf("another skit is already serving on %s", socket)
+		}
+		os.Remove(socket)
+	}
+	ln, err := net.Listen("unix", socket)
+	if err != nil {
+		return err
+	}
+	os.Chmod(socket, 0o600)
+	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ln) }()
+	select {
+	case <-ctx.Done():
+		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+		err := srv.Shutdown(shutdown)
+		os.Remove(socket)
+		return err
+	case err := <-errc:
+		os.Remove(socket)
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	}
+}
+
+func writeJSON(w http.ResponseWriter, code int, v any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(code)
+	enc := json.NewEncoder(w)
+	enc.SetIndent("", "  ")
+	_ = enc.Encode(v)
+}
+
+func writeError(w http.ResponseWriter, code int, msg string) {
+	writeJSON(w, code, map[string]string{"error": msg})
+}
+
+func logging(logf func(string, ...any), next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start := time.Now()
+		next.ServeHTTP(w, r)
+		logf("%s %s %s", r.Method, r.URL.RequestURI(), time.Since(start).Round(time.Millisecond))
+	})
+}

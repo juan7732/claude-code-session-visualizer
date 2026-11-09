@@ -146,6 +146,58 @@ func (h *Harness) Run(args ...string) Result {
 	return res
 }
 
+// Proc is a skit process started in the background (serve).
+type Proc struct {
+	cmd *exec.Cmd
+	out *bytes.Buffer
+}
+
+// Start launches skit with args and returns immediately. Stop kills it.
+func (h *Harness) Start(args ...string) *Proc {
+	h.t.Helper()
+	cmd := exec.Command(Binary(), args...)
+	cmd.Dir = h.Home
+	cmd.Env = h.Env
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	if err := cmd.Start(); err != nil {
+		h.t.Fatalf("start %s: %v", Binary(), err)
+	}
+	p := &Proc{cmd: cmd, out: &out}
+	h.t.Cleanup(p.Stop)
+	return p
+}
+
+// Stop terminates the process.
+func (p *Proc) Stop() {
+	if p.cmd.Process != nil {
+		_ = p.cmd.Process.Signal(os.Interrupt)
+		done := make(chan struct{})
+		go func() { p.cmd.Wait(); close(done) }()
+		select {
+		case <-done:
+		case <-time.After(3 * time.Second):
+			_ = p.cmd.Process.Kill()
+		}
+	}
+}
+
+// Output is what the process has written so far.
+func (p *Proc) Output() string { return p.out.String() }
+
+// WaitForFile polls until path exists or the timeout passes.
+func (h *Harness) WaitForFile(path string, timeout time.Duration) bool {
+	h.t.Helper()
+	deadline := time.Now().Add(timeout)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return true
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	return false
+}
+
 func (r Result) AssertOK(t *testing.T) {
 	t.Helper()
 	if r.ExitCode != 0 {

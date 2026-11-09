@@ -1,0 +1,72 @@
+package cli
+
+import (
+	"context"
+	"fmt"
+	"log"
+	"os"
+	"os/signal"
+	"path/filepath"
+	"syscall"
+	"time"
+
+	"github.com/spf13/cobra"
+
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/home"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/serve"
+)
+
+func newServe() *cobra.Command {
+	var socket string
+	var noWatch bool
+	var settle time.Duration
+	cmd := &cobra.Command{
+		Use:   "serve",
+		Short: "Serve the engine over HTTP on a Unix socket",
+		Long: `serve exposes every read operation and archiving over HTTP on a Unix domain
+socket, with the same JSON shapes as the CLI's --json. Routes are under /v0/
+(GET /v0 lists them). Unless --no-watch is given it also watches Claude Code's
+projects directory and archives a session a few seconds after it stops changing,
+so the archive and search stay current while it runs.
+
+Try it:  curl --unix-socket ~/.sessionkit/skit.sock http://skit/v0/status`,
+		Example: "  skit serve\n  skit serve --socket /tmp/skit.sock --no-watch",
+		Args:    cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			if socket == "" {
+				dir, err := home.Dir()
+				if err != nil {
+					return err
+				}
+				socket = filepath.Join(dir, "skit.sock")
+			}
+			a, err := archive.Open()
+			if err != nil {
+				return err
+			}
+			defer a.Close()
+			logger := log.New(cmd.ErrOrStderr(), "skit serve: ", log.LstdFlags)
+			s := serve.New(cmd.Root().Version, a)
+			s.Logf = logger.Printf
+			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+			defer stop()
+			if !noWatch {
+				if dir, err := catalog.Dir(); err == nil {
+					go func() {
+						if err := s.Watch(ctx, filepath.Join(dir, "projects"), settle); err != nil {
+							logger.Printf("watch stopped: %v", err)
+						}
+					}()
+				}
+			}
+			fmt.Fprintf(cmd.ErrOrStderr(), "skit serve: listening on %s (watch=%v)\n", socket, !noWatch)
+			return s.ListenAndServe(ctx, socket)
+		},
+	}
+	cmd.Flags().StringVar(&socket, "socket", "", "Unix socket path (default $SKIT_HOME/skit.sock)")
+	cmd.Flags().BoolVar(&noWatch, "no-watch", false, "do not watch ~/.claude/projects for changes")
+	cmd.Flags().DurationVar(&settle, "settle", 3*time.Second, "how long a transcript must be quiet before it is archived")
+	return cmd
+}
