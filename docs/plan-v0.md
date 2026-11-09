@@ -65,10 +65,10 @@ session (`36086585…`) redacted by `tools/redact` (keeps structure, replaces pr
 strips images to 1×1 PNGs), plus synthetic sessions built for specific cases (compaction, subagents, images, orphaned
 files). `expected.json` counts cross-checked against `sessions-study/tools/inspect.py`. `go test` fails on any drift.
 
-**M2 CLI read path.** `list`, `show` (timeline: one line per turn with time offset, role, model, tokens, tool names,
-durations; `--turn N` for detail; `--json` full structure), `stats` (tokens by category, cost ours vs Claude Code's,
-tools by name, compactions, context curve as a table), `projects`. Human output designed for a terminal, JSON for
-agents. This is the point where Claude Code itself can start using the tool.
+**M2 CLI read path (DONE).** `list`, `show` (timeline: one line per turn with time offset, role, model, tokens, tool
+names, durations; `--turn N` for detail; `--json` full structure), `stats` (tokens by category, cost ours vs Claude
+Code's, tools by name, compactions, context curve as a table), `projects`. Human output designed for a terminal, JSON
+for agents. This is the point where Claude Code itself can start using the tool.
 
 **M3 Archive + keyword search.** `store`: `sessions`, `turns`, `segments` (one per content block, with `kind`,
 `modality`, `loc`), `fts` over segment text, `meta` with schema version + fingerprint. `archive` ingests new or changed

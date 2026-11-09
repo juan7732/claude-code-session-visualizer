@@ -9,9 +9,11 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -62,6 +64,46 @@ func (h *Harness) SeedSession(slug, id string, lines ...string) string {
 		h.t.Fatal(err)
 	}
 	return p
+}
+
+// SeedFixture copies a fixture directory from internal/testdata/sessions into
+// a project under the sandbox's ~/.claude/projects and returns the session id.
+func (h *Harness) SeedFixture(fixture, slug string) string {
+	h.t.Helper()
+	src := filepath.Join("..", "..", "internal", "testdata", "sessions", fixture)
+	dst := filepath.Join(h.ClaudeDir, "projects", slug)
+	if err := os.MkdirAll(dst, 0o755); err != nil {
+		h.t.Fatal(err)
+	}
+	id := ""
+	err := filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, _ := filepath.Rel(src, p)
+		if rel == "." || filepath.Base(rel) == "expected.json" {
+			return nil
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0o755)
+		}
+		if strings.HasSuffix(rel, ".jsonl") && !strings.Contains(rel, string(filepath.Separator)) {
+			id = strings.TrimSuffix(rel, ".jsonl")
+		}
+		b, err := os.ReadFile(p)
+		if err != nil {
+			return err
+		}
+		return os.WriteFile(target, b, 0o644)
+	})
+	if err != nil {
+		h.t.Fatal(err)
+	}
+	if id == "" {
+		h.t.Fatalf("fixture %s has no transcript", fixture)
+	}
+	return id
 }
 
 // WriteFile writes a file relative to ~/.claude.

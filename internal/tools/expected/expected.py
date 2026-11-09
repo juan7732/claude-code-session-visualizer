@@ -4,7 +4,7 @@
   python3 -I internal/tools/expected/expected.py internal/testdata/sessions/<fixture-dir>
 
 Implemented separately from the Go parser on purpose (see docs/record-anatomy.md for the rules):
-usage once per requestId, title = last ai-title, prompts = human turns that are not tool results,
+usage once per requestId (model "<synthetic>" is not a request), title = last ai-title, prompts = human turns that are not tool results,
 summaries or meta, images in user content and inside tool_result lists, chain = walk from
 last-prompt.leafUuid (or latest timestamp) up parentUuid / logicalParentUuid.
 """
@@ -40,7 +40,9 @@ def main(fixture_dir):
         elif t == "assistant":
             e["assistant_records"] += 1
             key = r.get("requestId") or "uuid:" + r.get("uuid", "")
-            if key not in seen_req:
+            if m.get("model") == "<synthetic>":
+                key = None  # Claude Code's own message, not an API request
+            if key is not None and key not in seen_req:
                 seen_req.add(key); e["requests"] += 1; e["models"][m.get("model")] += 1
                 u = m.get("usage") or {}
                 e["output_tokens"] += u.get("output_tokens", 0) or 0

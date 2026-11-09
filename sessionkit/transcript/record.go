@@ -206,11 +206,13 @@ func (b Block) PlainText() string {
 	return ""
 }
 
-// ImageSource is an inline image.
+// ImageSource is an inline image. Size is set by Session.StripImages when the
+// base64 payload is removed for output.
 type ImageSource struct {
 	Type      string `json:"type"`
 	MediaType string `json:"media_type"`
-	Data      string `json:"data"`
+	Data      string `json:"data,omitempty"`
+	Size      int    `json:"size,omitempty"`
 }
 
 // Usage is the token accounting of one API request. Claude Code repeats it on

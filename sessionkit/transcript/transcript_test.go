@@ -240,3 +240,47 @@ func TestSpilledToolResultResolvesLocally(t *testing.T) {
 		t.Fatalf("metadata: cost=%+v pr=%v malformed=%d unknown=%v", s.Cost, s.PRLinks, s.Totals.Malformed, s.UnknownTypes)
 	}
 }
+
+func TestInjectedBlocksBranchesAndSynthetic(t *testing.T) {
+	in := `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T01:00:00Z","message":{"role":"user","content":[{"type":"text","text":"<ide_opened_file>The user opened x</ide_opened_file>"},{"type":"text","text":"real question"}]}}
+{"type":"attachment","uuid":"at1","parentUuid":"u1","timestamp":"2026-11-08T01:00:00Z","attachment":{"type":"date"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T01:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"assistant","uuid":"a2","parentUuid":"a1","timestamp":"2026-11-08T01:00:02Z","message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"Claude Code says hi"}],"usage":{"input_tokens":0,"output_tokens":0}}}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Prompts[0].Text != "real question" {
+		t.Fatalf("injected IDE block must not be prompt text: %q", s.Prompts[0].Text)
+	}
+	if s.Branches != 0 {
+		t.Fatalf("an attachment sibling is not a branch: %d", s.Branches)
+	}
+	if len(s.Turns) != 2 || !s.Turns[1].Synthetic || s.Totals.Requests != 1 || s.Totals.Models["<synthetic>"] != 0 {
+		t.Fatalf("synthetic turn handling: turns=%d requests=%d models=%v", len(s.Turns), s.Totals.Requests, s.Totals.Models)
+	}
+}
+
+func TestParallelToolCallsAreNotBranches(t *testing.T) {
+	// One request split into two tool_use records; both results point at the record that holds their tool_use.
+	in := `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T01:00:00Z","message":{"role":"user","content":"do two things"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","apiBlockIndex":0,"timestamp":"2026-11-08T01:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"assistant","uuid":"a2","parentUuid":"a1","requestId":"r1","apiBlockIndex":1,"timestamp":"2026-11-08T01:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"r1","parentUuid":"a1","timestamp":"2026-11-08T01:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"x"}]}}
+{"type":"user","uuid":"r2","parentUuid":"a2","timestamp":"2026-11-08T01:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"y"}]}}
+{"type":"assistant","uuid":"a3","parentUuid":"r2","requestId":"r2","timestamp":"2026-11-08T01:00:03Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"done"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"u2","parentUuid":"a3","turnOrigin":"human","timestamp":"2026-11-08T01:00:04Z","message":{"role":"user","content":"rewind here"}}
+{"type":"user","uuid":"u2b","parentUuid":"a3","turnOrigin":"human","timestamp":"2026-11-08T01:00:05Z","message":{"role":"user","content":"a real second branch"}}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Branches != 1 {
+		t.Fatalf("branches = %d: parallel tool results must not count, the two human prompts under a3 must", s.Branches)
+	}
+	if s.Totals.Requests != 2 || s.Totals.ToolCalls != 2 || s.Totals.UnpairedToolUses != 0 {
+		t.Fatalf("totals = %+v", s.Totals)
+	}
+}

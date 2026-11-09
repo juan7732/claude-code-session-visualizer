@@ -9,7 +9,8 @@ internal/cli      Cobra commands. Parse flags → call sessionkit → print. --j
 sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no flags, no env reads.
   catalog         find Claude Code's data: dir, projects, session files, subagents, live sessions, retention
   transcript      JSONL → records → uuid tree → turns (one per request), tool call pairs, compactions, subagents
-  stats           (M2) usage once per request, pricing, reconciliation with Claude Code's cost-state
+  stats           per-session summary: usage once per request with subagents rolled in, models, tools, compactions,
+                  context-window curve, Claude Code's cost figure (pricing table: M3)
   store           (M3) SQLite archive + index, ~/.sessionkit/, schema versioned
   search          (M3/v0.5) FTS5 keyword, then hybrid meaning + words
   embed           (v0.5) Embedder interface + JSON-lines worker client

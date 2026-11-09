@@ -65,16 +65,19 @@ type Prompt struct {
 // Turn is one API request: the assistant records sharing a requestId, with
 // their blocks in order and usage counted once.
 type Turn struct {
-	Index      int         `json:"index"`
-	RequestID  string      `json:"request_id"`
-	MessageID  string      `json:"message_id,omitempty"`
-	Model      string      `json:"model"`
-	At         time.Time   `json:"at"`
-	StopReason string      `json:"stop_reason,omitempty"`
-	Usage      Usage       `json:"usage"`
-	Blocks     []Block     `json:"blocks"`
-	Records    []*Record   `json:"-"`
-	ToolCalls  []*ToolCall `json:"-"`
+	Index      int       `json:"index"`
+	RequestID  string    `json:"request_id"`
+	MessageID  string    `json:"message_id,omitempty"`
+	Model      string    `json:"model"`
+	At         time.Time `json:"at"`
+	StopReason string    `json:"stop_reason,omitempty"`
+	// Synthetic is true for messages Claude Code wrote itself (model "<synthetic>"):
+	// shown on the timeline, not counted as requests.
+	Synthetic bool        `json:"synthetic,omitempty"`
+	Usage     Usage       `json:"usage"`
+	Blocks    []Block     `json:"blocks"`
+	Records   []*Record   `json:"-"`
+	ToolCalls []*ToolCall `json:"-"`
 }
 
 // Text returns the turn's visible text blocks joined.
@@ -254,6 +257,10 @@ func (s *Session) loadSubagents(dir string) error {
 	return nil
 }
 
+// SyntheticModel is the model name Claude Code uses for messages it generates
+// itself (no API request behind them).
+const SyntheticModel = "<synthetic>"
+
 // Build assembles a Session from records in file order.
 func Build(recs []*Record) *Session {
 	s := &Session{
@@ -421,15 +428,18 @@ func (s *Session) addAssistant(r *Record, turns map[string]*Turn, calls map[stri
 	}
 	t, ok := turns[key]
 	if !ok {
-		t = &Turn{Index: len(s.Turns), RequestID: r.RequestID, MessageID: r.Message.ID, Model: r.Message.Model, At: r.Timestamp}
+		t = &Turn{Index: len(s.Turns), RequestID: r.RequestID, MessageID: r.Message.ID, Model: r.Message.Model, At: r.Timestamp,
+			Synthetic: r.Message.Model == SyntheticModel}
 		if r.Message.Usage != nil {
 			t.Usage = *r.Message.Usage
 			s.Totals.Usage.Add(t.Usage)
 		}
 		turns[key] = t
 		s.Turns = append(s.Turns, t)
-		s.Totals.Requests++
-		s.Totals.Models[r.Message.Model]++
+		if !t.Synthetic {
+			s.Totals.Requests++
+			s.Totals.Models[r.Message.Model]++
+		}
 	}
 	if r.Message.StopReason != "" {
 		t.StopReason = r.Message.StopReason
@@ -466,7 +476,7 @@ func (s *Session) buildChain(leaf string) {
 		if r.UUID == "" {
 			continue
 		}
-		if r.ParentUUID != "" {
+		if r.ParentUUID != "" && s.isContinuation(r) {
 			children[r.ParentUUID]++
 		}
 		if latest == nil || r.Timestamp.After(latest.Timestamp) {
@@ -541,16 +551,57 @@ func (s *Session) SpilledPath(c *ToolCall) (path string, ok bool) {
 	return "", false
 }
 
+// isContinuation reports whether r is a conversation step that could start a
+// branch under its parent. Three kinds of sibling are not branches: attachments
+// and system notes (they hang off the same parent as the next message), the
+// next block of the same split request (same requestId as the parent), and a
+// tool_result answering a tool_use held by the parent (parallel tool calls make
+// several of these point at the same record).
+func (s *Session) isContinuation(r *Record) bool {
+	switch r.Type {
+	case "assistant":
+		if p := s.byUUID[r.ParentUUID]; p != nil && p.Type == "assistant" && p.RequestID != "" && p.RequestID == r.RequestID {
+			return false
+		}
+		return true
+	case "user":
+		if r.Message != nil {
+			for _, b := range r.Message.Content {
+				if b.Type == "tool_result" {
+					return false
+				}
+			}
+		}
+		return true
+	}
+	return false
+}
+
 // Record returns the record with the given uuid.
 func (s *Session) Record(uuid string) *Record { return s.byUUID[uuid] }
 
 // Duration is wall time from first to last record.
 func (s *Session) Duration() time.Duration { return s.LastAt.Sub(s.FirstAt) }
 
+// injectedPrefixes mark text blocks the IDE or Claude Code added to a human
+// prompt (open file, selection, system reminders). They stay in the record but
+// are left out of the prompt's display text.
+var injectedPrefixes = []string{"<ide_opened_file>", "<ide_selection>", "<system-reminder>", "<ide_diagnostics>"}
+
+func isInjected(text string) bool {
+	t := strings.TrimSpace(text)
+	for _, p := range injectedPrefixes {
+		if strings.HasPrefix(t, p) {
+			return true
+		}
+	}
+	return false
+}
+
 func contentText(blocks Blocks) string {
 	var sb strings.Builder
 	for _, b := range blocks {
-		if b.Type == "text" {
+		if b.Type == "text" && !isInjected(b.Text) {
 			if sb.Len() > 0 {
 				sb.WriteString("\n")
 			}

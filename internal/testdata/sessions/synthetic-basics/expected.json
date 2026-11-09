@@ -6,13 +6,12 @@
   "compactions": 1,
   "images": 2,
   "models": {
-    "<synthetic>": 1,
     "claude-fable-5-1": 5
   },
   "output_tokens": 230,
   "prompts": 2,
   "records": 28,
-  "requests": 6,
+  "requests": 5,
   "subagents": 1,
   "title": "Synthetic basics",
   "tool_calls": 4,

@@ -40,7 +40,7 @@ browsable, durable and searchable. Every read command accepts --json for agents.
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().Bool("json", false, "machine-readable output (one JSON document on stdout)")
-	root.AddCommand(newDoctor(), newDescribe())
+	root.AddCommand(newDoctor(), newDescribe(), newProjects(), newList(), newShow(), newStats())
 	return root
 }
 
