@@ -81,9 +81,10 @@ location `~/.sessionkit/` (never under ~/Library).
 `GET /search?q=`, `GET /status`, `POST /archive`. Same JSON as the CLI's `--json`. Hand-written, versioned under `/v0/`.
 Watches `~/.claude/projects` with fsnotify so the archive stays current; a hooks installer lands later.
 
-**M5 Embedding spike.** Build llama.cpp with Metal, run `embeddinggemma-2-Q8_0.gguf` text-only through `llama-embedding`
-on a few hundred real turns. Measure load time and vectors/sec. Decide the worker implementation (Swift `LlamaRuntime`
-lifted from DigUp's design vs a C++ worker) and write `docs/decisions/0003-embedding-worker.md`. No product code.
+**M5 Embedding spike (DONE).** Build llama.cpp with Metal, run `embeddinggemma-2-Q8_0.gguf` text-only through
+`llama-embedding` on a few hundred real turns. Measure load time and vectors/sec. Decide the worker implementation
+(Swift `LlamaRuntime` lifted from DigUp's design vs a C++ worker) and write `docs/decisions/0003-embedding-worker.md`.
+No product code.
 
 **M6 Swift client.** SwiftPM executable `SessionVisualizer`, macOS 14+. Starts `skit serve`, talks over the socket. Two
 views: session list (grouped by project, sortable by last activity/cost) and session timeline (turns as rows, tool calls
