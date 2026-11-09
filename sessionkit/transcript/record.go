@@ -30,8 +30,10 @@ type Record struct {
 	Slug              string `json:"slug"`
 
 	// assistant
-	RequestID     string `json:"requestId"`
-	APIBlockIndex int    `json:"apiBlockIndex"`
+	RequestID         string          `json:"requestId"`
+	APIBlockIndex     int             `json:"apiBlockIndex"`
+	IsAPIErrorMessage bool            `json:"isApiErrorMessage"`
+	Error             json.RawMessage `json:"error"` // a string on synthetic error messages, an object on system api_error records
 
 	// user
 	TurnOrigin         string              `json:"turnOrigin"`

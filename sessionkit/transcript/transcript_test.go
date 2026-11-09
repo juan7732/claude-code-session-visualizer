@@ -260,6 +260,12 @@ func TestInjectedBlocksBranchesAndSynthetic(t *testing.T) {
 	if len(s.Turns) != 2 || !s.Turns[1].Synthetic || s.Totals.Requests != 1 || s.Totals.Models["<synthetic>"] != 0 {
 		t.Fatalf("synthetic turn handling: turns=%d requests=%d models=%v", len(s.Turns), s.Totals.Requests, s.Totals.Models)
 	}
+	if s.Turns[1].SyntheticKind != "other" || s.Totals.Synthetic != 1 || s.Totals.SyntheticErrors != 0 {
+		t.Fatalf("synthetic kind = %q, totals %+v", s.Turns[1].SyntheticKind, s.Totals)
+	}
+	if len(s.Prompts[0].Context) != 1 || InjectedKind(s.Prompts[0].Context[0].Text) != "ide_opened_file" || s.Totals.InjectedBlocks != 1 {
+		t.Fatalf("injected block must be kept as prompt context: %+v", s.Prompts[0].Context)
+	}
 }
 
 func TestParallelToolCallsAreNotBranches(t *testing.T) {
@@ -282,5 +288,25 @@ func TestParallelToolCallsAreNotBranches(t *testing.T) {
 	}
 	if s.Totals.Requests != 2 || s.Totals.ToolCalls != 2 || s.Totals.UnpairedToolUses != 0 {
 		t.Fatalf("totals = %+v", s.Totals)
+	}
+}
+
+func TestSyntheticKinds(t *testing.T) {
+	in := `{"type":"assistant","uuid":"a1","timestamp":"2026-11-08T01:00:00Z","isApiErrorMessage":true,"error":"server_error","message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"API Error: Connection dropped (ECONNRESET)"}],"stop_reason":"stop_sequence","usage":{"input_tokens":0,"output_tokens":0}}}
+{"type":"assistant","uuid":"a2","parentUuid":"a1","timestamp":"2026-11-08T01:00:01Z","isApiErrorMessage":false,"message":{"model":"<synthetic>","role":"assistant","content":[{"type":"text","text":"No response requested."}],"stop_reason":"stop_sequence","usage":{"input_tokens":0,"output_tokens":0}}}
+{"type":"system","subtype":"api_error","uuid":"e1","parentUuid":"a2","timestamp":"2026-11-08T01:00:02Z","error":{"status":529,"message":"overloaded"},"retryAttempt":1,"maxRetries":10}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Totals.Synthetic != 2 || s.Totals.SyntheticErrors != 1 || s.Totals.Requests != 0 || s.Totals.APIErrors != 1 {
+		t.Fatalf("totals = %+v", s.Totals)
+	}
+	if s.Turns[0].SyntheticKind != "api_error" || s.Turns[1].SyntheticKind != "no_response" {
+		t.Fatalf("kinds = %q %q", s.Turns[0].SyntheticKind, s.Turns[1].SyntheticKind)
+	}
+	if s.Totals.Malformed != 0 {
+		t.Fatal("an object-valued error field must not break parsing")
 	}
 }

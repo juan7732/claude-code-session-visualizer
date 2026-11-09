@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/cache"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 )
 
@@ -49,6 +50,10 @@ func printDoctor(w io.Writer, r *catalog.Report) {
 	fmt.Fprintf(w, "Live sessions      %d\n", len(r.Live))
 	for _, l := range r.Live {
 		fmt.Fprintf(w, "  pid %-6d %-5s %-24s %s  (Claude Code %s)\n", l.PID, l.Status, l.Name, l.Cwd, l.Version)
+	}
+	if dir, err := cache.Dir(); err == nil {
+		files, bytes := cache.SizeAt(dir)
+		fmt.Fprintf(w, "skit home          %s   (summary cache: %d entries, %s)\n", dir, files, humanBytes(bytes))
 	}
 	if len(r.Projects) > 0 {
 		fmt.Fprintln(w, "Projects")

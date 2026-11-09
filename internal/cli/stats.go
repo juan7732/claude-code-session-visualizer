@@ -72,6 +72,7 @@ func printStats(w io.Writer, sum stats.Summary, context bool) {
 
 	fmt.Fprintf(w, "\nCounts    prompts %d · requests %d · tool calls %d (errors %d, unpaired %d) · images %d · api errors %d · subagents %d · branches %d\n",
 		sum.Prompts, sum.Requests, sum.ToolCalls, sum.ToolErrors, sum.Unpaired, sum.Images, sum.APIErrors, sum.Subagents, sum.Branches)
+	fmt.Fprintf(w, "Context   %d injected blocks in prompts · %d attachments · %d synthetic messages\n", sum.Injected, sum.Attachments, sum.Synthetic)
 
 	fmt.Fprintln(w, "\nModels")
 	for _, m := range sum.Models {

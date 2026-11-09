@@ -8,6 +8,8 @@ cmd/skit          binary entry: version wiring, exit code
 internal/cli      Cobra commands. Parse flags → call sessionkit → print. --json on every read command.
 sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no flags, no env reads.
   catalog         find Claude Code's data: dir, projects, session files, subagents, live sessions, retention
+  cache           per-session summary cache under ~/.sessionkit/cache/summaries, keyed by transcript size, mtime and
+                  subagent state; makes `list` read-only on unchanged sessions; absorbed by the M3 store
   transcript      JSONL → records → uuid tree → turns (one per request), tool call pairs, compactions, subagents
   stats           per-session summary: usage once per request with subagents rolled in, models, tools, compactions,
                   context-window curve, Claude Code's cost figure (pricing table: M3)

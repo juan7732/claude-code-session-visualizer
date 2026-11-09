@@ -11,12 +11,14 @@ Status: M2. The read path works end to end on real sessions; the archive and key
 skit doctor                where Claude Code keeps sessions, retention setting, live sessions, disk use
 skit projects              projects (start directories) that have sessions
 skit list [-p slug] [-n N] sessions, most recent first, with prompts, requests, tool calls, tokens, cost, title
-skit show <id> [--turn N]  one session as a timeline; --turn prints a request in full with its tool results
+skit show <id> [--turn N]  one session as a timeline; --turn prints a request in full with its tool results;
+                           --context adds injected prompt blocks and every attachment Claude Code added
 skit stats <id> [--context] tokens once per request (subagents rolled in), models, tools, compactions, context curve
 skit describe              machine-readable manifest of every command and flag (for agents)
 ```
 
-Every read command takes `--json`. `<id>` is a session id, a unique prefix, or the path to a `.jsonl` transcript.
+Every read command takes `--json`. `<id>` is a session id, a unique prefix, or the path to a `.jsonl` transcript. `list`
+caches per-session summaries under `~/.sessionkit/cache/` (`--no-cache` to bypass).
 
 ## Build and test
 

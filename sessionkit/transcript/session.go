@@ -59,7 +59,11 @@ type Prompt struct {
 	At     time.Time `json:"at"`
 	Text   string    `json:"text"`
 	Images int       `json:"images"`
-	Record *Record   `json:"-"`
+	// Context holds the text blocks the IDE or Claude Code injected into the
+	// prompt (<ide_opened_file>, <ide_selection>, <system-reminder>…). They are
+	// not the human's words, but they shaped what the model saw.
+	Context []Block `json:"context,omitempty"`
+	Record  *Record `json:"-"`
 }
 
 // Turn is one API request: the assistant records sharing a requestId, with
@@ -72,12 +76,15 @@ type Turn struct {
 	At         time.Time `json:"at"`
 	StopReason string    `json:"stop_reason,omitempty"`
 	// Synthetic is true for messages Claude Code wrote itself (model "<synthetic>"):
-	// shown on the timeline, not counted as requests.
-	Synthetic bool        `json:"synthetic,omitempty"`
-	Usage     Usage       `json:"usage"`
-	Blocks    []Block     `json:"blocks"`
-	Records   []*Record   `json:"-"`
-	ToolCalls []*ToolCall `json:"-"`
+	// shown on the timeline, not counted as requests. SyntheticKind says which:
+	// "api_error" (the API could not be reached), "no_response" (a turn that
+	// needed no model reply), or "other".
+	Synthetic     bool        `json:"synthetic,omitempty"`
+	SyntheticKind string      `json:"synthetic_kind,omitempty"`
+	Usage         Usage       `json:"usage"`
+	Blocks        []Block     `json:"blocks"`
+	Records       []*Record   `json:"-"`
+	ToolCalls     []*ToolCall `json:"-"`
 }
 
 // Text returns the turn's visible text blocks joined.
@@ -165,6 +172,9 @@ type Totals struct {
 	Images           int            `json:"images"`
 	Compactions      int            `json:"compactions"`
 	APIErrors        int            `json:"api_errors"`
+	Synthetic        int            `json:"synthetic_messages"`
+	SyntheticErrors  int            `json:"synthetic_api_errors"`
+	InjectedBlocks   int            `json:"injected_blocks"`
 	APIRequests      int            `json:"api_request_records"`
 	Subagents        int            `json:"subagents"`
 	Usage            Usage          `json:"usage"`
@@ -412,9 +422,11 @@ func (s *Session) addUser(r *Record, calls map[string]*ToolCall, pending *Compac
 	}
 	s.Totals.Images += images
 	if r.TurnOrigin == "human" && !hasToolResult && !r.IsCompactSummary && !r.IsMeta {
-		p := &Prompt{Index: len(s.Prompts), UUID: r.UUID, At: r.Timestamp, Text: contentText(r.Message.Content), Images: images, Record: r}
+		text, injected := splitPrompt(r.Message.Content)
+		p := &Prompt{Index: len(s.Prompts), UUID: r.UUID, At: r.Timestamp, Text: text, Images: images, Context: injected, Record: r}
 		s.Prompts = append(s.Prompts, p)
 		s.Totals.Prompts++
+		s.Totals.InjectedBlocks += len(injected)
 	}
 }
 
@@ -436,7 +448,13 @@ func (s *Session) addAssistant(r *Record, turns map[string]*Turn, calls map[stri
 		}
 		turns[key] = t
 		s.Turns = append(s.Turns, t)
-		if !t.Synthetic {
+		if t.Synthetic {
+			t.SyntheticKind = syntheticKind(r)
+			s.Totals.Synthetic++
+			if t.SyntheticKind == "api_error" {
+				s.Totals.SyntheticErrors++
+			}
+		} else {
 			s.Totals.Requests++
 			s.Totals.Models[r.Message.Model]++
 		}
@@ -596,6 +614,54 @@ func isInjected(text string) bool {
 		}
 	}
 	return false
+}
+
+// syntheticKind classifies a synthetic assistant message.
+func syntheticKind(r *Record) string {
+	if r.IsAPIErrorMessage {
+		return "api_error"
+	}
+	text := strings.TrimSpace(contentText(r.Message.Content))
+	switch {
+	case strings.HasPrefix(text, "API Error"):
+		return "api_error"
+	case text == "No response requested.":
+		return "no_response"
+	}
+	return "other"
+}
+
+// InjectedKind names an injected block by its leading tag: "ide_opened_file",
+// "ide_selection", "system-reminder"…; "" when the block is not injected.
+func InjectedKind(text string) string {
+	t := strings.TrimSpace(text)
+	for _, p := range injectedPrefixes {
+		if strings.HasPrefix(t, p) {
+			return strings.Trim(p, "<>")
+		}
+	}
+	return ""
+}
+
+// splitPrompt separates a human prompt into its own text and the blocks that
+// were injected around it.
+func splitPrompt(blocks Blocks) (string, []Block) {
+	var sb strings.Builder
+	var injected []Block
+	for _, b := range blocks {
+		if b.Type != "text" {
+			continue
+		}
+		if isInjected(b.Text) {
+			injected = append(injected, b)
+			continue
+		}
+		if sb.Len() > 0 {
+			sb.WriteString("\n")
+		}
+		sb.WriteString(b.Text)
+	}
+	return sb.String(), injected
 }
 
 func contentText(blocks Blocks) string {

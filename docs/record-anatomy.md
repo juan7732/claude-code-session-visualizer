@@ -44,6 +44,32 @@ half the bytes at most. A streaming parser that discards `api-request*` early st
 working directories in order of first appearance (`Session.Cwds`), since mapping a session onto ergo workspaces and
 repos depends on every directory it touched, not just the first.
 
+## Synthetic messages
+
+Some `assistant` records have `message.model = "<synthetic>"`, zero usage and no `requestId`: Claude Code wrote them
+itself so the transcript keeps alternating and records what the UI showed. Two kinds observed: API error notices ("API
+Error: Can't reach the API server (ENOTFOUND)", with `isApiErrorMessage: true` and `error: "server_error"`) and the
+placeholder "No response requested." after a turn that needed no model reply. The parser keeps them as turns with
+`synthetic_kind` (`api_error`, `no_response`, `other`) and counts them separately; they are not API requests.
+
+## Injected blocks in prompts
+
+A human prompt's content often holds text blocks the IDE or Claude Code added: `<ide_opened_file>` (94 of 374 prompt
+text blocks on this machine), `<ide_selection>`, `<system-reminder>`. The parser keeps them as `Prompt.Context` and
+leaves them out of `Prompt.Text`. `<pasted_content>` and the `<command-message>` wrapper of a slash command are the
+user's own intent and stay in the text. `skit show --context` prints the injected blocks under each prompt and every
+`attachment` record with its size, which is how the context grows turn by turn.
+
+## The tree is a tree of records, not of messages
+
+`parentUuid` links records, and a response split into several records chains them block by block. A `tool_result` record
+points at the **specific record holding its `tool_use`**, not at the last record of the response. With parallel tool
+calls, every tool-use record therefore has two children: the next block of the same response and its own result.
+Attachments and system notes also hang off the same parent as the following message. None of these are conversation
+branches. A real branch (`/rewind`, `--fork-session`) shows two human prompts or two different `requestId`s under one
+parent, and that is what `Session.Branches` counts (45 false positives → 0 on the bootstrap session once this was
+understood).
+
 ## The tree
 
 `parentUuid` makes a tree, not a list. In the largest session: 1,221 uuid records, 2 roots, 0 branch points. Roots are

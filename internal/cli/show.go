@@ -20,6 +20,7 @@ import (
 func newShow() *cobra.Command {
 	var turn int
 	var width int
+	var showContext bool
 	cmd := &cobra.Command{
 		Use:   "show <session>",
 		Short: "Show one session as a timeline",
@@ -57,12 +58,13 @@ parsed session is emitted (image bytes replaced by their size).`,
 			if cmd.Flags().Changed("turn") {
 				return printTurn(w, s, turn, width)
 			}
-			printTimeline(w, s, l.Project.Slug, width)
+			printTimeline(w, s, l.Project.Slug, width, showContext)
 			return nil
 		},
 	}
 	cmd.Flags().IntVarP(&turn, "turn", "t", 0, "print request N in full (0-based index from the timeline)")
 	cmd.Flags().IntVar(&width, "width", 100, "column width for text snippets")
+	cmd.Flags().BoolVar(&showContext, "context", false, "also show what shaped the context: blocks injected into prompts and every attachment Claude Code added")
 	return cmd
 }
 
@@ -72,7 +74,7 @@ type event struct {
 	text string
 }
 
-func printTimeline(w io.Writer, s *transcript.Session, project string, width int) {
+func printTimeline(w io.Writer, s *transcript.Session, project string, width int, showContext bool) {
 	sum := stats.Compute(s, project, stats.Options{})
 	fmt.Fprintf(w, "Session  %s  %s\n", s.ID, sum.Title)
 	fmt.Fprintf(w, "Project  %s\n", project)
@@ -89,8 +91,13 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 	for _, m := range sum.Models {
 		models = append(models, fmt.Sprintf("%s ×%d", m.Name, m.Count))
 	}
-	fmt.Fprintf(w, "Totals   prompts %d · requests %d · tool calls %d · compactions %d · subagents %d · api errors %d · cost %s\n",
-		sum.Prompts, sum.Requests, sum.ToolCalls, sum.Compactions, sum.Subagents, sum.APIErrors, money(sum.ClaudeCodeCostUSD))
+	fmt.Fprintf(w, "Totals   prompts %d · requests %d · tool calls %d · compactions %d · subagents %d · api errors %d · synthetic %d · cost %s\n",
+		sum.Prompts, sum.Requests, sum.ToolCalls, sum.Compactions, sum.Subagents, sum.APIErrors, sum.Synthetic, money(sum.ClaudeCodeCostUSD))
+	fmt.Fprintf(w, "Context  %d injected blocks in prompts · %d attachments", sum.Injected, sum.Attachments)
+	if !showContext {
+		fmt.Fprint(w, "   (--context to show them)")
+	}
+	fmt.Fprintln(w)
 	fmt.Fprintf(w, "Models   %s\n", strings.Join(models, ", "))
 	if s.Partial {
 		fmt.Fprintln(w, "Note     transcript ends mid-line: the session is still being written")
@@ -106,9 +113,41 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 		if p.Images > 0 {
 			img = fmt.Sprintf(" [%d image(s)]", p.Images)
 		}
-		events = append(events, event{p.At, "prompt", truncate(p.Text, width) + img})
+		text := truncate(p.Text, width) + img
+		if showContext {
+			for _, b := range p.Context {
+				text += fmt.Sprintf("\n%25s ctx %-16s %s", "", transcript.InjectedKind(b.Text), truncate(b.Text, width-20))
+			}
+		}
+		events = append(events, event{p.At, "prompt", text})
+	}
+	if showContext {
+		for _, r := range s.Records {
+			if r.Type == "attachment" && r.Attachment != nil {
+				size := 0
+				var rendered struct {
+					Rendered []struct {
+						Content string `json:"content"`
+					} `json:"rendered"`
+				}
+				if r.Decode(&rendered) == nil {
+					for _, x := range rendered.Rendered {
+						size += len(x.Content)
+					}
+				}
+				events = append(events, event{r.Timestamp, "ctx", fmt.Sprintf("attachment %-24s %s chars → %s", r.Attachment.Type, stats.FormatTokens(size), r.RenderedRole)})
+			}
+		}
 	}
 	for _, t := range s.Turns {
+		if t.Synthetic {
+			kind := "· note"
+			if t.SyntheticKind == "api_error" {
+				kind = "! api_error"
+			}
+			events = append(events, event{t.At, kind, truncate(t.Text(), width) + "  (written by Claude Code, no request)"})
+			continue
+		}
 		text := truncate(t.Text(), width-30)
 		think := 0
 		for _, b := range t.Blocks {

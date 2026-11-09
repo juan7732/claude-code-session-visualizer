@@ -37,6 +37,9 @@ type Summary struct {
 	APIErrors   int `json:"api_errors"`
 	Subagents   int `json:"subagents"`
 	Branches    int `json:"branches"`
+	Synthetic   int `json:"synthetic_messages"`
+	Injected    int `json:"injected_blocks"`
+	Attachments int `json:"attachments"`
 
 	Usage          transcript.Usage    `json:"usage"`           // parent + subagents, once per request
 	CacheHitRatio  float64             `json:"cache_hit_ratio"` // cache reads / all input
@@ -100,6 +103,7 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		Prompts: t.Prompts, Requests: t.Requests, ToolCalls: t.ToolCalls, ToolErrors: t.ToolErrors,
 		Unpaired: t.UnpairedToolUses, Images: t.Images, Compactions: t.Compactions, APIErrors: t.APIErrors,
 		Subagents: t.Subagents, Branches: s.Branches, Usage: t.Usage, PRLinks: s.PRLinks,
+		Synthetic: t.Synthetic, Injected: t.InjectedBlocks, Attachments: t.Attachments,
 	}
 	models := map[string]int{}
 	for m, n := range t.Models {

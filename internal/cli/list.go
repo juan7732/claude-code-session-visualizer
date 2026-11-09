@@ -6,6 +6,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/cache"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
@@ -27,17 +28,33 @@ tokens, Claude Code's cost figure, and the title.`,
 			if err != nil {
 				return err
 			}
+			var store *cache.Store
+			if cacheWanted(cmd) {
+				if store, err = cache.Open(); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "skit: cache unavailable: %v\n", err)
+				}
+			}
 			var rows []stats.Summary
 			for _, l := range rep.Sessions() {
 				if l.File.Kind != "main" || (project != "" && !strings.Contains(strings.ToLower(l.Project.Slug), strings.ToLower(project))) {
 					continue
 				}
-				s, err := transcript.Load(l.File.Path)
-				if err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "skit: skipping %s: %v\n", l.File.Path, err)
-					continue
+				key := cache.KeyFor(l.File.Path, l.File.Bytes, l.File.ModTime, l.File.Subagents, l.File.SubagentBytes)
+				var sum stats.Summary
+				if store == nil || !store.Get(l.File.ID, key, &sum) {
+					s, err := transcript.Load(l.File.Path)
+					if err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "skit: skipping %s: %v\n", l.File.Path, err)
+						continue
+					}
+					sum = stats.Compute(s, l.Project.Slug, stats.Options{})
+					if store != nil {
+						if err := store.Put(l.File.ID, key, sum); err != nil {
+							fmt.Fprintf(cmd.ErrOrStderr(), "skit: cache write failed: %v\n", err)
+						}
+					}
 				}
-				rows = append(rows, stats.Compute(s, l.Project.Slug, stats.Options{}))
+				rows = append(rows, sum)
 				if limit > 0 && len(rows) >= limit {
 					break
 				}

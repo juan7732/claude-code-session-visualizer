@@ -4,6 +4,7 @@ package integration
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -109,5 +110,51 @@ func TestShow_UnknownSessionIsJSONError(t *testing.T) {
 	res := h.Run("show", "deadbeef", "--json")
 	if res.ExitCode == 0 || !strings.Contains(res.Stderr, `"error"`) {
 		t.Fatalf("expected JSON error, got exit %d stderr %q", res.ExitCode, res.Stderr)
+	}
+}
+
+func TestShow_ContextAndSynthetic(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+
+	res := h.Run("show", id)
+	res.AssertOK(t)
+	if strings.Contains(res.Stdout, "ide_opened_file") || !strings.Contains(res.Stdout, "1 injected blocks in prompts · 1 attachments   (--context to show them)") {
+		t.Fatalf("default timeline should summarise context, not print it:\n%s", res.Stdout)
+	}
+	if !strings.Contains(res.Stdout, "· note") || !strings.Contains(res.Stdout, "written by Claude Code, no request") {
+		t.Fatalf("synthetic message should appear as a note:\n%s", res.Stdout)
+	}
+
+	res = h.Run("show", id, "--context")
+	res.AssertOK(t)
+	for _, want := range []string{"ctx ide_opened_file", "attachment environment"} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("--context lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+}
+
+func TestList_UsesSummaryCache(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+
+	first := h.Run("list", "--json")
+	first.AssertOK(t)
+	entries, _ := filepath.Glob(filepath.Join(h.Home, ".sessionkit", "cache", "summaries", id+".json"))
+	if len(entries) != 1 {
+		t.Fatalf("expected one cache entry under ~/.sessionkit, got %v", entries)
+	}
+	second := h.Run("list", "--json")
+	second.AssertOK(t)
+	if first.Stdout != second.Stdout {
+		t.Fatalf("cached and uncached list output differ:\n%s\n---\n%s", first.Stdout, second.Stdout)
+	}
+	third := h.Run("list", "--json", "--no-cache")
+	third.AssertOK(t)
+	if first.Stdout != third.Stdout {
+		t.Fatal("--no-cache output must match")
 	}
 }
