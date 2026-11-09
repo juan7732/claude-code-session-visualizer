@@ -35,6 +35,12 @@ var keepKeys = map[string]bool{
 	"commandName": true, "prUrl": true, "prRepository": true, "deliveryId": true, "commandUuid": true,
 }
 
+// replaceKeys get a fixed placeholder instead of a shape-preserving mask: a
+// masked e-mail still reveals it was an e-mail of a given length.
+var replaceKeys = map[string]string{
+	"userEmail": "user@example.com",
+}
+
 // maskKeys are identifiers tied to a person or account: always masked, even
 // though they look like ids.
 var maskKeys = map[string]bool{
@@ -153,6 +159,9 @@ func redact(v any, key string) any {
 		}
 		return x
 	case string:
+		if fixed, ok := replaceKeys[key]; ok {
+			return fixed
+		}
 		if maskKeys[key] {
 			return mask(x)
 		}
