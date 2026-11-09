@@ -31,6 +31,7 @@ type Record struct {
 
 	// assistant
 	RequestID         string          `json:"requestId"`
+	RequestRef        string          `json:"requestRef"` // id of the api-request record that produced this response
 	APIBlockIndex     int             `json:"apiBlockIndex"`
 	IsAPIErrorMessage bool            `json:"isApiErrorMessage"`
 	Error             json.RawMessage `json:"error"` // a string on synthetic error messages, an object on system api_error records

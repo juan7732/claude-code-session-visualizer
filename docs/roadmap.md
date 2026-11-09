@@ -30,7 +30,8 @@ Added 2026-11-07, extended after Juan's review.
 - **Injected-context lane** (attachments, `isMeta` messages). Off by default, a setting. First cut:
   `skit show --context`.
 - **Debug mode** that captures and shows `api-request*` records: the exact system prompt, tool list, parameters and
-  cache breakpoints of each request. Off by default; opt in per session or globally.
+  cache breakpoints of each request. Off by default; opt in per session or globally. First cut: `skit context` (works on
+  live sessions and `--debug` archives); the client's context lane should chart the breakdown per action.
 
 ## Search
 

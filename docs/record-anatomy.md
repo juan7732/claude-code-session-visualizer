@@ -53,6 +53,20 @@ half the bytes at most. A streaming parser that discards `api-request*` early st
 working directories in order of first appearance (`Session.Cwds`), since mapping a session onto ergo workspaces and
 repos depends on every directory it touched, not just the first.
 
+## What the model actually receives (seed context)
+
+Measured on a real first action (45.5k reported context tokens): the **tool definitions dominate** (16 tools, 72k chars,
+~18k tokens), then a skill's loaded content delivered as `tool_addition` blocks in a system-role message (~8k), the
+attachments Claude Code injects into turn 0 (skill listing ~5k, deferred tools, agent listing, MCP instructions,
+environment, model, date… ~8.6k together), the system prompt (3 blocks, ~4.4k), and finally the user's own message with
+its injected blocks (~2.7k). **CLAUDE.md arrives as an attachment of type `instructions`**, rendered as a
+`<system-reminder>` that begins "Codebase and user instructions are shown below" inside the first user message;
+CLAUDE.md files met later in subdirectories arrive as `nested_memory`. All of this is reconstructable from `api-request`
+(params, cache breakpoints, `tail` hashes), `api-request-blob` (message bodies) and `api-request-shape` (system prompt +
+tools per shape hash) plus the `attachment` records: `skit context <session> [--action N]` prints the breakdown,
+`--show instructions` the injected CLAUDE.md text. These records are stripped from the archive unless it was made with
+`--debug`, so the breakdown works on live sessions and debug archives.
+
 ## Synthetic messages
 
 Some `assistant` records have `message.model = "<synthetic>"`, zero usage and no `requestId`: Claude Code wrote them

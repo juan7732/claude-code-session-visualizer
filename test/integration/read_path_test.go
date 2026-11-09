@@ -169,3 +169,37 @@ func TestList_UsesIndexAsCache(t *testing.T) {
 		t.Fatal("--no-cache output must match")
 	}
 }
+
+func TestContext_SeedBreakdown(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+	res := h.Run("context", id)
+	res.AssertOK(t)
+	for _, want := range []string{"Context of action 0 (turn 0)", "System prompt         2 blocks", "Tool definitions      2 tools", "CLAUDE.md and user instructions", "Injected this action  1 attachments", "environment"} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("context lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+	res = h.Run("context", id, "--show", "instructions")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "Contents of /Xxxxx/xxxx/xxxx/CLAUDE.md") {
+		t.Fatalf("--show instructions should print the injected CLAUDE.md block:\n%s", res.Stdout)
+	}
+	res = h.Run("context", id, "--action", "1")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "unavailable") {
+		t.Fatalf("action without request records should say so:\n%s", res.Stdout)
+	}
+	res = h.Run("context", id, "--json")
+	res.AssertOK(t)
+	var cb struct {
+		Available bool `json:"available"`
+		Tools     []struct {
+			Name string `json:"name"`
+		} `json:"tools"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &cb); err != nil || !cb.Available || len(cb.Tools) != 2 {
+		t.Fatalf("context --json: %v %+v", err, cb)
+	}
+}

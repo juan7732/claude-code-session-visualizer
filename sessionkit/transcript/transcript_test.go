@@ -364,3 +364,33 @@ func TestTurnsGroupActionsAndSystemOrigins(t *testing.T) {
 		t.Fatalf("turn 2 = %+v, action 3 turn = %d", s.Turns[2], s.Actions[3].Turn)
 	}
 }
+
+func TestContextOf(t *testing.T) {
+	s, err := Load(filepath.Join("..", "..", "internal", "testdata", "sessions", "synthetic-basics", "aaaaaaaa-0000-0000-0000-000000000001.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	cb, err := s.ContextOf(0, true)
+	if err != nil || !cb.Available {
+		t.Fatalf("context of action 0: %v available=%v reason=%q", err, cb.Available, cb.Reason)
+	}
+	if len(cb.System) != 2 || len(cb.Tools) != 2 || cb.Tools[0].Name != "Bash" || cb.Keep != 0 || len(cb.Messages) != 1 {
+		t.Fatalf("breakdown = system %d tools %d keep %d messages %d", len(cb.System), len(cb.Tools), cb.Keep, len(cb.Messages))
+	}
+	if cb.Messages[0].Blocks[0].Label != "CLAUDE.md and user instructions" || !strings.Contains(cb.Messages[0].Blocks[0].Text, "CLAUDE.md") {
+		t.Fatalf("CLAUDE.md block not recognised: %+v", cb.Messages[0].Blocks[0])
+	}
+	if len(cb.Attachments) != 1 || cb.Attachments[0].Type != "environment" || cb.ReportedTokens != 6002 || cb.EstimatedTokens == 0 {
+		t.Fatalf("attachments=%+v reported=%d estimated=%d", cb.Attachments, cb.ReportedTokens, cb.EstimatedTokens)
+	}
+	if len(cb.CacheBreaks) != 1 || cb.CacheBreaks[0] != "system.1" {
+		t.Fatalf("cache breaks = %v", cb.CacheBreaks)
+	}
+	cb1, _ := s.ContextOf(1, false)
+	if cb1.Available || !strings.Contains(cb1.Reason, "no api-request record") {
+		t.Fatalf("action 1 has no request record in the fixture: %+v", cb1)
+	}
+	if _, err := s.ContextOf(99, false); err == nil {
+		t.Fatal("out of range must error")
+	}
+}

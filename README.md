@@ -15,6 +15,8 @@ skit show <id> [--turn N]      one session as a timeline grouped by turn; --turn
                                actions and tool results, --action N one action, --thinking adds thinking text;
                                --context adds injected prompt blocks and every attachment Claude Code added
 skit stats <id> [--context]    tokens once per request (subagents rolled in), models, tools, compactions, context curve
+skit context <id> [--action N] what the model received for an action: system prompt, tool definitions, messages (CLAUDE.md
+                               labelled), injected attachments, each with size, next to the reported token counts; --show prints one
 skit archive [id...] [--debug] copy sessions into ~/.sessionkit/archive (raw JSONL, zstd) and index them for search
 skit search <words> [--kind K] find turns across archived sessions; a query of ids or codes weighs exact words more
 skit serve [--socket P]        the same operations over HTTP on a Unix socket (/v0/…); watches ~/.claude and archives

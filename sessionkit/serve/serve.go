@@ -10,6 +10,7 @@
 //	GET  /v0/sessions/{id}/stats      stats.Summary with the context curve
 //	GET  /v0/sessions/{id}/turns/{n}  one agent turn: its actions, each with tool calls and results
 //	GET  /v0/sessions/{id}/actions/{n} one action with its tool calls and results
+//	GET  /v0/sessions/{id}/actions/{n}/context  what the model received: system prompt, tools, messages, attachments (?full=1 for texts)
 //	GET  /v0/search?q=&limit=&project=&session=&kind=&prefix=
 //	POST /v0/archive                  {"ids": [...], "project": "", "debug": false} → archive results
 package serve
@@ -64,6 +65,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/sessions/{id}/stats", s.sessionStats)
 	mux.HandleFunc("GET /v0/sessions/{id}/turns/{n}", s.turn)
 	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}", s.action)
+	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}/context", s.actionContext)
 	mux.HandleFunc("GET /v0/search", s.search)
 	mux.HandleFunc("POST /v0/archive", s.archive)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -96,7 +98,7 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 		"version": s.Version,
 		"routes": []string{
 			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
-			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}",
+			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}", "GET /v0/sessions/{id}/actions/{n}/context?full=1",
 			"GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive",
 		},
 	})
@@ -251,6 +253,27 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	}
 	res.Session.StripImages()
 	writeJSON(w, http.StatusOK, actionDoc(res.Session, res.Session.Actions[n]))
+}
+
+func (s *Server) actionContext(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "action must be a number")
+		return
+	}
+	full := r.URL.Query().Get("full") == "1" || r.URL.Query().Get("full") == "true"
+	cb, err := res.Session.ContextOf(n, full)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, cb)
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {

@@ -68,7 +68,7 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Action != "archived" || res.Records != 28 || res.Bytes != l.File.Bytes {
+	if res.Action != "archived" || res.Records != 29 || res.Bytes != l.File.Bytes {
 		t.Fatalf("first ingest = %+v (source %d bytes)", res, l.File.Bytes)
 	}
 	again, err := a.Ingest(l, Options{})
@@ -85,7 +85,7 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(recs) != 26 { // 28 minus api-request and api-request-blob
+	if len(recs) != 26 { // 29 minus api-request-shape, api-request and api-request-blob
 		t.Fatalf("raw copy has %d records, want 26", len(recs))
 	}
 	for _, r := range recs {
@@ -138,7 +138,7 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	rep, _ := catalog.InspectDir(claude)
 	l2, _ := rep.Find(fixtureID)
 	res2, err := a.Ingest(l2, Options{})
-	if err != nil || res2.Action != "updated" || res2.Records != 29 {
+	if err != nil || res2.Action != "updated" || res2.Records != 30 {
 		t.Fatalf("append ingest = %+v %v", res2, err)
 	}
 	if res2.Bytes != l.File.Bytes+int64(len(line)) {
@@ -162,8 +162,8 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	recs, _ = transcript.ReadAll(dec)
 	dec.Close()
 	f.Close()
-	if len(recs) != 29 {
-		t.Fatalf("debug copy has %d records, want 29", len(recs))
+	if len(recs) != 30 {
+		t.Fatalf("debug copy has %d records, want 30", len(recs))
 	}
 }
 
