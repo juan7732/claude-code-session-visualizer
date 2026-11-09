@@ -21,7 +21,8 @@ type Session struct {
 
 	Title       string    `json:"title,omitempty"`
 	Slug        string    `json:"slug,omitempty"`
-	Cwd         string    `json:"cwd,omitempty"`
+	Cwd         string    `json:"cwd,omitempty"`  // first working directory
+	Cwds        []string  `json:"cwds,omitempty"` // every distinct working directory, in order of first appearance
 	GitBranch   string    `json:"git_branch,omitempty"`
 	Versions    []string  `json:"versions,omitempty"`
 	Entrypoints []string  `json:"entrypoints,omitempty"`
@@ -263,7 +264,7 @@ func Build(recs []*Record) *Session {
 	s.Totals.Models = map[string]int{}
 	s.Totals.Tools = map[string]int{}
 	s.Totals.Types = map[string]int{}
-	versions, entrypoints := map[string]bool{}, map[string]bool{}
+	versions, entrypoints, seenCwd := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	calls := map[string]*ToolCall{}
 	turnsByReq := map[string]*Turn{}
 	var leaf string
@@ -286,8 +287,14 @@ func Build(recs []*Record) *Session {
 				s.LastAt = r.Timestamp
 			}
 		}
-		if r.Cwd != "" && s.Cwd == "" {
-			s.Cwd = r.Cwd
+		if r.Cwd != "" {
+			if s.Cwd == "" {
+				s.Cwd = r.Cwd
+			}
+			if !seenCwd[r.Cwd] {
+				seenCwd[r.Cwd] = true
+				s.Cwds = append(s.Cwds, r.Cwd)
+			}
 		}
 		if r.GitBranch != "" {
 			s.GitBranch = r.GitBranch

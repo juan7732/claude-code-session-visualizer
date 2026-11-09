@@ -5,6 +5,10 @@ Added 2026-11-07, extended after Juan's review.
 
 ## Archive and ownership
 
+- **Forked sessions.** `--fork-session` and `/rewind` copy history into a new transcript. The archive captures the fork
+  as an event (shared prefix of record uuids with another session) so counts can treat the shared part once and the
+  timeline can show where the fork happened.
+
 - **Long-term archive.** Claude Code sweeps transcripts after `cleanupPeriodDays`. The visualizer's index is the durable
   copy: ingest early, keep parsed turns, stats, text, and image bytes, and let the original be deleted. Sizing in
   `archive-sizing.md`.
@@ -42,6 +46,17 @@ Added 2026-11-07, extended after Juan's review.
   JSON, compact JSON, aligned text and Markdown, then run an accuracy-per-token eval before adding any third mode.
 - **Agent manifest completeness check** in CI: every command and flag appears in `describe`, every read command has
   `--json`.
+
+## Workspace and repository context (optional plugins)
+
+- **ergo workspace integration.** An optional extension that knows the ergo workspace a session ran in: how the
+  workspace looked (its TOML, repos, groups and tags), which files in it were created or changed per turn, captured as
+  workspace snapshots alongside the session, and workspace-level stats (files touched per repo, turns per repo, cost per
+  repo). Maps `cwd` and tool-input paths onto ergo repos by reading `~/.ergo/workspaces/*.toml`.
+- **Git visibility.** A companion extension that ties git state into the timeline: branch and commit at each turn, diffs
+  produced between turns, commits and PRs made during the session (`pr-link` records), and a per-turn view of the
+  working tree. Reuses the `file-history-*` snapshots where they exist.
+- Both are plugins over the engine, not engine features: the core stays about transcripts.
 
 ## Live and integration
 

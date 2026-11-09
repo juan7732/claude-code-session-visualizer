@@ -17,7 +17,9 @@ only what the current features need._
 **2. Everything stays on the user's machine.** Transcripts hold file contents, command output and secrets by accident.
 skit reads them, stores them and searches them locally, with no telemetry and no network beyond a one-time, checksummed
 model download. A feature that needs a server is a feature the user runs themselves. _Opposite we reject: sync to a
-hosted service by default for convenience._
+hosted service by default for convenience._ _Known exception: a sync service that aggregates sessions across a user's
+own devices is planned as a supported, opt-in integration the user runs or chooses. It bends this tenet knowingly; the
+local-only default stays._
 
 **3. The agent is the first user.** Every operation is reachable from the CLI with `--json` and discoverable through
 `skit describe` before any human interface exists. When the human view and the agent view compete for effort, the agent
@@ -35,7 +37,8 @@ summarise on top of the detail, never instead of it. _Opposite we reject: curate
 
 **6. A working slice beats a complete design.** We ship the thinnest vertical slice that works end to end, then widen
 it. The CLI came before the parser was finished, the parser before the archive, the archive before search. Designs that
-have not been exercised by running code are drafts. _Opposite we reject: design the full system, then build it._
+have not been exercised by running code are drafts. Choosing the verticals with intent is itself design work: this tenet
+is about sequencing, not about skipping thought. _Opposite we reject: design the full system, then build it._
 
 **7. We change the engine, never the transcript.** Claude Code's files are read-only evidence. When the format changes,
 skit adapts its parser and keeps unknown records as opaque events; it never normalises, migrates or repairs a transcript

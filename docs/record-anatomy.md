@@ -38,6 +38,12 @@ half the bytes at most. A streaming parser that discards `api-request*` early st
 `sequential-toasting-squirrel`). Assistant adds `requestId`, `apiBlockIndex`, `requestRef` (→ `api-request.id`),
 `requestedModel`, `effort`, `perTurnEffort`, `thinkingDurationMs`, `attributionSkill`, `wireToolInputs`.
 
+## Working directories
+
+`cwd` is on every timeline record and can change mid-session (`/cd`, worktrees). The parser keeps **all** distinct
+working directories in order of first appearance (`Session.Cwds`), since mapping a session onto ergo workspaces and
+repos depends on every directory it touched, not just the first.
+
 ## The tree
 
 `parentUuid` makes a tree, not a list. In the largest session: 1,221 uuid records, 2 roots, 0 branch points. Roots are

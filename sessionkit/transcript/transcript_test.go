@@ -233,6 +233,9 @@ func TestSpilledToolResultResolvesLocally(t *testing.T) {
 	if agent == nil || agent.Subagent == nil || agent.Subagent.AgentID != "a1b2c3d4e5f607182" || agent.Subagent.Session.Totals.Requests != 2 {
 		t.Fatalf("Agent call should link to its subagent: %+v", agent)
 	}
+	if strings.Join(s.Cwds, ",") != "/Users/xxxx/work,/Users/xxxx/work/sub" || s.Cwd != "/Users/xxxx/work" {
+		t.Fatalf("cwds = %v (first %q)", s.Cwds, s.Cwd)
+	}
 	if s.Cost == nil || s.Cost.TotalCostUSD != 0.42 || len(s.PRLinks) != 1 || s.Totals.Malformed != 1 || s.UnknownTypes["future-record-kind"] != 1 {
 		t.Fatalf("metadata: cost=%+v pr=%v malformed=%d unknown=%v", s.Cost, s.PRLinks, s.Totals.Malformed, s.UnknownTypes)
 	}
