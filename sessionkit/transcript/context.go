@@ -278,10 +278,19 @@ func recordIndex(s *Session, r *Record) int {
 // labelFor names well-known injected blocks so a reader can see what they are.
 func labelFor(txt string) string {
 	t := strings.TrimSpace(txt)
+	// Prefix checks first: a long injected block can quote other kinds of text.
+	switch {
+	case strings.HasPrefix(t, "<pasted_content"):
+		return "pasted content"
+	case strings.HasPrefix(t, "<ide_opened_file>") || strings.HasPrefix(t, "<ide_selection>"):
+		return "IDE context"
+	case strings.HasPrefix(t, "The user's message contains") && strings.Contains(t, "is the name of a skill"):
+		return "skill mention and skill content"
+	}
 	switch {
 	case strings.Contains(t, "Codebase and user instructions are shown below"):
 		return "CLAUDE.md and user instructions"
-	case strings.HasPrefix(t, "<system-reminder>\n# Environment") || strings.Contains(t, "You have been invoked in the following environment"):
+	case strings.Contains(t, "You have been invoked in the following environment"):
 		return "environment"
 	case strings.Contains(t, "The following skills are available"):
 		return "skill listing"
@@ -291,12 +300,6 @@ func labelFor(txt string) string {
 		return "agent listing"
 	case strings.Contains(t, "MCP Server Instructions"):
 		return "MCP instructions"
-	case strings.HasPrefix(t, "<pasted_content"):
-		return "pasted content"
-	case strings.HasPrefix(t, "<ide_opened_file>") || strings.HasPrefix(t, "<ide_selection>"):
-		return "IDE context"
-	case strings.Contains(t, "is the name of a skill"):
-		return "skill mention"
 	}
 	return ""
 }
