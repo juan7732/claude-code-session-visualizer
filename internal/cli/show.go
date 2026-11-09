@@ -191,10 +191,10 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 		}
 		events = append(events, event{c.At, "    ⚙ " + c.Name, line})
 	}
-	for _, c := range s.Compactions {
-		text := "compaction"
+	for i, c := range s.Compactions {
+		text := fmt.Sprintf("compaction %d", i)
 		if c.Metadata != nil {
-			text = fmt.Sprintf("compaction (%s): %s → %s tokens", c.Metadata.Trigger, stats.FormatTokens(c.Metadata.PreTokens), stats.FormatTokens(c.Metadata.PostTokens))
+			text = fmt.Sprintf("compaction %d (%s): %s → %s tokens  (skit context <id> --compaction %d)", i, c.Metadata.Trigger, stats.FormatTokens(c.Metadata.PreTokens), stats.FormatTokens(c.Metadata.PostTokens), i)
 		}
 		events = append(events, event{c.At, "✂", text})
 	}

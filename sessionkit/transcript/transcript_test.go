@@ -394,3 +394,32 @@ func TestContextOf(t *testing.T) {
 		t.Fatal("out of range must error")
 	}
 }
+
+func TestCompactionOf(t *testing.T) {
+	s, err := Load(filepath.Join("..", "..", "internal", "testdata", "sessions", "synthetic-basics", "aaaaaaaa-0000-0000-0000-000000000001.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	d, err := s.CompactionOf(0, true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if d.Trigger != "auto" || d.PreTokens != 6400 || d.PostTokens != 900 || d.Turn != 0 {
+		t.Fatalf("metadata = %+v", d)
+	}
+	if d.LastActionBefore == nil || *d.LastActionBefore != 3 || d.FirstActionAfter == nil || *d.FirstActionAfter != 4 || d.ContextBefore != 6301 || d.ContextAfter != 903 {
+		t.Fatalf("around: before=%v (%d) after=%v (%d)", d.LastActionBefore, d.ContextBefore, d.FirstActionAfter, d.ContextAfter)
+	}
+	if len(d.Summary.Sections) != 3 || d.Summary.Sections[0].Title != "Primary Request and Intent" || d.SummarisedPrompts != 1 || !strings.Contains(d.Summary.Text, "Pending Tasks") {
+		t.Fatalf("summary = %+v", d.Summary)
+	}
+	if len(d.Preserved) != 2 || d.Preserved[0].Type != "assistant" || d.Preserved[0].Action != 3 || d.Preserved[1].Type != "user" || d.Preserved[1].Kind != "tool_result" {
+		t.Fatalf("preserved = %+v", d.Preserved)
+	}
+	if len(d.Reinjected) != 2 || d.Reinjected[0].Type != "instructions" || len(d.FileRefs) != 1 || d.FileRefs[0] != "/Xxxxx/xxxx/xxxx/notes.md" {
+		t.Fatalf("reinjected = %+v files = %v", d.Reinjected, d.FileRefs)
+	}
+	if _, err := s.CompactionOf(5, false); err == nil {
+		t.Fatal("out of range must error")
+	}
+}

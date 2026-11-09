@@ -51,7 +51,7 @@ func TestShow_TimelineAndTurn(t *testing.T) {
 
 	res := h.Run("show", id[:8])
 	res.AssertOK(t)
-	for _, want := range []string{"Session  " + id, "turn 0", "action 0", "⚙ Bash", "⚙ Agent", "→ subagent a1b2c3d4e5f607182", "compaction (auto): 6.4k → 900 tokens", "api_error", "/Users/xxxx/work/sub", "↳ end", "turn 1"} {
+	for _, want := range []string{"Session  " + id, "turn 0", "action 0", "⚙ Bash", "⚙ Agent", "→ subagent a1b2c3d4e5f607182", "compaction 0 (auto): 6.4k → 900 tokens", "api_error", "/Users/xxxx/work/sub", "↳ end", "turn 1"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("timeline lacks %q:\n%s", want, res.Stdout)
 		}
@@ -132,7 +132,7 @@ func TestShow_ContextAndSynthetic(t *testing.T) {
 
 	res := h.Run("show", id)
 	res.AssertOK(t)
-	if strings.Contains(res.Stdout, "ide_opened_file") || !strings.Contains(res.Stdout, "1 injected blocks in prompts · 1 attachments   (--context to show them)") {
+	if strings.Contains(res.Stdout, "ide_opened_file") || !strings.Contains(res.Stdout, "1 injected blocks in prompts · 3 attachments   (--context to show them)") {
 		t.Fatalf("default timeline should summarise context, not print it:\n%s", res.Stdout)
 	}
 	if !strings.Contains(res.Stdout, "· note") || !strings.Contains(res.Stdout, "written by Claude Code, no request") {
@@ -201,5 +201,28 @@ func TestContext_SeedBreakdown(t *testing.T) {
 	}
 	if err := json.Unmarshal([]byte(res.Stdout), &cb); err != nil || !cb.Available || len(cb.Tools) != 2 {
 		t.Fatalf("context --json: %v %+v", err, cb)
+	}
+}
+
+func TestContext_Compaction(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+	res := h.Run("context", id, "--compaction", "0")
+	res.AssertOK(t)
+	for _, want := range []string{"Compaction 0 (turn 0)", "Before    action 3 reported 6.3k tokens", "900 tokens remained", "Primary Request and Intent", "Preserved verbatim", "Re-injected after the boundary", "← CLAUDE.md", "notes.md"} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("compaction view lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+	res = h.Run("context", id, "--compaction", "0", "--show", "summary")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "Pending Tasks") {
+		t.Fatalf("--show summary should print the summary text:\n%s", res.Stdout)
+	}
+	res = h.Run("show", id)
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "compaction 0 (auto)") {
+		t.Fatalf("timeline should number compactions:\n%s", res.Stdout)
 	}
 }

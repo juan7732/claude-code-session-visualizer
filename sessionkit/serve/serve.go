@@ -11,6 +11,7 @@
 //	GET  /v0/sessions/{id}/turns/{n}  one agent turn: its actions, each with tool calls and results
 //	GET  /v0/sessions/{id}/actions/{n} one action with its tool calls and results
 //	GET  /v0/sessions/{id}/actions/{n}/context  what the model received: system prompt, tools, messages, attachments (?full=1 for texts)
+//	GET  /v0/sessions/{id}/compactions/{n}      before/after a compaction: summary sections, preserved messages, re-injected context
 //	GET  /v0/search?q=&limit=&project=&session=&kind=&prefix=
 //	POST /v0/archive                  {"ids": [...], "project": "", "strip_requests": false} → archive results
 package serve
@@ -66,6 +67,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/sessions/{id}/turns/{n}", s.turn)
 	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}", s.action)
 	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}/context", s.actionContext)
+	mux.HandleFunc("GET /v0/sessions/{id}/compactions/{n}", s.compaction)
 	mux.HandleFunc("GET /v0/search", s.search)
 	mux.HandleFunc("POST /v0/archive", s.archive)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -98,7 +100,7 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 		"version": s.Version,
 		"routes": []string{
 			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
-			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}", "GET /v0/sessions/{id}/actions/{n}/context?full=1",
+			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
 			"GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive",
 		},
 	})
@@ -274,6 +276,27 @@ func (s *Server) actionContext(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, cb)
+}
+
+func (s *Server) compaction(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "compaction must be a number")
+		return
+	}
+	full := r.URL.Query().Get("full") == "1" || r.URL.Query().Get("full") == "true"
+	d, err := res.Session.CompactionOf(n, full)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, d)
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {

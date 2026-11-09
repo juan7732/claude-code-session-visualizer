@@ -68,7 +68,7 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if res.Action != "archived" || res.Records != 29 || res.Bytes != l.File.Bytes {
+	if res.Action != "archived" || res.Records != 31 || res.Bytes != l.File.Bytes {
 		t.Fatalf("first ingest = %+v (source %d bytes)", res, l.File.Bytes)
 	}
 	again, err := a.Ingest(l, Options{})
@@ -85,8 +85,8 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(recs) != 29 {
-		t.Fatalf("raw copy has %d records, want 29 (lossless)", len(recs))
+	if len(recs) != 31 {
+		t.Fatalf("raw copy has %d records, want 31 (lossless)", len(recs))
 	}
 	apiRecs := 0
 	for _, r := range recs {
@@ -142,7 +142,7 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	rep, _ := catalog.InspectDir(claude)
 	l2, _ := rep.Find(fixtureID)
 	res2, err := a.Ingest(l2, Options{})
-	if err != nil || res2.Action != "updated" || res2.Records != 30 {
+	if err != nil || res2.Action != "updated" || res2.Records != 32 {
 		t.Fatalf("append ingest = %+v %v", res2, err)
 	}
 	if res2.Bytes != l.File.Bytes+int64(len(line)) {
@@ -166,8 +166,8 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	recs, _ = transcript.ReadAll(dec)
 	dec.Close()
 	f.Close()
-	if len(recs) != 27 { // 30 minus the three api-request* records
-		t.Fatalf("stripped copy has %d records, want 27", len(recs))
+	if len(recs) != 29 { // 32 minus the three api-request* records
+		t.Fatalf("stripped copy has %d records, want 29", len(recs))
 	}
 	// Context from the archived (lossless) copy works.
 	if _, err := a.Ingest(l2, Options{}); err != nil {

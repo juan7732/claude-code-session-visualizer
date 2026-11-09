@@ -89,6 +89,10 @@ func TestRoutes(t *testing.T) {
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/actions/0/context", &cb); code != 200 || cb["available"] != true {
 		t.Fatalf("context route: %d %v", code, cb["reason"])
 	}
+	var cd map[string]any
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/compactions/0", &cd); code != 200 || cd["pre_tokens"] != float64(6400) {
+		t.Fatalf("compaction route: %d %v", code, cd)
+	}
 	var e map[string]string
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/turns/99", &e); code != 404 || e["error"] == "" {
 		t.Fatalf("out-of-range turn: %d %v", code, e)

@@ -133,3 +133,11 @@ A `system` record with `subtype: compact_boundary` and
 (observed 249k → 12k), followed by a `user` record with `isCompactSummary: true` whose text begins "This session is
 being continued from a previous conversation…". Render as a cut in the timeline with the before/after token counts; the
 summary is a great anchor for search (it is a dense, model-written abstract of everything before it).
+
+What survives a compaction, observed: the summary (18k chars in nine numbered sections: Primary Request and Intent, Key
+Technical Concepts, Files and Code Sections, Errors and fixes, Problem Solving, All user messages, Pending Tasks,
+Current Work, Optional Next Step), plus the messages named in `compactMetadata.preservedMessages` kept verbatim (the
+last assistant text and the running prompt). Right after the boundary Claude Code re-injects CLAUDE.md (`instructions`),
+`session_context`, `date`, the files it referenced (`compact_file_reference` + `file`), `invoked_skills` and the tool,
+agent and MCP listings, so the first action after a 249k → 12k compaction started at ~51k.
+`skit context <id> --compaction N` shows all of this; `--show summary|preserved|reinjected` prints the texts.
