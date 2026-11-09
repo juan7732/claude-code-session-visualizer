@@ -112,7 +112,7 @@ CREATE TABLE sessions(
   indexed_at     TEXT NOT NULL,
   archive_path   TEXT NOT NULL DEFAULT '',  -- raw copy; '' when only the summary is indexed
   archived_bytes INTEGER NOT NULL DEFAULT 0, -- source bytes copied so far (append offset)
-  debug          INTEGER NOT NULL DEFAULT 0, -- api-request* records kept in the raw copy
+  debug          INTEGER NOT NULL DEFAULT 0, -- api-request* records kept in the raw copy (name is historical)
   archived_at    TEXT,
   schema         INTEGER NOT NULL DEFAULT 1  -- SchemaVersion that produced the summary and segments
 );
@@ -157,7 +157,7 @@ type SessionRow struct {
 	IndexedAt     time.Time
 	ArchivePath   string
 	ArchivedBytes int64
-	Debug         bool
+	KeepsRequests bool // api-request* records are in the raw copy (column `debug`, kept for schema stability)
 	ArchivedAt    time.Time
 	Schema        int
 }
@@ -188,9 +188,9 @@ ON CONFLICT(id) DO UPDATE SET project=excluded.project, source_path=excluded.sou
 }
 
 // SetArchive records the raw copy's state for a session.
-func (s *Store) SetArchive(id, archivePath string, archivedBytes int64, debug bool) error {
+func (s *Store) SetArchive(id, archivePath string, archivedBytes int64, keepsRequests bool) error {
 	res, err := s.db.Exec(`UPDATE sessions SET archive_path=?, archived_bytes=?, debug=?, archived_at=? WHERE id=?`,
-		archivePath, archivedBytes, boolInt(debug), time.Now().UTC().Format(time.RFC3339Nano), id)
+		archivePath, archivedBytes, boolInt(keepsRequests), time.Now().UTC().Format(time.RFC3339Nano), id)
 	if err != nil {
 		return err
 	}
@@ -215,7 +215,7 @@ func scanSession(sc interface{ Scan(...any) error }) (SessionRow, error) {
 	}
 	r.Summary = json.RawMessage(summary)
 	r.FirstAt, r.LastAt, r.IndexedAt, r.ArchivedAt = parseTime(first), parseTime(last), parseTime(indexed), parseTime(archived)
-	r.Debug = debug != 0
+	r.KeepsRequests = debug != 0
 	return r, nil
 }
 

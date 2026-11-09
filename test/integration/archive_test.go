@@ -55,6 +55,11 @@ func TestArchive_SurvivesSourceDeletion(t *testing.T) {
 	if !strings.Contains(res.Stdout, "full output line 1") {
 		t.Fatalf("spilled output should resolve from the archive:\n%s", res.Stdout)
 	}
+	res = h.Run("context", id)
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "Tool definitions      2 tools") {
+		t.Fatalf("context should work from the archive after the source is gone:\n%s", res.Stdout)
+	}
 	res = h.Run("stats", id, "--json")
 	res.AssertOK(t)
 	var sum struct {

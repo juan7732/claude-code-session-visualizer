@@ -12,7 +12,7 @@
 //	GET  /v0/sessions/{id}/actions/{n} one action with its tool calls and results
 //	GET  /v0/sessions/{id}/actions/{n}/context  what the model received: system prompt, tools, messages, attachments (?full=1 for texts)
 //	GET  /v0/search?q=&limit=&project=&session=&kind=&prefix=
-//	POST /v0/archive                  {"ids": [...], "project": "", "debug": false} → archive results
+//	POST /v0/archive                  {"ids": [...], "project": "", "strip_requests": false} → archive results
 package serve
 
 import (
@@ -295,9 +295,9 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 
 // ArchiveRequest is the body of POST /v0/archive.
 type ArchiveRequest struct {
-	IDs     []string `json:"ids"`
-	Project string   `json:"project"`
-	Debug   bool     `json:"debug"`
+	IDs           []string `json:"ids"`
+	Project       string   `json:"project"`
+	StripRequests bool     `json:"strip_requests"` // drop api-request* from the copy (smaller, loses `context`)
 }
 
 func (s *Server) archive(w http.ResponseWriter, r *http.Request) {
@@ -343,7 +343,7 @@ func (s *Server) ingest(rep *catalog.Report, req ArchiveRequest) ([]archive.Resu
 	}
 	results := []archive.Result{}
 	for _, l := range targets {
-		res, err := s.Archive.Ingest(l, archive.Options{Debug: req.Debug})
+		res, err := s.Archive.Ingest(l, archive.Options{StripRequests: req.StripRequests})
 		if err != nil {
 			s.Logf("archive %s: %v", l.File.ID, err)
 			res.Action = "failed"

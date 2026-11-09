@@ -76,7 +76,7 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 		t.Fatalf("second ingest = %+v %v", again, err)
 	}
 
-	// The raw copy drops api-request* and is plain JSONL once decompressed.
+	// The raw copy is lossless (api-request* included) and is plain JSONL once decompressed.
 	f, _ := os.Open(res.Path)
 	dec, _ := zstd.NewReader(f)
 	recs, err := transcript.ReadAll(dec)
@@ -85,13 +85,17 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(recs) != 26 { // 29 minus api-request-shape, api-request and api-request-blob
-		t.Fatalf("raw copy has %d records, want 26", len(recs))
+	if len(recs) != 29 {
+		t.Fatalf("raw copy has %d records, want 29 (lossless)", len(recs))
 	}
+	apiRecs := 0
 	for _, r := range recs {
 		if r.IsAPIRequest() {
-			t.Fatal("api-request records must be dropped without --debug")
+			apiRecs++
 		}
+	}
+	if apiRecs != 3 {
+		t.Fatalf("api-request records must be kept by default, got %d", apiRecs)
 	}
 
 	// Load from the archive matches the original, subagent and spilled result included.
@@ -152,18 +156,29 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 		t.Fatalf("new prompt should be searchable: %+v", hits)
 	}
 
-	// Debug mode rewrites and keeps api-request* records.
-	res3, err := a.Ingest(l2, Options{Debug: true})
+	// Stripping requests rewrites the copy without api-request* records.
+	res3, err := a.Ingest(l2, Options{StripRequests: true})
 	if err != nil || res3.Action != "updated" {
-		t.Fatalf("debug ingest = %+v %v", res3, err)
+		t.Fatalf("strip ingest = %+v %v", res3, err)
 	}
 	f, _ = os.Open(res3.Path)
 	dec, _ = zstd.NewReader(f)
 	recs, _ = transcript.ReadAll(dec)
 	dec.Close()
 	f.Close()
-	if len(recs) != 30 {
-		t.Fatalf("debug copy has %d records, want 30", len(recs))
+	if len(recs) != 27 { // 30 minus the three api-request* records
+		t.Fatalf("stripped copy has %d records, want 27", len(recs))
+	}
+	// Context from the archived (lossless) copy works.
+	if _, err := a.Ingest(l2, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	s3, _, err := a.Load(fixtureID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cb, err := s3.ContextOf(0, false); err != nil || !cb.Available || len(cb.Tools) != 2 {
+		t.Fatalf("context from the archive should be available: %v %+v", err, cb)
 	}
 }
 

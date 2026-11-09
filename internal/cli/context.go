@@ -25,8 +25,8 @@ attachments injected since the previous action, each with its size, next to the
 token counts the API reported. Default is action 0: the seed context of the
 session. --show prints one component in full.
 
-Needs the api-request records Claude Code writes; an archived copy made without
---debug has them stripped, so run this on live sessions or debug archives.`,
+Works on live sessions and on archived copies (the archive keeps the api-request
+records unless it was made with --strip-requests).`,
 		Example: "  skit context f115114f\n  skit context f115114f --action 12\n  skit context f115114f --show instructions\n  skit context f115114f --show system --json",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {

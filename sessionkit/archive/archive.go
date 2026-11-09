@@ -4,7 +4,7 @@
 // cleanupPeriodDays; this is where they live on.
 //
 //	<home>/skit.sqlite                                    the index (package store)
-//	<home>/archive/<project>/<session>.jsonl.zst          raw lines, minus api-request* unless debug
+//	<home>/archive/<project>/<session>.jsonl.zst          raw lines, every record (api-request* too unless --strip-requests)
 //	<home>/archive/<project>/<session>/subagents/*.jsonl.zst, *.meta.json
 //	<home>/archive/<project>/<session>/tool-results/*     spilled tool outputs, as-is
 //
@@ -67,8 +67,11 @@ func (a *Archive) Path(project, id string) string {
 
 // Options for Ingest.
 type Options struct {
-	// Debug keeps api-request* records (full request bodies) in the raw copy.
-	Debug bool
+	// StripRequests drops api-request* records (system prompt, tool
+	// definitions, message bodies and parameters of every request) from the raw
+	// copy. Off by default: the archive is lossless, and `skit context` needs
+	// these records to explain what the model received (ADR 0007).
+	StripRequests bool
 }
 
 // Result says what Ingest did.
@@ -124,7 +127,7 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 	if err != nil {
 		return res, err
 	}
-	if row != nil && row.Archived() && row.Debug == opt.Debug && row.Schema == store.SchemaVersion && a.sourceMatches(row, l) {
+	if row != nil && row.Archived() && row.KeepsRequests == !opt.StripRequests && row.Schema == store.SchemaVersion && a.sourceMatches(row, l) {
 		if _, err := os.Stat(row.ArchivePath); err == nil {
 			res.Action, res.Records, res.Bytes = "unchanged", row.Records, row.ArchivedBytes
 			return res, nil
@@ -138,16 +141,16 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 
 	// Raw copy: append when the source only grew, rewrite otherwise.
 	start := int64(0)
-	if row != nil && row.Archived() && row.Debug == opt.Debug && row.ArchivedBytes <= l.File.Bytes && row.ArchivePath == res.Path {
+	if row != nil && row.Archived() && row.KeepsRequests == !opt.StripRequests && row.ArchivedBytes <= l.File.Bytes && row.ArchivePath == res.Path {
 		if _, err := os.Stat(res.Path); err == nil {
 			start = row.ArchivedBytes
 		}
 	}
-	covered, err := a.copyRaw(l.File.Path, res.Path, start, opt.Debug)
+	covered, err := a.copyRaw(l.File.Path, res.Path, start, !opt.StripRequests)
 	if err != nil {
 		return res, err
 	}
-	if err := a.copyCompanion(filepath.Join(filepath.Dir(l.File.Path), l.File.ID), filepath.Join(filepath.Dir(res.Path), l.File.ID), opt.Debug); err != nil {
+	if err := a.copyCompanion(filepath.Join(filepath.Dir(l.File.Path), l.File.ID), filepath.Join(filepath.Dir(res.Path), l.File.ID), !opt.StripRequests); err != nil {
 		return res, err
 	}
 
@@ -157,7 +160,7 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 	if err := a.Store.ReplaceSegments(l.File.ID, Segments(s)); err != nil {
 		return res, err
 	}
-	if err := a.Store.SetArchive(l.File.ID, res.Path, covered, opt.Debug); err != nil {
+	if err := a.Store.SetArchive(l.File.ID, res.Path, covered, !opt.StripRequests); err != nil {
 		return res, err
 	}
 	res.Action = "archived"
@@ -170,8 +173,8 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 
 // copyRaw appends the complete lines of src from offset start to dst as a new
 // zstd frame (start == 0 truncates dst first). It returns the source offset
-// just past the last complete line copied.
-func (a *Archive) copyRaw(src, dst string, start int64, debug bool) (int64, error) {
+// just past the last complete line copied. keepRequests false drops api-request*.
+func (a *Archive) copyRaw(src, dst string, start int64, keepRequests bool) (int64, error) {
 	in, err := os.Open(src)
 	if err != nil {
 		return 0, err
@@ -198,16 +201,16 @@ func (a *Archive) copyRaw(src, dst string, start int64, debug bool) (int64, erro
 	if err != nil {
 		return 0, err
 	}
-	covered, err := filterLines(bufio.NewReaderSize(in, 1<<20), enc, start, debug)
+	covered, err := filterLines(bufio.NewReaderSize(in, 1<<20), enc, start, keepRequests)
 	if cerr := enc.Close(); err == nil {
 		err = cerr
 	}
 	return covered, err
 }
 
-// filterLines copies complete lines, dropping api-request* unless debug, and
-// returns the offset after the last complete line.
-func filterLines(r *bufio.Reader, w io.Writer, start int64, debug bool) (int64, error) {
+// filterLines copies complete lines, dropping api-request* unless keepRequests,
+// and returns the offset after the last complete line.
+func filterLines(r *bufio.Reader, w io.Writer, start int64, keepRequests bool) (int64, error) {
 	offset := start
 	for {
 		line, err := r.ReadBytes('\n')
@@ -216,7 +219,7 @@ func filterLines(r *bufio.Reader, w io.Writer, start int64, debug bool) (int64, 
 		}
 		complete := err == nil
 		if complete {
-			if debug || !isAPIRequest(line) {
+			if keepRequests || !isAPIRequest(line) {
 				if _, werr := w.Write(line); werr != nil {
 					return offset, werr
 				}
@@ -244,7 +247,7 @@ func isAPIRequest(line []byte) bool {
 
 // copyCompanion mirrors <session>/ (subagents, tool-results, …), compressing
 // transcripts and copying everything else as-is.
-func (a *Archive) copyCompanion(src, dst string, debug bool) error {
+func (a *Archive) copyCompanion(src, dst string, keepRequests bool) error {
 	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
 		if errors.Is(err, fs.ErrNotExist) {
 			return nil
@@ -258,7 +261,7 @@ func (a *Archive) copyCompanion(src, dst string, debug bool) error {
 			return os.MkdirAll(target, 0o700)
 		}
 		if strings.HasSuffix(p, ".jsonl") {
-			_, err := a.copyRaw(p, target+".zst", 0, debug)
+			_, err := a.copyRaw(p, target+".zst", 0, keepRequests)
 			return err
 		}
 		b, err := os.ReadFile(p)

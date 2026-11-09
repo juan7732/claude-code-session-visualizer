@@ -11,7 +11,7 @@ import (
 )
 
 func newArchive() *cobra.Command {
-	var debug bool
+	var strip bool
 	var project string
 	cmd := &cobra.Command{
 		Use:   "archive [session...]",
@@ -22,9 +22,10 @@ subagent transcripts and spilled tool outputs, and an index of every content
 block for search. Claude Code deletes transcripts after cleanupPeriodDays; the
 archive does not. Safe to run any time; unchanged sessions are skipped.
 
-Request bodies (api-request* records) are dropped unless --debug is given, which
-roughly doubles the size of a session's copy.`,
-		Example: "  skit archive\n  skit archive --project tools\n  skit archive 36086585 --debug",
+The copy is lossless: it keeps the api-request* records too (system prompt, tool
+definitions, message bodies, parameters), which is what 'skit context' explains.
+--strip-requests drops them for a smaller copy.`,
+		Example: "  skit archive\n  skit archive --project tools\n  skit archive 36086585 --strip-requests",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rep, err := catalog.Inspect()
 			if err != nil {
@@ -55,7 +56,7 @@ roughly doubles the size of a session's copy.`,
 			var results []archive.Result
 			counts := map[string]int{}
 			for _, l := range targets {
-				res, err := a.Ingest(l, archive.Options{Debug: debug})
+				res, err := a.Ingest(l, archive.Options{StripRequests: strip})
 				if err != nil {
 					fmt.Fprintf(cmd.ErrOrStderr(), "skit: %s: %v\n", l.File.ID[:8], err)
 					res.Action = "failed"
@@ -78,7 +79,7 @@ roughly doubles the size of a session's copy.`,
 			return nil
 		},
 	}
-	cmd.Flags().BoolVar(&debug, "debug", false, "keep api-request* records (full request bodies) in the raw copy")
+	cmd.Flags().BoolVar(&strip, "strip-requests", false, "drop api-request* records from the raw copy (smaller; skit context then cannot explain archived actions)")
 	cmd.Flags().StringVarP(&project, "project", "p", "", "only projects whose slug contains this text")
 	return cmd
 }
