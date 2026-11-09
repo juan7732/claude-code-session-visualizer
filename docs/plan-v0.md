@@ -72,10 +72,10 @@ for agents. This is the point where Claude Code itself can start using the tool.
 
 **M3 Archive + keyword search (DONE).** `store`: `sessions`, `turns`, `segments` (one per content block, with `kind`,
 `modality`, `loc`), `fts` over segment text, `meta` with schema version + fingerprint. `archive` ingests new or changed
-sessions incrementally by byte offset, keeps the raw JSONL lines (lossless, zstd-compressed) per session minus
-`api-request*` unless debug mode is on, records `session-owner`, and respects the debug-mode setting for `api-request*`.
-`search` = FTS5 + bm25 with DigUp's term rules (stopwords, prefix on the last word, lookup detection for ids). Index
-location `~/.sessionkit/` (never under ~/Library).
+sessions incrementally by byte offset, keeps the raw JSONL lines (lossless, zstd-compressed) per session minus request
+records included (`--strip-requests` to drop them), records `session-owner`. `search` = FTS5 + bm25 with DigUp's term
+rules (stopwords, prefix on the last word, lookup detection for ids). Index location `~/.sessionkit/` (never under
+~/Library).
 
 **M4 Serve (DONE).** `serve --socket <path>`: `GET /sessions`, `GET /sessions/{id}`, `GET /sessions/{id}/stats`,
 `GET /search?q=`, `GET /status`, `POST /archive`. Same JSON as the CLI's `--json`. Hand-written, versioned under `/v0/`.

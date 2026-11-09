@@ -1,5 +1,10 @@
 # Archive sizing
 
+Implemented in M3: raw lines zstd-compressed per session under `~/.sessionkit/archive/`, appended by byte offset as a
+session grows. Since ADR 0007 the copy is lossless including the `api-request*` records (`--strip-requests` drops them);
+the index in `skit.sqlite` holds one row per content block for FTS5. Measured 2026-11-09 on 11 sessions: source
+transcripts 107 MB, archive 16 MB without request records, 26 MB with them.
+
 Measured on this Mac, 2026-11-07, 8 sessions, 827 requests.
 
 |                                                                                | per request          | notes                                                        |
@@ -30,9 +35,10 @@ of the kept records.
 
 ## Choices that change the numbers
 
-- **Raw lines are stored (decided 2026-11-08).** The archive keeps the original JSONL lines, compressed with zstd (5–8×
-  on this JSON, ~10 KB per request), so it is lossless and readable without skit. `api-request*` records are dropped
-  unless debug mode is on. Even the heavy projection stays under a few GB a year, so lossless is cheap.
+- **Raw lines are stored, all of them (decided 2026-11-08; request records added 2026-11-09, ADR 0007).** The archive
+  keeps the original JSONL lines, compressed with zstd, including the `api-request*` records that explain what the model
+  received. `--strip-requests` drops those for a smaller copy. Lossless is the point; even the heavy projection stays
+  within a few GB a year.
 - **Images.** Store as-is (they are already compressed PNG/JPEG) plus a small thumbnail. They dominate when present. An
   option to downscale images over, say, 2 MB keeps outliers in check.
 - **Debug mode on** roughly doubles the per-request size (the full request body is stored by Claude Code per request).

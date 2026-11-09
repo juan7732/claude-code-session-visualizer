@@ -64,8 +64,8 @@ its injected blocks (~2.7k). **CLAUDE.md arrives as an attachment of type `instr
 CLAUDE.md files met later in subdirectories arrive as `nested_memory`. All of this is reconstructable from `api-request`
 (params, cache breakpoints, `tail` hashes), `api-request-blob` (message bodies) and `api-request-shape` (system prompt +
 tools per shape hash) plus the `attachment` records: `skit context <session> [--action N]` prints the breakdown,
-`--show instructions` the injected CLAUDE.md text. These records are stripped from the archive unless it was made with
-`--debug`, so the breakdown works on live sessions and debug archives.
+`--show instructions` the injected CLAUDE.md text. The archive keeps these records (ADR 0007), so the breakdown works on
+archived sessions too, unless the copy was made with `--strip-requests`.
 
 ## Synthetic messages
 
