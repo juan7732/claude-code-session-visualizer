@@ -45,8 +45,9 @@ runtime/LlamaRuntime/           Swift embedding worker (v0.5)
 ```
 
 ## Milestones
+A milestone is marked **(DONE)** in its heading when delivered.
 
-**M0 Scaffold.** go.mod, Cobra skeleton with `--json` on every read command, `doctor` (reports
+**M0 Scaffold (DONE).** go.mod, Cobra skeleton with `--json` on every read command, `doctor` (reports
 `~/.claude` location, `cleanupPeriodDays`, live sessions, session count, disk use), `describe --json` (the agent
 manifest: every subcommand, flags, output schema, examples), MIT license, CI with `go test ./...` and `go vet`.
 Promote the sessions-study notes into `docs/`.
