@@ -1,4 +1,4 @@
-# 0005 · The text embedding worker is `llama-server`
+# 0005 · The embedding worker is `llama-server` (text, images, audio)
 
 Date: 2026-11-09. Status: accepted. Based on `../embedding-spike.md`.
 
@@ -23,7 +23,13 @@ query, 100 segments/s on Metal, 539 MB resident, vectors identical to `llama-emb
   score. The z-gate value is an eval question, not a constant we copy (the spike saw a junk query reach z ≈ 2.9).
 - CPU-only machines are supported at about a tenth of the speed, with a warning in `doctor`.
 
-**Consequences.** Text search ships without writing or maintaining llama.cpp bindings. Image vectors (tier C in
-`images-and-modalities.md`) need the multimodal encoder; when that comes, either `llama-server`'s multimodal support or
-a Swift `LlamaRuntime` lifted from DigUp's design, speaking the same `/v1/embeddings` shape so the engine does not care
-which one answers.
+**Multimodal (added the same day).** The same server with `--mmproj mmproj-embeddinggemma-2-Q8_0.gguf` embeds images
+(`image_url` data URI, ~45 ms each) and audio (`input_audio` WAV, ~60–140 ms per short clip) through `/v1/embeddings`,
+into the same 768-dimensional space; measured in `../embedding-spike.md`. So no Swift `LlamaRuntime` or custom mtmd
+worker is needed for tier C either. The encoder file is a second, optional download (555 MB) and raises the sidecar's
+resident memory from about 0.5 GB to 1.1 GB; skit starts the server with it only when there is media to embed. Vectors
+are 768-dimensional (the model's maximum); Matryoshka truncation is possible but not used. Q8_0 over BF16: identical
+vectors (cosine 0.9999), half the size.
+
+**Consequences.** Text, image and audio search ship without writing or maintaining llama.cpp bindings. The `embed`
+package is a client for one well-documented HTTP API plus process management and model downloads.
