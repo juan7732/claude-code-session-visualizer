@@ -93,6 +93,28 @@ func TestRoutes(t *testing.T) {
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/compactions/0", &cd); code != 200 || cd["pre_tokens"] != float64(6400) {
 		t.Fatalf("compaction route: %d %v", code, cd)
 	}
+	var rel map[string]any
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/relations", &rel); code != 200 || len(rel["spans"].([]any)) != 6 || rel["files"] == nil {
+		t.Fatalf("relations route: %d %v", code, rel)
+	}
+	var imgs []map[string]any
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/images", &imgs); code != 200 || imgs == nil {
+		t.Fatalf("images route: %d %v", code, imgs)
+	}
+	var ann map[string]any
+	if code := get(t, h, "/v0/sessions/aaaaaaaa/annotations", &ann); code != 200 || ann["pinned"] != false {
+		t.Fatalf("annotations before any: %d %v", code, ann)
+	}
+	prec := httptest.NewRecorder()
+	h.ServeHTTP(prec, httptest.NewRequest("PATCH", "/v0/sessions/aaaaaaaa/annotations", strings.NewReader(`{"pinned":true,"add_tags":["keep"],"notes":{"turn:0":"n"}}`)))
+	var all map[string]map[string]any
+	if code := get(t, h, "/v0/annotations", &all); prec.Code != 200 || code != 200 || all[fixtureID]["pinned"] != true {
+		t.Fatalf("annotate then list: %d %d %v", prec.Code, code, all)
+	}
+	var snap map[string]any
+	if code := get(t, h, "/v0/claude", &snap); code != 200 || snap["experiments"] == nil || snap["identity"] == nil {
+		t.Fatalf("claude route: %d %v", code, snap)
+	}
 	var e map[string]string
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/turns/99", &e); code != 404 || e["error"] == "" {
 		t.Fatalf("out-of-range turn: %d %v", code, e)

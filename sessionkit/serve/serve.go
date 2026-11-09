@@ -12,12 +12,18 @@
 //	GET  /v0/sessions/{id}/actions/{n} one action with its tool calls and results
 //	GET  /v0/sessions/{id}/actions/{n}/context  what the model received: system prompt, tools, messages, attachments (?full=1 for texts)
 //	GET  /v0/sessions/{id}/compactions/{n}      before/after a compaction: summary sections, preserved messages, re-injected context
+//	GET  /v0/sessions/{id}/relations            action spans, background tasks, hand-backs, retries, files, outside services, events
+//	GET  /v0/sessions/{id}/images               the session's images (no bytes); /images/{n} returns one image
+//	GET  /v0/sessions/{id}/annotations          pin, tags and notes; PATCH the same path to change them
+//	GET  /v0/annotations                        every annotated session
+//	GET  /v0/claude?root=                       how Claude Code is configured: settings layers, experiments, flags (redacted)
 //	GET  /v0/search?q=&limit=&project=&session=&kind=&prefix=
 //	POST /v0/archive                  {"ids": [...], "project": "", "strip_requests": false} → archive results
 package serve
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -30,8 +36,10 @@ import (
 	"sync"
 	"time"
 
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/annotate"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/claudeconfig"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/search"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
@@ -68,6 +76,13 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}", s.action)
 	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}/context", s.actionContext)
 	mux.HandleFunc("GET /v0/sessions/{id}/compactions/{n}", s.compaction)
+	mux.HandleFunc("GET /v0/sessions/{id}/relations", s.relations)
+	mux.HandleFunc("GET /v0/sessions/{id}/images", s.images)
+	mux.HandleFunc("GET /v0/sessions/{id}/images/{n}", s.image)
+	mux.HandleFunc("GET /v0/sessions/{id}/annotations", s.annotation)
+	mux.HandleFunc("PATCH /v0/sessions/{id}/annotations", s.annotate)
+	mux.HandleFunc("GET /v0/annotations", s.annotations)
+	mux.HandleFunc("GET /v0/claude", s.claude)
 	mux.HandleFunc("GET /v0/search", s.search)
 	mux.HandleFunc("POST /v0/archive", s.archive)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -101,6 +116,8 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 		"routes": []string{
 			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
 			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
+			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
+			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=",
 			"GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive",
 		},
 	})
@@ -297,6 +314,117 @@ func (s *Server) compaction(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, d)
+}
+
+func (s *Server) relations(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, res.Session.Relations())
+}
+
+func (s *Server) images(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	writeJSON(w, http.StatusOK, res.Session.Images())
+}
+
+// image returns one image's bytes with its media type. The only /v0 route
+// that is not JSON.
+func (s *Server) image(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil {
+		writeError(w, http.StatusNotFound, "image must be a number")
+		return
+	}
+	mt, b64, err := res.Session.ImageData(n)
+	if err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	raw, err := base64.StdEncoding.DecodeString(b64)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "image payload is not base64: "+err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", mt)
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(raw)
+}
+
+func (s *Server) annotation(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	a, err := annotate.Get(s.Archive.Home, res.Session.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *Server) annotate(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	var p annotate.Patch
+	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+		writeError(w, http.StatusBadRequest, "body must be JSON: "+err.Error())
+		return
+	}
+	a, err := annotate.Apply(s.Archive.Home, res.Session.ID, p)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, a)
+}
+
+func (s *Server) annotations(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	all, err := annotate.All(s.Archive.Home)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, all)
+}
+
+func (s *Server) claude(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rep, err := s.Inspect()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	snap, err := claudeconfig.Read(rep.ClaudeDir, r.URL.Query()["root"])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, snap)
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {

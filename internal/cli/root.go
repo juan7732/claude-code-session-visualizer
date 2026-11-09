@@ -41,7 +41,7 @@ browsable, durable and searchable. Every read command accepts --json for agents.
 	}
 	root.PersistentFlags().Bool("json", false, "machine-readable output (one JSON document on stdout)")
 	root.PersistentFlags().Bool("no-cache", false, "do not read or write indexed summaries in ~/.sessionkit/skit.sqlite")
-	root.AddCommand(newDoctor(), newDescribe(), newProjects(), newList(), newShow(), newStats(), newArchive(), newSearch(), newServe(), newContext())
+	root.AddCommand(newDoctor(), newDescribe(), newProjects(), newList(), newShow(), newStats(), newArchive(), newSearch(), newServe(), newContext(), newRelations(), newImages(), newAnnotate(), newClaude())
 	return root
 }
 

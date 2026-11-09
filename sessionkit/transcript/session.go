@@ -84,6 +84,8 @@ type Action struct {
 	Model      string    `json:"model"`
 	At         time.Time `json:"at"`
 	StopReason string    `json:"stop_reason,omitempty"`
+	// Cwd is the working directory recorded on the action's first record.
+	Cwd string `json:"cwd,omitempty"`
 	// Synthetic is true for messages Claude Code wrote itself (model "<synthetic>"):
 	// shown on the timeline, not counted as requests. SyntheticKind says which:
 	// "api_error" (the API could not be reached), "no_response" (a prompt that
@@ -610,7 +612,7 @@ func (s *Session) addAssistant(r *Record, actions map[string]*Action, calls map[
 	}
 	t, ok := actions[key]
 	if !ok {
-		t = &Action{Index: len(s.Actions), RequestID: r.RequestID, MessageID: r.Message.ID, Model: r.Message.Model, At: r.Timestamp,
+		t = &Action{Index: len(s.Actions), RequestID: r.RequestID, MessageID: r.Message.ID, Model: r.Message.Model, At: r.Timestamp, Cwd: r.Cwd,
 			Synthetic: r.Message.Model == SyntheticModel}
 		if r.Message.Usage != nil {
 			t.Usage = *r.Message.Usage

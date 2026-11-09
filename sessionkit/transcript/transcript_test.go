@@ -423,3 +423,62 @@ func TestCompactionOf(t *testing.T) {
 		t.Fatal("out of range must error")
 	}
 }
+
+func TestRelationsOnBootstrapFixture(t *testing.T) {
+	s, err := Load(filepath.Join("..", "..", "internal", "testdata", "sessions", "bootstrap-session", "36086585-e295-4279-a0c2-ef7b1901e080.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rel := s.Relations()
+	if len(rel.Spans) != len(s.Actions) {
+		t.Fatalf("one span per action: %d spans, %d actions", len(rel.Spans), len(s.Actions))
+	}
+	for _, sp := range rel.Spans {
+		if sp.GenEnd.Before(sp.At) || sp.ToolsEnd.Before(sp.GenEnd) || sp.End.Before(sp.At) {
+			t.Fatalf("span %d is out of order: %+v", sp.Action, sp)
+		}
+	}
+	if len(rel.Handbacks) != len(s.Subagents) {
+		t.Fatalf("one hand-back per subagent: %d vs %d", len(rel.Handbacks), len(s.Subagents))
+	}
+	for _, h := range rel.Handbacks {
+		if h.Action >= 0 && h.Action <= h.Spawn.Action {
+			t.Fatalf("a hand-back lands after its spawn: %+v", h)
+		}
+	}
+	for _, tk := range rel.Tasks {
+		for _, p := range tk.Pickups {
+			if p.At.Before(tk.Launch.At) {
+				t.Fatalf("task %s read before launch", tk.ID)
+			}
+		}
+	}
+	for _, r := range rel.Retries {
+		if r.Retry.Turn != r.Failed.Turn || !r.Retry.At.After(r.Failed.At) {
+			t.Fatalf("a retry follows its failure in the same turn: %+v", r)
+		}
+	}
+	if len(rel.Retries) == 0 || len(rel.Outside) == 0 {
+		t.Fatalf("the bootstrap session has failed calls and web fetches: retries=%d outside=%d", len(rel.Retries), len(rel.Outside))
+	}
+	if got := len(s.Images()); got != s.Totals.Images {
+		t.Fatalf("Images lists every counted image: %d vs %d", got, s.Totals.Images)
+	}
+	for _, a := range s.Actions {
+		if !a.Synthetic && a.Cwd == "" {
+			t.Fatalf("action %d has no cwd", a.Index)
+		}
+	}
+}
+
+func TestRelationsHeuristics(t *testing.T) {
+	if !writesTo("cat > docs/a.md <<'EOF'", "docs/a.md") || !writesTo("sed -i '' s/x/y/ src/b.go", "src/b.go") || writesTo("cat docs/a.md", "docs/a.md") {
+		t.Fatal("writesTo: redirects and in-place edits write, cat reads")
+	}
+	if got := errorText(json.RawMessage(`{"status":529,"error":{"message":"Overloaded"}}`)); got != "529 Overloaded" {
+		t.Fatalf("errorText = %q", got)
+	}
+	if got := errorText(json.RawMessage(`"plain"`)); got != "plain" {
+		t.Fatalf("errorText = %q", got)
+	}
+}
