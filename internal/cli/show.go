@@ -18,20 +18,21 @@ import (
 )
 
 func newShow() *cobra.Command {
-	var turn int
+	var turn, action int
 	var width int
-	var showContext bool
+	var showContext, showThinking bool
 	cmd := &cobra.Command{
 		Use:   "show <session>",
 		Short: "Show one session as a timeline",
-		Long: `show prints a session as a timeline: prompts, model turns, tool calls with their
-durations, compactions, API errors and subagent launches, in time order. <session>
-is a session id, a unique id prefix, or the path to a .jsonl transcript.
+		Long: `show prints a session as a timeline grouped by turn: each human prompt opens a
+turn, and the agent's turn below it lists its actions (one per API request) with
+their tool calls, durations, compactions, API errors and subagent launches.
+<session> is a session id, a unique id prefix, or the path to a .jsonl transcript.
 
-With --turn N the full content of request N is printed instead: its blocks (text,
-thinking, tool inputs) and the results of its tool calls. With --json the whole
-parsed session is emitted (image bytes replaced by their size).`,
-		Example: "  skit show 36086585\n  skit show 36086585 --turn 12\n  skit show ~/.claude/projects/-Users-me-app/<id>.jsonl --json",
+--turn N prints agent turn N in full: every action's thinking, text, tool inputs
+and results. --action N prints one action. --thinking adds thinking text to the
+timeline. --json emits the whole parsed session (image bytes replaced by size).`,
+		Example: "  skit show 36086585\n  skit show 36086585 --turn 4\n  skit show 36086585 --action 12\n  skit show ~/.claude/projects/-Users-me-app/<id>.jsonl --json",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			r, err := resolve(cmd, args[0])
@@ -43,17 +44,22 @@ parsed session is emitted (image bytes replaced by their size).`,
 			if jsonWanted(cmd) {
 				return writeJSON(w, archive.Document(r))
 			}
+			if cmd.Flags().Changed("action") {
+				return printAction(w, s, action, width)
+			}
 			if cmd.Flags().Changed("turn") {
 				return printTurn(w, s, turn, width)
 			}
 			if r.ArchivedOnly {
 				fmt.Fprintln(w, "Source   gone from ~/.claude; showing the archived copy")
 			}
-			printTimeline(w, s, r.Project, width, showContext)
+			printTimeline(w, s, r.Project, width, showContext, showThinking)
 			return nil
 		},
 	}
-	cmd.Flags().IntVarP(&turn, "turn", "t", 0, "print request N in full (0-based index from the timeline)")
+	cmd.Flags().IntVarP(&turn, "turn", "t", 0, "print agent turn N in full: all its actions and tool results")
+	cmd.Flags().IntVarP(&action, "action", "a", 0, "print action N in full (one API request)")
+	cmd.Flags().BoolVar(&showThinking, "thinking", false, "include thinking text under each action in the timeline")
 	cmd.Flags().IntVar(&width, "width", 100, "column width for text snippets")
 	cmd.Flags().BoolVar(&showContext, "context", false, "also show what shaped the context: blocks injected into prompts and every attachment Claude Code added")
 	return cmd
@@ -65,7 +71,7 @@ type event struct {
 	text string
 }
 
-func printTimeline(w io.Writer, s *transcript.Session, project string, width int, showContext bool) {
+func printTimeline(w io.Writer, s *transcript.Session, project string, width int, showContext, showThinking bool) {
 	sum := stats.Compute(s, project, stats.Options{})
 	fmt.Fprintf(w, "Session  %s  %s\n", s.ID, sum.Title)
 	fmt.Fprintf(w, "Project  %s\n", project)
@@ -82,8 +88,8 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 	for _, m := range sum.Models {
 		models = append(models, fmt.Sprintf("%s ×%d", m.Name, m.Count))
 	}
-	fmt.Fprintf(w, "Totals   prompts %d · requests %d · tool calls %d · compactions %d · subagents %d · api errors %d · synthetic %d · cost %s\n",
-		sum.Prompts, sum.Requests, sum.ToolCalls, sum.Compactions, sum.Subagents, sum.APIErrors, sum.Synthetic, money(sum.ClaudeCodeCostUSD))
+	fmt.Fprintf(w, "Totals   turns %d · actions %d · tool calls %d · compactions %d · subagents %d · api errors %d · synthetic %d · cost %s\n",
+		sum.Turns+sum.SystemTurns, sum.Requests, sum.ToolCalls, sum.Compactions, sum.Subagents, sum.APIErrors, sum.Synthetic, money(sum.ClaudeCodeCostUSD))
 	fmt.Fprintf(w, "Context  %d injected blocks in prompts · %d attachments", sum.Injected, sum.Attachments)
 	if !showContext {
 		fmt.Fprint(w, "   (--context to show them)")
@@ -99,6 +105,17 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 	fmt.Fprintln(w)
 
 	var events []event
+	turnOf := map[*transcript.Prompt]int{}
+	for _, t := range s.Turns {
+		if t.Prompt != nil {
+			turnOf[t.Prompt] = t.Index
+		} else {
+			events = append(events, event{t.StartAt, fmt.Sprintf("turn %d", t.Index), fmt.Sprintf("started by %s (no human prompt)", t.Origin)})
+		}
+		if len(t.Actions) > 0 {
+			events = append(events, event{t.EndAt, "  ↳ end", fmt.Sprintf("turn %d: %d actions · %d tool calls · %s · out %s", t.Index, len(t.Actions), t.ToolCalls, shortDuration(t.Duration()), stats.FormatTokens(t.Usage.OutputTokens))})
+		}
+	}
 	for _, p := range s.Prompts {
 		img := ""
 		if p.Images > 0 {
@@ -110,7 +127,7 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 				text += fmt.Sprintf("\n%25s ctx %-16s %s", "", transcript.InjectedKind(b.Text), truncate(b.Text, width-20))
 			}
 		}
-		events = append(events, event{p.At, "prompt", text})
+		events = append(events, event{p.At, fmt.Sprintf("turn %d", turnOf[p]), text})
 	}
 	if showContext {
 		for _, r := range s.Records {
@@ -130,30 +147,28 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 			}
 		}
 	}
-	for _, t := range s.Turns {
-		if t.Synthetic {
-			kind := "· note"
-			if t.SyntheticKind == "api_error" {
-				kind = "! api_error"
+	for _, a := range s.Actions {
+		if a.Synthetic {
+			kind := "  · note"
+			if a.SyntheticKind == "api_error" {
+				kind = "  ! api_error"
 			}
-			events = append(events, event{t.At, kind, truncate(t.Text(), width) + "  (written by Claude Code, no request)"})
+			events = append(events, event{a.At, kind, truncate(a.Text(), width) + "  (written by Claude Code, no request)"})
 			continue
 		}
-		text := truncate(t.Text(), width-30)
-		think := 0
-		for _, b := range t.Blocks {
-			if b.Type == "thinking" {
-				think++
-			}
-		}
-		meta := fmt.Sprintf("%s  out %s · ctx %s", shortModel(t.Model), stats.FormatTokens(t.Usage.OutputTokens), stats.FormatTokens(t.Usage.ContextTokens()))
-		if think > 0 {
+		text := truncate(a.Text(), width-30)
+		thinking := a.Thinking()
+		meta := fmt.Sprintf("%s  out %s · ctx %s", shortModel(a.Model), stats.FormatTokens(a.Usage.OutputTokens), stats.FormatTokens(a.Usage.ContextTokens()))
+		if thinking != "" {
 			meta += " · thinking"
 		}
 		if text != "" {
 			meta += "  “" + text + "”"
 		}
-		events = append(events, event{t.At, fmt.Sprintf("turn %d", t.Index), meta})
+		if showThinking && thinking != "" {
+			meta += fmt.Sprintf("\n%25s 💭 %s", "", truncate(thinking, width-10))
+		}
+		events = append(events, event{a.At, fmt.Sprintf("  action %d", a.Index), meta})
 	}
 	for _, c := range s.ToolCalls {
 		dur := ""
@@ -174,7 +189,7 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 			}
 			line += fmt.Sprintf("  → subagent %s (%s, %d requests, %d tool calls)", sa.AgentID, model, sa.Session.Totals.Requests, sa.Session.Totals.ToolCalls)
 		}
-		events = append(events, event{c.At, "⚙ " + c.Name, line})
+		events = append(events, event{c.At, "    ⚙ " + c.Name, line})
 	}
 	for _, c := range s.Compactions {
 		text := "compaction"
@@ -195,32 +210,58 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 	}
 	sort.SliceStable(events, func(i, j int) bool { return events[i].at.Before(events[j].at) })
 	for _, e := range events {
-		fmt.Fprintf(w, "%s  %-14s %s\n", offset(s.FirstAt, e.at), e.kind, e.text)
+		fmt.Fprintf(w, "%s  %-16s %s\n", offset(s.FirstAt, e.at), e.kind, e.text)
 	}
 }
 
 func printTurn(w io.Writer, s *transcript.Session, n, width int) error {
 	if n < 0 || n >= len(s.Turns) {
-		return fmt.Errorf("turn %d out of range (session has %d requests)", n, len(s.Turns))
+		return fmt.Errorf("turn %d out of range (session has %d turns)", n, len(s.Turns))
 	}
 	t := s.Turns[n]
-	fmt.Fprintf(w, "Turn %d  %s  %s  request %s\n", t.Index, localClock(t.At), t.Model, t.RequestID)
-	fmt.Fprintf(w, "Usage   in %d · cache write %d · cache read %d · out %d (thinking %d) · context %s · stop %s\n\n",
-		t.Usage.InputTokens, t.Usage.CacheCreationInputTokens, t.Usage.CacheReadInputTokens, t.Usage.OutputTokens, t.Usage.ThinkingTokens,
-		stats.FormatTokens(t.Usage.ContextTokens()), t.StopReason)
-	for _, b := range t.Blocks {
+	fmt.Fprintf(w, "Turn %d  %s  origin %s  %d actions · %d tool calls · %s · out %s\n", t.Index, localClock(t.StartAt), t.Origin, len(t.Actions), t.ToolCalls, shortDuration(t.Duration()), stats.FormatTokens(t.Usage.OutputTokens))
+	if t.Prompt != nil {
+		fmt.Fprintf(w, "\n══ human ══\n%s\n", t.Prompt.Text)
+		for _, b := range t.Prompt.Context {
+			fmt.Fprintf(w, "   [injected %s] %s\n", transcript.InjectedKind(b.Text), truncate(b.Text, width))
+		}
+	}
+	for _, a := range t.Actions {
+		fmt.Fprintln(w)
+		if err := printAction(w, s, a.Index, width); err != nil {
+			return err
+		}
+	}
+	for _, c := range t.Compactions {
+		if c.Metadata != nil {
+			fmt.Fprintf(w, "\n✂ compaction (%s): %s → %s tokens\n", c.Metadata.Trigger, stats.FormatTokens(c.Metadata.PreTokens), stats.FormatTokens(c.Metadata.PostTokens))
+		}
+	}
+	return nil
+}
+
+func printAction(w io.Writer, s *transcript.Session, n, width int) error {
+	if n < 0 || n >= len(s.Actions) {
+		return fmt.Errorf("action %d out of range (session has %d actions)", n, len(s.Actions))
+	}
+	a := s.Actions[n]
+	fmt.Fprintf(w, "── action %d  (turn %d)  %s  %s  request %s\n", a.Index, a.Turn, localClock(a.At), a.Model, a.RequestID)
+	fmt.Fprintf(w, "   in %d · cache write %d · cache read %d · out %d (thinking %d) · context %s · stop %s\n",
+		a.Usage.InputTokens, a.Usage.CacheCreationInputTokens, a.Usage.CacheReadInputTokens, a.Usage.OutputTokens, a.Usage.ThinkingTokens,
+		stats.FormatTokens(a.Usage.ContextTokens()), a.StopReason)
+	for _, b := range a.Blocks {
 		switch b.Type {
 		case "thinking":
-			fmt.Fprintf(w, "── thinking ──\n%s\n\n", b.Thinking)
+			fmt.Fprintf(w, "\n   💭 thinking\n%s\n", indent(b.Thinking, "   "))
 		case "text":
-			fmt.Fprintf(w, "── text ──\n%s\n\n", b.Text)
+			fmt.Fprintf(w, "\n   text\n%s\n", indent(b.Text, "   "))
 		case "tool_use":
 			var pretty bytes.Buffer
 			if err := json.Indent(&pretty, b.Input, "", "  "); err != nil {
 				pretty.Write(b.Input)
 			}
-			fmt.Fprintf(w, "── tool_use %s (%s) ──\n%s\n", b.Name, b.ID, pretty.String())
-			for _, c := range t.ToolCalls {
+			fmt.Fprintf(w, "\n   ⚙ tool_use %s (%s)\n%s\n", b.Name, b.ID, indent(pretty.String(), "   "))
+			for _, c := range a.ToolCalls {
 				if c.ID == b.ID {
 					if !c.Paired {
 						fmt.Fprintln(w, "   (no result recorded)")
@@ -240,12 +281,14 @@ func printTurn(w io.Writer, s *transcript.Session, n, width int) error {
 							label += " (full output in " + p + ", unreadable: " + err.Error() + ")"
 						}
 					}
-					fmt.Fprintf(w, "   %s after %s:\n%s\n", label, shortDuration(c.EndedAt.Sub(c.At)), indent(truncateLines(res, 40), "   "))
+					fmt.Fprintf(w, "   %s after %s:\n%s\n", label, shortDuration(c.EndedAt.Sub(c.At)), indent(truncateLines(res, 40), "      "))
+					if c.Subagent != nil {
+						fmt.Fprintf(w, "   → subagent %s: %d actions, %d tool calls\n", c.Subagent.AgentID, c.Subagent.Session.Totals.Requests, c.Subagent.Session.Totals.ToolCalls)
+					}
 				}
 			}
-			fmt.Fprintln(w)
 		default:
-			fmt.Fprintf(w, "── %s ──\n\n", b.Type)
+			fmt.Fprintf(w, "\n   [%s]\n", b.Type)
 		}
 	}
 	return nil

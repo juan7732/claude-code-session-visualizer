@@ -28,7 +28,9 @@ type Summary struct {
 	Partial   bool      `json:"partial,omitempty"`
 
 	Prompts     int `json:"prompts"`
-	Requests    int `json:"requests"`
+	Turns       int `json:"turns"`        // agent turns answering a prompt
+	SystemTurns int `json:"system_turns"` // agent turns started by notifications etc.
+	Requests    int `json:"requests"`     // API requests = actions (subagents included)
 	ToolCalls   int `json:"tool_calls"`
 	ToolErrors  int `json:"tool_errors"`
 	Unpaired    int `json:"unpaired_tool_calls"`
@@ -78,9 +80,10 @@ type CompactionInfo struct {
 	PostTokens int       `json:"post_tokens"`
 }
 
-// ContextPoint is one request's context size.
+// ContextPoint is one action's context size.
 type ContextPoint struct {
-	Index    int       `json:"index"`
+	Index    int       `json:"index"` // action index
+	Turn     int       `json:"turn"`
 	At       time.Time `json:"at"`
 	Tokens   int       `json:"tokens"`
 	CacheHit int       `json:"cache_read"`
@@ -100,7 +103,7 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		ID: s.ID, Path: s.Path, Project: project, Title: s.DisplayTitle(), Slug: s.Slug, Cwd: s.Cwd, Cwds: s.Cwds,
 		GitBranch: s.GitBranch, Versions: s.Versions, FirstAt: s.FirstAt, LastAt: s.LastAt,
 		Duration: FormatDuration(s.Duration()), Partial: s.Partial,
-		Prompts: t.Prompts, Requests: t.Requests, ToolCalls: t.ToolCalls, ToolErrors: t.ToolErrors,
+		Prompts: t.Prompts, Turns: t.Turns, SystemTurns: t.SystemTurns, Requests: t.Requests, ToolCalls: t.ToolCalls, ToolErrors: t.ToolErrors,
 		Unpaired: t.UnpairedToolUses, Images: t.Images, Compactions: t.Compactions, APIErrors: t.APIErrors,
 		Subagents: t.Subagents, Branches: s.Branches, Usage: t.Usage, PRLinks: s.PRLinks,
 		Synthetic: t.Synthetic, Injected: t.InjectedBlocks, Attachments: t.Attachments,
@@ -168,12 +171,12 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		sum.LinesAdded, sum.LinesRemoved = s.Cost.TotalLinesAdded, s.Cost.TotalLinesRemoved
 	}
 	if opt.Context {
-		for _, turn := range s.Turns {
-			if turn.Synthetic {
+		for _, a := range s.Actions {
+			if a.Synthetic {
 				continue
 			}
-			sum.Context = append(sum.Context, ContextPoint{Index: turn.Index, At: turn.At, Tokens: turn.Usage.ContextTokens(),
-				CacheHit: turn.Usage.CacheReadInputTokens, Output: turn.Usage.OutputTokens})
+			sum.Context = append(sum.Context, ContextPoint{Index: a.Index, Turn: a.Turn, At: a.At, Tokens: a.Usage.ContextTokens(),
+				CacheHit: a.Usage.CacheReadInputTokens, Output: a.Usage.OutputTokens})
 		}
 	}
 	return sum

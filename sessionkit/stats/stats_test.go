@@ -32,6 +32,9 @@ func TestComputeRollsSubagentsIn(t *testing.T) {
 	if sum.Context[0].Tokens != 6002 {
 		t.Fatalf("context of first request = %d, want input+cache_creation+cache_read", sum.Context[0].Tokens)
 	}
+	if sum.Turns != 2 || sum.SystemTurns != 0 || sum.Context[0].Turn != 0 {
+		t.Fatalf("turns=%d system=%d first context point turn=%d", sum.Turns, sum.SystemTurns, sum.Context[0].Turn)
+	}
 	if sum.Title != "Synthetic basics" || len(sum.Cwds) != 2 {
 		t.Fatalf("title=%q cwds=%v", sum.Title, sum.Cwds)
 	}

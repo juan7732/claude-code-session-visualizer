@@ -19,7 +19,7 @@ import (
 )
 
 // SchemaVersion is bumped with every migration.
-const SchemaVersion = 1
+const SchemaVersion = 2
 
 // Store is an open index.
 type Store struct {
@@ -68,7 +68,20 @@ func (s *Store) migrate() error {
 	}
 	defer tx.Rollback()
 	if version == 0 {
-		if _, err := tx.Exec(schemaV1); err != nil {
+		// A new index is created at the latest schema directly.
+		if _, err := tx.Exec(schemaLatest); err != nil {
+			return err
+		}
+		version = SchemaVersion
+	}
+	if version == 1 {
+		// v2: segments carry the agent turn and the action; sessions record the
+		// schema that indexed them so stale rows are re-indexed by `archive`.
+		// Old segment rows had the action index in `turn`; drop them, the
+		// archive re-creates them.
+		if _, err := tx.Exec(`ALTER TABLE segments ADD COLUMN action INTEGER NOT NULL DEFAULT -1;
+			ALTER TABLE sessions ADD COLUMN schema INTEGER NOT NULL DEFAULT 1;
+			DELETE FROM segments;`); err != nil {
 			return err
 		}
 	}
@@ -78,7 +91,9 @@ func (s *Store) migrate() error {
 	return tx.Commit()
 }
 
-const schemaV1 = `
+// schemaLatest is the DDL for a brand-new index (schema SchemaVersion).
+// Existing indexes reach it through the migrations in migrate().
+const schemaLatest = `
 CREATE TABLE meta(key TEXT PRIMARY KEY, value TEXT NOT NULL);
 CREATE TABLE sessions(
   id             TEXT PRIMARY KEY,
@@ -98,7 +113,8 @@ CREATE TABLE sessions(
   archive_path   TEXT NOT NULL DEFAULT '',  -- raw copy; '' when only the summary is indexed
   archived_bytes INTEGER NOT NULL DEFAULT 0, -- source bytes copied so far (append offset)
   debug          INTEGER NOT NULL DEFAULT 0, -- api-request* records kept in the raw copy
-  archived_at    TEXT
+  archived_at    TEXT,
+  schema         INTEGER NOT NULL DEFAULT 1  -- SchemaVersion that produced the summary and segments
 );
 CREATE INDEX sessions_last_at ON sessions(last_at);
 CREATE TABLE segments(
@@ -107,6 +123,7 @@ CREATE TABLE segments(
   agent   TEXT NOT NULL DEFAULT '',   -- '' for the main transcript, else the subagent id
   turn    INTEGER NOT NULL DEFAULT -1,
   uuid    TEXT NOT NULL DEFAULT '',
+  action  INTEGER NOT NULL DEFAULT -1,
   kind    TEXT NOT NULL,              -- prompt | context | assistant | thinking | tool_use | tool_result | summary
   tool    TEXT NOT NULL DEFAULT '',
   at      TEXT,
@@ -142,6 +159,7 @@ type SessionRow struct {
 	ArchivedBytes int64
 	Debug         bool
 	ArchivedAt    time.Time
+	Schema        int
 }
 
 // Archived reports whether a raw copy exists for the row.
@@ -158,14 +176,14 @@ func Fingerprint(subFiles int, subBytes int64) string {
 func (s *Store) UpsertSummary(r SessionRow) error {
 	_, err := s.db.Exec(`
 INSERT INTO sessions(id, project, source_path, source_size, source_mtime, source_sub, records, first_at, last_at, title,
-                     owner_account, owner_org, summary, indexed_at)
-VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     owner_account, owner_org, summary, indexed_at, schema)
+VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 ON CONFLICT(id) DO UPDATE SET project=excluded.project, source_path=excluded.source_path, source_size=excluded.source_size,
   source_mtime=excluded.source_mtime, source_sub=excluded.source_sub, records=excluded.records, first_at=excluded.first_at,
   last_at=excluded.last_at, title=excluded.title, owner_account=excluded.owner_account, owner_org=excluded.owner_org,
-  summary=excluded.summary, indexed_at=excluded.indexed_at`,
+  summary=excluded.summary, indexed_at=excluded.indexed_at, schema=excluded.schema`,
 		r.ID, r.Project, r.SourcePath, r.SourceSize, r.SourceMtime, r.SourceSub, r.Records, timeText(r.FirstAt), timeText(r.LastAt),
-		r.Title, r.OwnerAccount, r.OwnerOrg, string(r.Summary), time.Now().UTC().Format(time.RFC3339Nano))
+		r.Title, r.OwnerAccount, r.OwnerOrg, string(r.Summary), time.Now().UTC().Format(time.RFC3339Nano), SchemaVersion)
 	return err
 }
 
@@ -183,7 +201,7 @@ func (s *Store) SetArchive(id, archivePath string, archivedBytes int64, debug bo
 }
 
 const sessionCols = `id, project, source_path, source_size, source_mtime, source_sub, records, first_at, last_at, title,
- owner_account, owner_org, summary, indexed_at, archive_path, archived_bytes, debug, archived_at`
+ owner_account, owner_org, summary, indexed_at, archive_path, archived_bytes, debug, archived_at, schema`
 
 func scanSession(sc interface{ Scan(...any) error }) (SessionRow, error) {
 	var r SessionRow
@@ -191,7 +209,7 @@ func scanSession(sc interface{ Scan(...any) error }) (SessionRow, error) {
 	var summary string
 	var debug int
 	err := sc.Scan(&r.ID, &r.Project, &r.SourcePath, &r.SourceSize, &r.SourceMtime, &r.SourceSub, &r.Records, &first, &last, &r.Title,
-		&r.OwnerAccount, &r.OwnerOrg, &summary, &indexed, &r.ArchivePath, &r.ArchivedBytes, &debug, &archived)
+		&r.OwnerAccount, &r.OwnerOrg, &summary, &indexed, &r.ArchivePath, &r.ArchivedBytes, &debug, &archived, &r.Schema)
 	if err != nil {
 		return r, err
 	}
@@ -253,7 +271,8 @@ func (s *Store) SessionsByPrefix(prefix string) ([]SessionRow, error) {
 type Segment struct {
 	Session string
 	Agent   string
-	Turn    int
+	Turn    int // agent turn index, -1 for session-level pieces
+	Action  int // action index within the session, -1 for prompts and summaries
 	UUID    string
 	Kind    string
 	Tool    string
@@ -271,13 +290,13 @@ func (s *Store) ReplaceSegments(session string, segs []Segment) error {
 	if _, err := tx.Exec(`DELETE FROM segments WHERE session = ?`, session); err != nil {
 		return err
 	}
-	stmt, err := tx.Prepare(`INSERT INTO segments(session, agent, turn, uuid, kind, tool, at, text) VALUES(?,?,?,?,?,?,?,?)`)
+	stmt, err := tx.Prepare(`INSERT INTO segments(session, agent, turn, action, uuid, kind, tool, at, text) VALUES(?,?,?,?,?,?,?,?,?)`)
 	if err != nil {
 		return err
 	}
 	defer stmt.Close()
 	for _, g := range segs {
-		if _, err := stmt.Exec(g.Session, g.Agent, g.Turn, g.UUID, g.Kind, g.Tool, timeText(g.At), g.Text); err != nil {
+		if _, err := stmt.Exec(g.Session, g.Agent, g.Turn, g.Action, g.UUID, g.Kind, g.Tool, timeText(g.At), g.Text); err != nil {
 			return err
 		}
 	}

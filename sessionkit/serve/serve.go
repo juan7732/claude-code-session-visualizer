@@ -8,7 +8,8 @@
 //	GET  /v0/sessions?project=&limit= list rows (archive.ListRow)
 //	GET  /v0/sessions/{id}            session document (archive.SessionDoc)
 //	GET  /v0/sessions/{id}/stats      stats.Summary with the context curve
-//	GET  /v0/sessions/{id}/turns/{n}  one turn with its tool calls and results
+//	GET  /v0/sessions/{id}/turns/{n}  one agent turn: its actions, each with tool calls and results
+//	GET  /v0/sessions/{id}/actions/{n} one action with its tool calls and results
 //	GET  /v0/search?q=&limit=&project=&session=&kind=&prefix=
 //	POST /v0/archive                  {"ids": [...], "project": "", "debug": false} → archive results
 package serve
@@ -62,6 +63,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/sessions/{id}", s.session)
 	mux.HandleFunc("GET /v0/sessions/{id}/stats", s.sessionStats)
 	mux.HandleFunc("GET /v0/sessions/{id}/turns/{n}", s.turn)
+	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}", s.action)
 	mux.HandleFunc("GET /v0/search", s.search)
 	mux.HandleFunc("POST /v0/archive", s.archive)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
@@ -94,7 +96,8 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 		"version": s.Version,
 		"routes": []string{
 			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
-			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive",
+			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}",
+			"GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive",
 		},
 	})
 }
@@ -176,17 +179,41 @@ func (s *Server) sessionStats(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, stats.Compute(res.Session, res.Project, stats.Options{Context: true}))
 }
 
-// TurnDoc is GET /v0/sessions/{id}/turns/{n}.
-type TurnDoc struct {
-	*transcript.Turn
-	ToolCalls []TurnToolCall `json:"tool_calls"`
+// ActionDoc is one action with its tool calls and their results.
+type ActionDoc struct {
+	*transcript.Action
+	Thinking  string           `json:"thinking,omitempty"`
+	ToolCalls []ActionToolCall `json:"tool_calls"`
 }
 
-// TurnToolCall is a tool call with its result text.
-type TurnToolCall struct {
+// ActionToolCall is a tool call with its result text.
+type ActionToolCall struct {
 	*transcript.ToolCall
 	Result       string `json:"result,omitempty"`
 	ResultSource string `json:"result_source,omitempty"` // "transcript" or the spilled file path
+}
+
+// TurnDoc is GET /v0/sessions/{id}/turns/{n}: one agent turn with every action.
+type TurnDoc struct {
+	*transcript.Turn
+	Actions []ActionDoc `json:"actions"`
+}
+
+func actionDoc(sess *transcript.Session, a *transcript.Action) ActionDoc {
+	doc := ActionDoc{Action: a, Thinking: a.Thinking(), ToolCalls: []ActionToolCall{}}
+	for _, c := range a.ToolCalls {
+		tc := ActionToolCall{ToolCall: c}
+		if c.Paired {
+			tc.Result, tc.ResultSource = c.ResultText(), "transcript"
+			if p, ok := sess.SpilledPath(c); ok {
+				if b, err := os.ReadFile(p); err == nil {
+					tc.Result, tc.ResultSource = string(b), p
+				}
+			}
+		}
+		doc.ToolCalls = append(doc.ToolCalls, tc)
+	}
+	return doc
 }
 
 func (s *Server) turn(w http.ResponseWriter, r *http.Request) {
@@ -198,25 +225,32 @@ func (s *Server) turn(w http.ResponseWriter, r *http.Request) {
 	}
 	n, err := strconv.Atoi(r.PathValue("n"))
 	if err != nil || n < 0 || n >= len(res.Session.Turns) {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("turn %q out of range (session has %d requests)", r.PathValue("n"), len(res.Session.Turns)))
+		writeError(w, http.StatusNotFound, fmt.Sprintf("turn %q out of range (session has %d turns)", r.PathValue("n"), len(res.Session.Turns)))
 		return
 	}
 	res.Session.StripImages()
 	t := res.Session.Turns[n]
-	doc := TurnDoc{Turn: t, ToolCalls: []TurnToolCall{}}
-	for _, c := range t.ToolCalls {
-		tc := TurnToolCall{ToolCall: c}
-		if c.Paired {
-			tc.Result, tc.ResultSource = c.ResultText(), "transcript"
-			if p, ok := res.Session.SpilledPath(c); ok {
-				if b, err := os.ReadFile(p); err == nil {
-					tc.Result, tc.ResultSource = string(b), p
-				}
-			}
-		}
-		doc.ToolCalls = append(doc.ToolCalls, tc)
+	doc := TurnDoc{Turn: t, Actions: []ActionDoc{}}
+	for _, a := range t.Actions {
+		doc.Actions = append(doc.Actions, actionDoc(res.Session, a))
 	}
 	writeJSON(w, http.StatusOK, doc)
+}
+
+func (s *Server) action(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	n, err := strconv.Atoi(r.PathValue("n"))
+	if err != nil || n < 0 || n >= len(res.Session.Actions) {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("action %q out of range (session has %d actions)", r.PathValue("n"), len(res.Session.Actions)))
+		return
+	}
+	res.Session.StripImages()
+	writeJSON(w, http.StatusOK, actionDoc(res.Session, res.Session.Actions[n]))
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {

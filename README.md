@@ -11,7 +11,8 @@ embedding spike is done (`docs/embedding-spike.md`), the Swift client (M6) is ne
 skit doctor                    where Claude Code keeps sessions, retention setting, live sessions, disk use, index size
 skit projects                  projects (start directories) that have sessions
 skit list [-p slug] [-n N]     sessions, most recent first, with prompts, requests, tool calls, tokens, cost, title
-skit show <id> [--turn N]      one session as a timeline; --turn prints a request in full with its tool results;
+skit show <id> [--turn N]      one session as a timeline grouped by turn; --turn N prints an agent turn with all its
+                               actions and tool results, --action N one action, --thinking adds thinking text;
                                --context adds injected prompt blocks and every attachment Claude Code added
 skit stats <id> [--context]    tokens once per request (subagents rolled in), models, tools, compactions, context curve
 skit archive [id...] [--debug] copy sessions into ~/.sessionkit/archive (raw JSONL, zstd) and index them for search

@@ -19,7 +19,7 @@ def main(fixture_dir):
         if not line: continue
         try: recs.append(json.loads(line))
         except Exception: recs.append({"type": "<malformed>"})
-    e = dict(records=len(recs), prompts=0, requests=0, assistant_records=0, tool_calls=0, tool_results=0,
+    e = dict(records=len(recs), prompts=0, turns=0, system_turns=0, requests=0, assistant_records=0, tool_calls=0, tool_results=0,
              images=0, compactions=0, api_errors=0, output_tokens=0, cache_read_input_tokens=0,
              models=collections.Counter(), tools=collections.Counter(), title="", chain_len=0)
     seen_req = set(); by_uuid = {}; leaf = None; latest = None
@@ -58,8 +58,11 @@ def main(fixture_dir):
                     cc = b.get("content")
                     for x in (cc if isinstance(cc, list) else []):
                         if x.get("type") == "image": e["images"] += 1
-            if r.get("turnOrigin") == "human" and not has_result and not r.get("isCompactSummary") and not r.get("isMeta"):
-                e["prompts"] += 1
+            if not has_result and not r.get("isCompactSummary") and not r.get("isMeta") and r.get("turnOrigin"):
+                if r.get("turnOrigin") == "human":
+                    e["prompts"] += 1; e["turns"] += 1
+                else:
+                    e["system_turns"] += 1
     tip = leaf if leaf in by_uuid else (latest[1] if latest else None)
     seen = set()
     while tip and tip in by_uuid and tip not in seen:

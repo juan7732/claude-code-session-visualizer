@@ -3,6 +3,15 @@
 Counts are across the 8 local sessions (6,000+ records) unless noted. Record types are **not documented**; the set grows
 with Claude Code versions. Parse what you know, keep the rest as opaque events, never fail on an unknown type.
 
+## Vocabulary (decisions/0006-turns-and-actions.md)
+
+A session is a chat. The **human turn** is a prompt. The **agent turn** is everything the agent does in answer until it
+stops. Inside it, each API request is an **action**: the model thinks, responds and issues **tool calls**, whose results
+feed the next action. A **subagent** is a nested turn under the Agent tool call that spawned it. In the records: a
+`user` record with `turnOrigin: human` and no `tool_result` opens a turn; every `assistant` record set sharing a
+`requestId` is an action; `tool_result` user records continue the turn; a non-human `turnOrigin` (a task notification)
+opens a system-originated turn. "Request" in counts means action.
+
 ## Record types
 
 | type                       | count | what it is                                                                                                                                                                                                                | timeline?                                                                           |

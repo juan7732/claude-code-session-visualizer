@@ -50,7 +50,7 @@ func TestArchive_SurvivesSourceDeletion(t *testing.T) {
 	if !strings.Contains(res.Stdout, "showing the archived copy") || !strings.Contains(res.Stdout, "→ subagent a1b2c3d4e5f607182") {
 		t.Fatalf("show from archive:\n%s", res.Stdout)
 	}
-	res = h.Run("show", id, "--turn", "3")
+	res = h.Run("show", id, "--action", "3")
 	res.AssertOK(t)
 	if !strings.Contains(res.Stdout, "full output line 1") {
 		t.Fatalf("spilled output should resolve from the archive:\n%s", res.Stdout)

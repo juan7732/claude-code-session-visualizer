@@ -6,8 +6,10 @@
 2. **Dispatch on `type`, keep unknowns.** Store unknown types as opaque events with their timestamp when present.
 3. **Build the tree by `uuid`/`parentUuid`;** find the tip via `last-prompt.leafUuid`, else the latest timestamp. Main
    chain = walk up from the tip. Mark compaction roots via `logicalParentUuid`.
-4. **Reassemble turns by `requestId`.** Order blocks by `apiBlockIndex`. Take `usage` once. Pair `tool_use.id` with the
-   later `tool_result.tool_use_id`; a `tool_use` with no result is "in flight" or interrupted.
+4. **Reassemble actions by `requestId`.** Order blocks by `apiBlockIndex`. Take `usage` once. Pair `tool_use.id` with
+   the later `tool_result.tool_use_id`; a `tool_use` with no result is "in flight" or interrupted. Then **group actions
+   into turns**: a human prompt (or a non-human `turnOrigin` message) opens a turn, and every action until the next one
+   belongs to it. Compactions and API errors attach to the turn they happened in.
 5. **Resolve spilled tool results** from `<session>/tool-results/<id>.txt` when the result text names one.
 6. **Treat the file as live.** Claude Code appends while a session runs. Use `sessions/<pid>.json` to know which
    sessions are live, and tail from the last parsed byte offset. Partial last lines happen; keep them for the next read.

@@ -43,7 +43,7 @@ func printStats(w io.Writer, sum stats.Summary, context bool) {
 	fmt.Fprintf(w, "Span      %s → %s  (%s)\n\n", localTime(sum.FirstAt), localTime(sum.LastAt), sum.Duration)
 
 	u := sum.Usage
-	fmt.Fprintln(w, "Tokens (once per request, subagents included)")
+	fmt.Fprintln(w, "Tokens (once per action, subagents included)")
 	fmt.Fprintf(w, "  input           %12d\n", u.InputTokens)
 	fmt.Fprintf(w, "  cache creation  %12d   (5m %d · 1h %d)\n", u.CacheCreationInputTokens, u.Ephemeral5mInputTokens, u.Ephemeral1hInputTokens)
 	fmt.Fprintf(w, "  cache read      %12d   hit ratio %.1f%%\n", u.CacheReadInputTokens, sum.CacheHitRatio*100)
@@ -60,8 +60,8 @@ func printStats(w io.Writer, sum stats.Summary, context bool) {
 	}
 	fmt.Fprintln(w)
 
-	fmt.Fprintf(w, "\nCounts    prompts %d · requests %d · tool calls %d (errors %d, unpaired %d) · images %d · api errors %d · subagents %d · branches %d\n",
-		sum.Prompts, sum.Requests, sum.ToolCalls, sum.ToolErrors, sum.Unpaired, sum.Images, sum.APIErrors, sum.Subagents, sum.Branches)
+	fmt.Fprintf(w, "\nCounts    turns %d (+%d system-started) · actions %d · tool calls %d (errors %d, unpaired %d) · images %d · api errors %d · subagents %d · branches %d\n",
+		sum.Turns, sum.SystemTurns, sum.Requests, sum.ToolCalls, sum.ToolErrors, sum.Unpaired, sum.Images, sum.APIErrors, sum.Subagents, sum.Branches)
 	fmt.Fprintf(w, "Context   %d injected blocks in prompts · %d attachments · %d synthetic messages\n", sum.Injected, sum.Attachments, sum.Synthetic)
 
 	fmt.Fprintln(w, "\nModels")
@@ -89,7 +89,7 @@ func printStats(w io.Writer, sum stats.Summary, context bool) {
 		}
 	}
 	if context && len(sum.Context) > 0 {
-		fmt.Fprintln(w, "\nContext window per request")
+		fmt.Fprintln(w, "\nContext window per action")
 		max := 0
 		for _, p := range sum.Context {
 			if p.Tokens > max {

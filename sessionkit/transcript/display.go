@@ -38,8 +38,8 @@ func (s *Session) StripImages() {
 		}
 		stripBlocks(r.Message.Content)
 	}
-	for _, t := range s.Turns {
-		stripBlocks(t.Blocks)
+	for _, a := range s.Actions {
+		stripBlocks(a.Blocks)
 	}
 	for _, sa := range s.Subagents {
 		if sa.Session != nil {

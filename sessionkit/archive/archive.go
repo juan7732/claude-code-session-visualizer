@@ -89,7 +89,7 @@ func (a *Archive) Summary(l catalog.Located) (sum stats.Summary, fresh bool, err
 	if err != nil {
 		return sum, false, err
 	}
-	if row != nil && a.sourceMatches(row, l) {
+	if row != nil && row.Schema == store.SchemaVersion && a.sourceMatches(row, l) {
 		if json.Unmarshal(row.Summary, &sum) == nil {
 			return sum, true, nil
 		}
@@ -124,7 +124,7 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 	if err != nil {
 		return res, err
 	}
-	if row != nil && row.Archived() && row.Debug == opt.Debug && a.sourceMatches(row, l) {
+	if row != nil && row.Archived() && row.Debug == opt.Debug && row.Schema == store.SchemaVersion && a.sourceMatches(row, l) {
 		if _, err := os.Stat(row.ArchivePath); err == nil {
 			res.Action, res.Records, res.Bytes = "unchanged", row.Records, row.ArchivedBytes
 			return res, nil
@@ -337,40 +337,41 @@ func Segments(s *transcript.Session) []store.Segment {
 	var out []store.Segment
 	add := func(sess *transcript.Session, agent string) {
 		for _, p := range sess.Prompts {
+			turn := turnOfPrompt(sess, p)
 			if t := strings.TrimSpace(p.Text); t != "" {
-				out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: -1, UUID: p.UUID, Kind: "prompt", At: p.At, Text: t})
+				out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: turn, Action: -1, UUID: p.UUID, Kind: "prompt", At: p.At, Text: t})
 			}
 			for _, b := range p.Context {
-				out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: -1, UUID: p.UUID, Kind: "context", Tool: transcript.InjectedKind(b.Text), At: p.At, Text: capText(b.Text)})
+				out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: turn, Action: -1, UUID: p.UUID, Kind: "context", Tool: transcript.InjectedKind(b.Text), At: p.At, Text: capText(b.Text)})
 			}
 		}
-		for _, t := range sess.Turns {
-			for _, b := range t.Blocks {
+		for _, a := range sess.Actions {
+			for _, b := range a.Blocks {
 				switch b.Type {
 				case "text":
 					if txt := strings.TrimSpace(b.Text); txt != "" {
-						out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: t.Index, Kind: "assistant", At: t.At, Text: txt})
+						out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: a.Turn, Action: a.Index, Kind: "assistant", At: a.At, Text: txt})
 					}
 				case "thinking":
 					if txt := strings.TrimSpace(b.Thinking); txt != "" {
-						out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: t.Index, Kind: "thinking", At: t.At, Text: capText(txt)})
+						out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: a.Turn, Action: a.Index, Kind: "thinking", At: a.At, Text: capText(txt)})
 					}
 				case "tool_use":
-					out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: t.Index, Kind: "tool_use", Tool: b.Name, At: t.At, Text: b.Name + " " + capText(string(b.Input))})
+					out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: a.Turn, Action: a.Index, Kind: "tool_use", Tool: b.Name, At: a.At, Text: b.Name + " " + capText(string(b.Input))})
 				}
 			}
-			for _, c := range t.ToolCalls {
+			for _, c := range a.ToolCalls {
 				if !c.Paired {
 					continue
 				}
 				if txt := strings.TrimSpace(c.ResultText()); txt != "" {
-					out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: t.Index, Kind: "tool_result", Tool: c.Name, At: c.EndedAt, Text: capText(txt)})
+					out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: a.Turn, Action: a.Index, Kind: "tool_result", Tool: c.Name, At: c.EndedAt, Text: capText(txt)})
 				}
 			}
 		}
 		for _, c := range sess.Compactions {
 			if c.SummaryTxt != "" {
-				out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: -1, Kind: "summary", At: c.At, Text: capText(c.SummaryTxt)})
+				out = append(out, store.Segment{Session: s.ID, Agent: agent, Turn: -1, Action: -1, Kind: "summary", At: c.At, Text: capText(c.SummaryTxt)})
 			}
 		}
 	}
@@ -381,6 +382,15 @@ func Segments(s *transcript.Session) []store.Segment {
 		}
 	}
 	return out
+}
+
+func turnOfPrompt(s *transcript.Session, p *transcript.Prompt) int {
+	for _, t := range s.Turns {
+		if t.Prompt == p {
+			return t.Index
+		}
+	}
+	return -1
 }
 
 // maxSegmentText caps one segment's indexed text (runes).

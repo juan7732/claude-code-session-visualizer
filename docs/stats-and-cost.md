@@ -5,7 +5,8 @@
 `input_tokens`, `output_tokens`, `cache_creation_input_tokens`, `cache_read_input_tokens`,
 `cache_creation{ephemeral_5m_input_tokens, ephemeral_1h_input_tokens}`, `output_tokens_details{thinking_tokens}`,
 `server_tool_use{web_search_requests, web_fetch_requests}`, `service_tier`, `speed`, `inference_geo`, `iterations[]`.
-Same object repeated on every split record of the request: **sum once per `requestId`**.
+Same object repeated on every split record of the request: **sum once per `requestId`** (one action). Turn usage is the
+sum of its actions.
 
 Largest session, summed once per request: input 5.8k, output 327k, cache creation 1.38M, cache read 44.7M tokens over
 224 requests. Cache reads dominate by two orders of magnitude; any cost view must show them separately.

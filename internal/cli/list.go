@@ -17,8 +17,8 @@ func newList() *cobra.Command {
 		Use:   "list",
 		Short: "List sessions, most recent first, with their key numbers",
 		Long: `list parses every session transcript Claude Code has on disk and prints one line
-per session: id, last activity, duration, prompts, requests, tool calls, output
-tokens, Claude Code's cost figure, and the title.`,
+per session: id, last activity, duration, turns, actions (API requests), tool
+calls, output tokens, Claude Code's cost figure, and the title.`,
 		Example: "  skit list\n  skit list --project tools -n 5\n  skit list --json | jq '.[] | {id, title, requests}'",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -39,13 +39,13 @@ tokens, Claude Code's cost figure, and the title.`,
 				return writeJSON(cmd.OutOrStdout(), rows)
 			}
 			w := cmd.OutOrStdout()
-			fmt.Fprintf(w, "%-8s  %-16s %8s %7s %5s %5s %7s %7s  %s\n", "ID", "LAST ACTIVITY", "DURATION", "PROMPTS", "REQS", "TOOLS", "OUT TOK", "COST", "TITLE")
+			fmt.Fprintf(w, "%-8s  %-16s %8s %5s %7s %5s %7s %7s  %s\n", "ID", "LAST ACTIVITY", "DURATION", "TURNS", "ACTIONS", "TOOLS", "OUT TOK", "COST", "TITLE")
 			for _, r := range rows {
 				title := truncate(r.Title, 50)
 				if r.ArchivedOnly {
 					title += "  (archived; source gone)"
 				}
-				fmt.Fprintf(w, "%-8s  %-16s %8s %7d %5d %5d %7s %7s  %s\n", r.ID[:8], localTime(r.LastAt), r.Duration, r.Prompts, r.Requests, r.ToolCalls,
+				fmt.Fprintf(w, "%-8s  %-16s %8s %5d %7d %5d %7s %7s  %s\n", r.ID[:8], localTime(r.LastAt), r.Duration, r.Turns+r.SystemTurns, r.Requests, r.ToolCalls,
 					stats.FormatTokens(r.Usage.OutputTokens), money(r.ClaudeCodeCostUSD), title)
 			}
 			if len(rows) == 0 {

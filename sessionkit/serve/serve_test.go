@@ -71,12 +71,19 @@ func TestRoutes(t *testing.T) {
 		t.Fatalf("sessions %d %+v", code, rows)
 	}
 	var doc archive.SessionDoc
-	if code := get(t, h, "/v0/sessions/aaaaaaaa", &doc); code != 200 || doc.ID != fixtureID || len(doc.Turns) != 6 || doc.Summary.Requests != 7 {
-		t.Fatalf("session %d id=%s turns=%d", code, doc.ID, len(doc.Turns))
+	if code := get(t, h, "/v0/sessions/aaaaaaaa", &doc); code != 200 || doc.ID != fixtureID || len(doc.Actions) != 6 || len(doc.Turns) != 2 || doc.Summary.Requests != 7 {
+		t.Fatalf("session %d id=%s actions=%d turns=%d", code, doc.ID, len(doc.Actions), len(doc.Turns))
 	}
 	var turn TurnDoc
-	if code := get(t, h, "/v0/sessions/"+fixtureID+"/turns/3", &turn); code != 200 || len(turn.ToolCalls) != 1 || turn.ToolCalls[0].Name != "Edit" || !strings.HasPrefix(turn.ToolCalls[0].Result, "full output line 1") {
-		t.Fatalf("turn %d %+v", code, turn)
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/turns/0", &turn); code != 200 || turn.Origin != "human" || len(turn.Actions) != 4 || turn.ToolCalls != 4 {
+		t.Fatalf("turn %d origin=%s actions=%d tools=%d", code, turn.Origin, len(turn.Actions), turn.ToolCalls)
+	}
+	var act ActionDoc
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/actions/3", &act); code != 200 || len(act.ToolCalls) != 1 || act.ToolCalls[0].Name != "Edit" || !strings.HasPrefix(act.ToolCalls[0].Result, "full output line 1") || act.Turn != 0 {
+		t.Fatalf("action %d %+v", code, act)
+	}
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/actions/0", &act); code != 200 || act.Thinking != "xxxx" {
+		t.Fatalf("action 0 should expose its thinking text: %d %q", code, act.Thinking)
 	}
 	var e map[string]string
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/turns/99", &e); code != 404 || e["error"] == "" {

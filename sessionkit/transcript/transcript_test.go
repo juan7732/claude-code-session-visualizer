@@ -80,8 +80,17 @@ func TestStringContentAndUsage(t *testing.T) {
 	if s.Prompts[0].Text != "hello" {
 		t.Fatalf("string content should become a text block: %q", s.Prompts[0].Text)
 	}
-	if len(s.Turns[0].Blocks) != 2 || s.Turns[0].Blocks[1].Type != "tool_use" || s.Turns[0].StopReason != "tool_use" {
-		t.Fatalf("turn 0 blocks = %+v", s.Turns[0].Blocks)
+	if len(s.Actions[0].Blocks) != 2 || s.Actions[0].Blocks[1].Type != "tool_use" || s.Actions[0].StopReason != "tool_use" {
+		t.Fatalf("action 0 blocks = %+v", s.Actions[0].Blocks)
+	}
+	if len(s.Turns) != 1 || s.Turns[0].Origin != "human" || len(s.Turns[0].Actions) != 2 || s.Turns[0].ToolCalls != 2 || s.Turns[0].Usage.OutputTokens != 3 {
+		t.Fatalf("one human turn with two actions expected: %+v", s.Turns)
+	}
+	if s.Actions[1].Turn != 0 || s.ToolCalls[1].Turn != 0 || s.ToolCalls[1].Action != 1 {
+		t.Fatalf("actions and tool calls must know their turn: %+v %+v", s.Actions[1], s.ToolCalls[1])
+	}
+	if !s.Turns[0].EndAt.Equal(s.Actions[1].At) {
+		t.Fatalf("turn end should be the last action (01:00:03), got %v", s.Turns[0].EndAt)
 	}
 	if !s.ToolCalls[0].Paired || s.ToolCalls[0].ResultText() != "a.txt" || s.ToolCalls[1].Paired {
 		t.Fatalf("tool pairing wrong: %+v %+v", s.ToolCalls[0], s.ToolCalls[1])
@@ -119,6 +128,8 @@ type expected struct {
 	Title            string         `json:"title"`
 	Records          int            `json:"records"`
 	Prompts          int            `json:"prompts"`
+	Turns            int            `json:"turns"`
+	SystemTurns      int            `json:"system_turns"`
 	Requests         int            `json:"requests"`
 	AssistantRecords int            `json:"assistant_records"`
 	ToolCalls        int            `json:"tool_calls"`
@@ -172,6 +183,8 @@ func TestFixtures(t *testing.T) {
 			}
 			check("records", got.Records, exp.Records)
 			check("prompts", got.Prompts, exp.Prompts)
+			check("turns", got.Turns, exp.Turns)
+			check("system_turns", got.SystemTurns, exp.SystemTurns)
 			check("requests", got.Requests, exp.Requests)
 			check("assistant_records", got.AssistantRecords, exp.AssistantRecords)
 			check("tool_calls", got.ToolCalls, exp.ToolCalls)
@@ -257,11 +270,11 @@ func TestInjectedBlocksBranchesAndSynthetic(t *testing.T) {
 	if s.Branches != 0 {
 		t.Fatalf("an attachment sibling is not a branch: %d", s.Branches)
 	}
-	if len(s.Turns) != 2 || !s.Turns[1].Synthetic || s.Totals.Requests != 1 || s.Totals.Models["<synthetic>"] != 0 {
-		t.Fatalf("synthetic turn handling: turns=%d requests=%d models=%v", len(s.Turns), s.Totals.Requests, s.Totals.Models)
+	if len(s.Actions) != 2 || !s.Actions[1].Synthetic || s.Totals.Requests != 1 || s.Totals.Models["<synthetic>"] != 0 {
+		t.Fatalf("synthetic action handling: actions=%d requests=%d models=%v", len(s.Actions), s.Totals.Requests, s.Totals.Models)
 	}
-	if s.Turns[1].SyntheticKind != "other" || s.Totals.Synthetic != 1 || s.Totals.SyntheticErrors != 0 {
-		t.Fatalf("synthetic kind = %q, totals %+v", s.Turns[1].SyntheticKind, s.Totals)
+	if s.Actions[1].SyntheticKind != "other" || s.Totals.Synthetic != 1 || s.Totals.SyntheticErrors != 0 {
+		t.Fatalf("synthetic kind = %q, totals %+v", s.Actions[1].SyntheticKind, s.Totals)
 	}
 	if len(s.Prompts[0].Context) != 1 || InjectedKind(s.Prompts[0].Context[0].Text) != "ide_opened_file" || s.Totals.InjectedBlocks != 1 {
 		t.Fatalf("injected block must be kept as prompt context: %+v", s.Prompts[0].Context)
@@ -303,10 +316,51 @@ func TestSyntheticKinds(t *testing.T) {
 	if s.Totals.Synthetic != 2 || s.Totals.SyntheticErrors != 1 || s.Totals.Requests != 0 || s.Totals.APIErrors != 1 {
 		t.Fatalf("totals = %+v", s.Totals)
 	}
-	if s.Turns[0].SyntheticKind != "api_error" || s.Turns[1].SyntheticKind != "no_response" {
-		t.Fatalf("kinds = %q %q", s.Turns[0].SyntheticKind, s.Turns[1].SyntheticKind)
+	if s.Actions[0].SyntheticKind != "api_error" || s.Actions[1].SyntheticKind != "no_response" {
+		t.Fatalf("kinds = %q %q", s.Actions[0].SyntheticKind, s.Actions[1].SyntheticKind)
+	}
+	if len(s.Turns) != 1 || s.Turns[0].Origin != "system" || s.Turns[0].Prompt != nil {
+		t.Fatalf("actions before any prompt belong to a leading system turn: %+v", s.Turns)
 	}
 	if s.Totals.Malformed != 0 {
 		t.Fatal("an object-valued error field must not break parsing")
+	}
+}
+
+func TestTurnsGroupActionsAndSystemOrigins(t *testing.T) {
+	in := `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T01:00:00Z","message":{"role":"user","content":"first"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T01:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"thinking","thinking":"let me think","signature":"x"},{"type":"tool_use","id":"t1","name":"Bash","input":{}}],"usage":{"input_tokens":1,"output_tokens":5}}}
+{"type":"user","uuid":"r1","parentUuid":"a1","timestamp":"2026-11-08T01:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"ok"}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"r1","requestId":"r2","timestamp":"2026-11-08T01:00:03Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"done with the first"}],"usage":{"input_tokens":1,"output_tokens":2}}}
+{"type":"system","subtype":"compact_boundary","uuid":"c1","parentUuid":null,"logicalParentUuid":"a2","timestamp":"2026-11-08T01:00:04Z","compactMetadata":{"trigger":"auto","preTokens":100,"postTokens":10}}
+{"type":"user","uuid":"s1","parentUuid":"c1","isCompactSummary":true,"turnOrigin":"human","timestamp":"2026-11-08T01:00:05Z","message":{"role":"user","content":"This session is being continued"}}
+{"type":"user","uuid":"n1","parentUuid":"s1","turnOrigin":"task_notification","timestamp":"2026-11-08T01:00:06Z","message":{"role":"user","content":[{"type":"text","text":"<task-notification>background task finished</task-notification>"}]}}
+{"type":"assistant","uuid":"a3","parentUuid":"n1","requestId":"r3","timestamp":"2026-11-08T01:00:07Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"noted"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"u2","parentUuid":"a3","turnOrigin":"human","timestamp":"2026-11-08T01:00:08Z","message":{"role":"user","content":"second"}}
+{"type":"assistant","uuid":"a4","parentUuid":"u2","requestId":"r4","timestamp":"2026-11-08T01:00:09Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"final"}],"usage":{"input_tokens":1,"output_tokens":3}}}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Turns) != 3 || s.Totals.Turns != 2 || s.Totals.SystemTurns != 1 {
+		t.Fatalf("turns = %d (human %d, system %d)", len(s.Turns), s.Totals.Turns, s.Totals.SystemTurns)
+	}
+	first := s.Turns[0]
+	if first.Origin != "human" || first.Prompt == nil || first.Prompt.Text != "first" || len(first.Actions) != 2 || first.ToolCalls != 1 || first.Usage.OutputTokens != 7 {
+		t.Fatalf("turn 0 = %+v", first)
+	}
+	if len(first.Compactions) != 1 || first.FinalText() != "done with the first" {
+		t.Fatalf("turn 0 should own the compaction and end on its last text: %+v %q", first.Compactions, first.FinalText())
+	}
+	if s.Actions[0].Thinking() != "let me think" {
+		t.Fatalf("thinking text = %q", s.Actions[0].Thinking())
+	}
+	sys := s.Turns[1]
+	if sys.Origin != "task_notification" || sys.Prompt != nil || len(sys.Actions) != 1 || s.Totals.Prompts != 2 {
+		t.Fatalf("task notification should open a system turn, not a prompt: %+v prompts=%d", sys, s.Totals.Prompts)
+	}
+	if s.Turns[2].Prompt.Text != "second" || s.Actions[3].Turn != 2 {
+		t.Fatalf("turn 2 = %+v, action 3 turn = %d", s.Turns[2], s.Actions[3].Turn)
 	}
 }

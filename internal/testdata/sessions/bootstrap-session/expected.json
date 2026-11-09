@@ -13,6 +13,7 @@
   "records": 690,
   "requests": 55,
   "subagents": 1,
+  "system_turns": 0,
   "title": "Xxxx xxxxxxxxx XXXXXX.xx xxxxx",
   "tool_calls": 90,
   "tool_results": 88,
@@ -22,5 +23,6 @@
     "ToolSearch": 1,
     "WebFetch": 5,
     "WebSearch": 2
-  }
+  },
+  "turns": 9
 }

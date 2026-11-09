@@ -29,9 +29,13 @@ type Session struct {
 	FirstAt     time.Time `json:"first_at"`
 	LastAt      time.Time `json:"last_at"`
 
-	Records     []*Record     `json:"-"`
-	Prompts     []*Prompt     `json:"prompts"`
-	Turns       []*Turn       `json:"turns"`
+	Records []*Record `json:"-"`
+	Prompts []*Prompt `json:"prompts"`
+	// Turns are the conversation's turns: a human turn is a prompt, and the agent
+	// turn that answers it holds every Action the agent took until it stopped.
+	Turns []*Turn `json:"turns"`
+	// Actions are the agent's individual steps: one per API request, in order.
+	Actions     []*Action     `json:"actions"`
 	ToolCalls   []*ToolCall   `json:"tool_calls"`
 	Compactions []*Compaction `json:"compactions"`
 	Subagents   []*Subagent   `json:"subagents,omitempty"`
@@ -69,10 +73,12 @@ type Prompt struct {
 	Record  *Record `json:"-"`
 }
 
-// Turn is one API request: the assistant records sharing a requestId, with
-// their blocks in order and usage counted once.
-type Turn struct {
+// Action is one step of an agent turn: one API request, i.e. the assistant
+// records sharing a requestId, with their blocks (thinking, text, tool_use) in
+// order and usage counted once. Its tool calls run before the next action.
+type Action struct {
 	Index      int       `json:"index"`
+	Turn       int       `json:"turn"` // index of the enclosing agent turn in Session.Turns
 	RequestID  string    `json:"request_id"`
 	MessageID  string    `json:"message_id,omitempty"`
 	Model      string    `json:"model"`
@@ -80,7 +86,7 @@ type Turn struct {
 	StopReason string    `json:"stop_reason,omitempty"`
 	// Synthetic is true for messages Claude Code wrote itself (model "<synthetic>"):
 	// shown on the timeline, not counted as requests. SyntheticKind says which:
-	// "api_error" (the API could not be reached), "no_response" (a turn that
+	// "api_error" (the API could not be reached), "no_response" (a prompt that
 	// needed no model reply), or "other".
 	Synthetic     bool        `json:"synthetic,omitempty"`
 	SyntheticKind string      `json:"synthetic_kind,omitempty"`
@@ -90,8 +96,8 @@ type Turn struct {
 	ToolCalls     []*ToolCall `json:"-"`
 }
 
-// Text returns the turn's visible text blocks joined.
-func (t *Turn) Text() string {
+// Text returns the action's visible text blocks joined.
+func (t *Action) Text() string {
 	var sb strings.Builder
 	for _, b := range t.Blocks {
 		if b.Type == "text" {
@@ -104,6 +110,57 @@ func (t *Turn) Text() string {
 	return sb.String()
 }
 
+// Thinking returns the action's thinking blocks joined (empty when none).
+func (t *Action) Thinking() string {
+	var sb strings.Builder
+	for _, b := range t.Blocks {
+		if b.Type == "thinking" && b.Thinking != "" {
+			if sb.Len() > 0 {
+				sb.WriteString("\n\n")
+			}
+			sb.WriteString(b.Thinking)
+		}
+	}
+	return sb.String()
+}
+
+// Turn is one turn of the conversation as a chat: the human's prompt (Origin
+// "human") or a system-initiated message such as a task notification (Origin
+// is then that origin), followed by every Action the agent took until it
+// stopped. Compactions and errors that happened during the turn are attached.
+type Turn struct {
+	Index       int           `json:"index"`
+	Origin      string        `json:"origin"`
+	Prompt      *Prompt       `json:"prompt,omitempty"`
+	StartAt     time.Time     `json:"start_at"`
+	EndAt       time.Time     `json:"end_at"`
+	Actions     []*Action     `json:"actions"`
+	ToolCalls   int           `json:"tool_calls"`
+	Usage       Usage         `json:"usage"`
+	Compactions []*Compaction `json:"compactions,omitempty"`
+	APIErrors   int           `json:"api_errors,omitempty"`
+}
+
+// Duration is the agent turn's wall time: from the prompt to the last action or tool result.
+func (t *Turn) Duration() time.Duration {
+	if t.EndAt.IsZero() || t.StartAt.IsZero() {
+		return 0
+	}
+	return t.EndAt.Sub(t.StartAt)
+}
+
+// FinalText is the text of the turn's last non-synthetic action: what the agent said when it stopped.
+func (t *Turn) FinalText() string {
+	for i := len(t.Actions) - 1; i >= 0; i-- {
+		if !t.Actions[i].Synthetic {
+			if txt := t.Actions[i].Text(); txt != "" {
+				return txt
+			}
+		}
+	}
+	return ""
+}
+
 // ToolCall pairs a tool_use block with the tool_result that answered it.
 type ToolCall struct {
 	ID      string          `json:"id"`
@@ -113,6 +170,8 @@ type ToolCall struct {
 	EndedAt time.Time       `json:"ended_at,omitempty"`
 	IsError bool            `json:"is_error,omitempty"`
 	Paired  bool            `json:"paired"`
+	Turn    int             `json:"turn"`   // enclosing agent turn
+	Action  int             `json:"action"` // the action whose tool_use this is
 	// Spilled is the path Claude Code recorded for a tool output too large for
 	// the transcript (<session>/tool-results/<id>.txt). Resolve it with
 	// Session.SpilledPath, since the recorded path is from the original machine.
@@ -175,6 +234,8 @@ type Totals struct {
 	Images           int            `json:"images"`
 	Compactions      int            `json:"compactions"`
 	APIErrors        int            `json:"api_errors"`
+	Turns            int            `json:"turns"`        // agent turns answering a human prompt
+	SystemTurns      int            `json:"system_turns"` // agent turns started by something else (task notifications…)
 	Synthetic        int            `json:"synthetic_messages"`
 	SyntheticErrors  int            `json:"synthetic_api_errors"`
 	InjectedBlocks   int            `json:"injected_blocks"`
@@ -291,7 +352,7 @@ func Build(recs []*Record) *Session {
 	s.Totals.Types = map[string]int{}
 	versions, entrypoints, seenCwd := map[string]bool{}, map[string]bool{}, map[string]bool{}
 	calls := map[string]*ToolCall{}
-	turnsByReq := map[string]*Turn{}
+	actionsByReq := map[string]*Action{}
 	var leaf string
 	var pendingCompaction *Compaction
 
@@ -345,7 +406,7 @@ func Build(recs []*Record) *Session {
 			}
 		case "assistant":
 			s.Totals.AssistantRecords++
-			s.addAssistant(r, turnsByReq, calls)
+			s.addAssistant(r, actionsByReq, calls)
 		case "system":
 			switch r.Subtype {
 			case "api_error":
@@ -402,7 +463,100 @@ func Build(recs []*Record) *Session {
 	s.Versions = sortedKeys(versions)
 	s.Entrypoints = sortedKeys(entrypoints)
 	s.buildChain(leaf)
+	s.groupTurns(actionsByReq)
 	return s
+}
+
+// startsTurn says whether a user record opens a new turn, and with which
+// origin: a human prompt, or a system-originated message (task notification,
+// hook output) that made the agent act again. Tool results, injected meta and
+// compaction summaries continue the current turn.
+func startsTurn(r *Record) (origin string, ok bool) {
+	if r.Type != "user" || r.IsMeta || r.IsCompactSummary || r.Message == nil {
+		return "", false
+	}
+	for _, b := range r.Message.Content {
+		if b.Type == "tool_result" {
+			return "", false
+		}
+	}
+	switch r.TurnOrigin {
+	case "":
+		return "", false
+	case "human":
+		return "human", true
+	}
+	return r.TurnOrigin, true
+}
+
+// groupTurns assembles Session.Turns from the records in file order.
+func (s *Session) groupTurns(actionsByReq map[string]*Action) {
+	promptByUUID := map[string]*Prompt{}
+	for _, p := range s.Prompts {
+		promptByUUID[p.UUID] = p
+	}
+	var cur *Turn
+	open := func(origin string, p *Prompt, at time.Time) {
+		cur = &Turn{Index: len(s.Turns), Origin: origin, Prompt: p, StartAt: at, EndAt: at}
+		s.Turns = append(s.Turns, cur)
+		if origin == "human" {
+			s.Totals.Turns++
+		} else {
+			s.Totals.SystemTurns++
+		}
+	}
+	seen := map[*Action]bool{}
+	for _, r := range s.Records {
+		switch r.Type {
+		case "user":
+			if origin, ok := startsTurn(r); ok {
+				open(origin, promptByUUID[r.UUID], r.Timestamp)
+			}
+		case "assistant":
+			key := r.RequestID
+			if key == "" {
+				key = "uuid:" + r.UUID
+			}
+			a := actionsByReq[key]
+			if a == nil || seen[a] {
+				continue
+			}
+			seen[a] = true
+			if cur == nil {
+				open("system", nil, a.At) // actions before any prompt (a resumed session's first records)
+			}
+			a.Turn = cur.Index
+			cur.Actions = append(cur.Actions, a)
+			cur.Usage.Add(a.Usage)
+			cur.ToolCalls += len(a.ToolCalls)
+			for _, c := range a.ToolCalls {
+				c.Turn, c.Action = cur.Index, a.Index
+			}
+			if a.At.After(cur.EndAt) {
+				cur.EndAt = a.At
+			}
+		case "system":
+			if cur == nil {
+				continue
+			}
+			switch r.Subtype {
+			case "api_error":
+				cur.APIErrors++
+			case "compact_boundary":
+				for _, c := range s.Compactions {
+					if c.Boundary == r {
+						cur.Compactions = append(cur.Compactions, c)
+					}
+				}
+			}
+		}
+	}
+	// Tool results can land after the action that asked for them; extend turn ends.
+	for _, c := range s.ToolCalls {
+		if c.Paired && c.Turn < len(s.Turns) && c.EndedAt.After(s.Turns[c.Turn].EndAt) {
+			s.Turns[c.Turn].EndAt = c.EndedAt
+		}
+	}
 }
 
 func (s *Session) addUser(r *Record, calls map[string]*ToolCall, pending *Compaction) {
@@ -446,7 +600,7 @@ func (s *Session) addUser(r *Record, calls map[string]*ToolCall, pending *Compac
 	}
 }
 
-func (s *Session) addAssistant(r *Record, turns map[string]*Turn, calls map[string]*ToolCall) {
+func (s *Session) addAssistant(r *Record, actions map[string]*Action, calls map[string]*ToolCall) {
 	if r.Message == nil {
 		return
 	}
@@ -454,16 +608,16 @@ func (s *Session) addAssistant(r *Record, turns map[string]*Turn, calls map[stri
 	if key == "" {
 		key = "uuid:" + r.UUID // synthetic records have no requestId; each is its own turn
 	}
-	t, ok := turns[key]
+	t, ok := actions[key]
 	if !ok {
-		t = &Turn{Index: len(s.Turns), RequestID: r.RequestID, MessageID: r.Message.ID, Model: r.Message.Model, At: r.Timestamp,
+		t = &Action{Index: len(s.Actions), RequestID: r.RequestID, MessageID: r.Message.ID, Model: r.Message.Model, At: r.Timestamp,
 			Synthetic: r.Message.Model == SyntheticModel}
 		if r.Message.Usage != nil {
 			t.Usage = *r.Message.Usage
 			s.Totals.Usage.Add(t.Usage)
 		}
-		turns[key] = t
-		s.Turns = append(s.Turns, t)
+		actions[key] = t
+		s.Actions = append(s.Actions, t)
 		if t.Synthetic {
 			t.SyntheticKind = syntheticKind(r)
 			s.Totals.Synthetic++

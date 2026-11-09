@@ -51,16 +51,26 @@ func TestShow_TimelineAndTurn(t *testing.T) {
 
 	res := h.Run("show", id[:8])
 	res.AssertOK(t)
-	for _, want := range []string{"Session  " + id, "prompt", "turn 0", "⚙ Bash", "⚙ Agent", "→ subagent a1b2c3d4e5f607182", "compaction (auto): 6.4k → 900 tokens", "api_error", "/Users/xxxx/work/sub"} {
+	for _, want := range []string{"Session  " + id, "turn 0", "action 0", "⚙ Bash", "⚙ Agent", "→ subagent a1b2c3d4e5f607182", "compaction (auto): 6.4k → 900 tokens", "api_error", "/Users/xxxx/work/sub", "↳ end", "turn 1"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("timeline lacks %q:\n%s", want, res.Stdout)
 		}
 	}
 
-	res = h.Run("show", id, "--turn", "3")
+	res = h.Run("show", id, "--action", "3")
 	res.AssertOK(t)
 	if !strings.Contains(res.Stdout, "tool_use Edit") || !strings.Contains(res.Stdout, "full output from") || !strings.Contains(res.Stdout, "full output line 1") {
-		t.Fatalf("turn view should show the Edit call and its spilled result:\n%s", res.Stdout)
+		t.Fatalf("action view should show the Edit call and its spilled result:\n%s", res.Stdout)
+	}
+	res = h.Run("show", id, "--turn", "0")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "Turn 0") || !strings.Contains(res.Stdout, "══ human ══") || !strings.Contains(res.Stdout, "action 3") || !strings.Contains(res.Stdout, "💭 thinking") {
+		t.Fatalf("turn view should print the prompt and every action with thinking:\n%s", res.Stdout)
+	}
+	res = h.Run("show", id, "--thinking")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "💭") {
+		t.Fatalf("--thinking should add thinking lines:\n%s", res.Stdout)
 	}
 
 	res = h.Run("show", id, "--json")
@@ -68,12 +78,13 @@ func TestShow_TimelineAndTurn(t *testing.T) {
 	var doc struct {
 		ID      string `json:"id"`
 		Turns   []any  `json:"turns"`
+		Actions []any  `json:"actions"`
 		Summary struct {
 			Requests int `json:"requests"`
 		} `json:"summary"`
 	}
-	if err := json.Unmarshal([]byte(res.Stdout), &doc); err != nil || doc.ID != id || len(doc.Turns) != 6 || doc.Summary.Requests != 7 {
-		t.Fatalf("show --json: %v id=%s turns=%d summary=%+v", err, doc.ID, len(doc.Turns), doc.Summary)
+	if err := json.Unmarshal([]byte(res.Stdout), &doc); err != nil || doc.ID != id || len(doc.Turns) != 2 || len(doc.Actions) != 6 || doc.Summary.Requests != 7 {
+		t.Fatalf("show --json: %v id=%s turns=%d actions=%d summary=%+v", err, doc.ID, len(doc.Turns), len(doc.Actions), doc.Summary)
 	}
 	if strings.Contains(res.Stdout, "iVBORw0KGgo=") {
 		t.Fatal("show --json must strip inline image bytes")
@@ -87,7 +98,7 @@ func TestStats_HumanAndJSON(t *testing.T) {
 
 	res := h.Run("stats", id, "--context")
 	res.AssertOK(t)
-	for _, want := range []string{"Tokens (once per request, subagents included)", "claude-haiku-5-5", "Bash", "Compactions", "Context window per request", "$0.42"} {
+	for _, want := range []string{"Tokens (once per action, subagents included)", "claude-haiku-5-5", "Bash", "Compactions", "Context window per action", "$0.42"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("stats lacks %q:\n%s", want, res.Stdout)
 		}

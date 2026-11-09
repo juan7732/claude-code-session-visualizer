@@ -22,7 +22,8 @@ type Hit struct {
 	Project  string    `json:"project"`
 	Title    string    `json:"title"`
 	Agent    string    `json:"agent,omitempty"`
-	Turn     int       `json:"turn"`
+	Turn     int       `json:"turn"`   // agent turn, -1 for session-level pieces
+	Action   int       `json:"action"` // action within the session, -1 for prompts and summaries
 	Kind     string    `json:"kind"`
 	Tool     string    `json:"tool,omitempty"`
 	At       time.Time `json:"at"`
@@ -118,7 +119,7 @@ func Run(st *store.Store, query string, opt Options) ([]Hit, error) {
 		where = append(where, "g.kind = ?")
 		args = append(args, opt.Kind)
 	}
-	q := `SELECT g.session, s.project, s.title, g.agent, g.turn, g.kind, g.tool, g.at, g.text,
+	q := `SELECT g.session, s.project, s.title, g.agent, g.turn, g.action, g.kind, g.tool, g.at, g.text,
 	             snippet(fts, 0, '«', '»', '…', 14), bm25(fts)
 	      FROM fts JOIN segments g ON g.id = fts.rowid JOIN sessions s ON s.id = g.session
 	      WHERE ` + strings.Join(where, " AND ") + ` ORDER BY bm25(fts) LIMIT 1000`
@@ -140,7 +141,7 @@ func Run(st *store.Store, query string, opt Options) ([]Hit, error) {
 		var at sql.NullString
 		var text string
 		var bm float64
-		if err := rows.Scan(&h.Session, &h.Project, &h.Title, &h.Agent, &h.Turn, &h.Kind, &h.Tool, &at, &text, &h.Snippet, &bm); err != nil {
+		if err := rows.Scan(&h.Session, &h.Project, &h.Title, &h.Agent, &h.Turn, &h.Action, &h.Kind, &h.Tool, &at, &text, &h.Snippet, &bm); err != nil {
 			return nil, err
 		}
 		if at.Valid {

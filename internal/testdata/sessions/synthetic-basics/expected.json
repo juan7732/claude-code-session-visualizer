@@ -13,6 +13,7 @@
   "records": 28,
   "requests": 5,
   "subagents": 1,
+  "system_turns": 0,
   "title": "Synthetic basics",
   "tool_calls": 4,
   "tool_results": 4,
@@ -21,5 +22,6 @@
     "Bash": 1,
     "Edit": 1,
     "Read": 1
-  }
+  },
+  "turns": 2
 }

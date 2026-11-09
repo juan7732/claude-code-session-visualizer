@@ -18,7 +18,7 @@ func newSearch() *cobra.Command {
 		Long: `search looks through every archived session (run 'skit archive' first) for the
 words given: prompts, replies, thinking, tool calls and their results, injected
 context and compaction summaries. Results are grouped by session and point at
-the turn to open with 'skit show <id> --turn N'. A query made of ids or codes
+the agent turn and action to open with 'skit show <id> --turn N' or '--action N'. A query made of ids or codes
 ("E1234", "toolu_01abc") weighs exact words more heavily.`,
 		Example: "  skit search retention sweep\n  skit search ENOTFOUND --kind assistant\n  skit search zstd --project tools --json",
 		Args:    cobra.MinimumNArgs(1),
@@ -49,9 +49,12 @@ the turn to open with 'skit show <id> --turn N'. A query made of ids or codes
 					fmt.Fprintf(w, "\n%s  %s  (%s)\n", h.Session[:8], truncate(h.Title, 60), truncate(h.Project, 40))
 					last = h.Session
 				}
-				where := "prompt"
+				where := "session"
 				if h.Turn >= 0 {
 					where = fmt.Sprintf("turn %d", h.Turn)
+				}
+				if h.Action >= 0 {
+					where += fmt.Sprintf(" · action %d", h.Action)
 				}
 				if h.Agent != "" {
 					where += " · agent " + h.Agent[:8]
@@ -60,7 +63,7 @@ the turn to open with 'skit show <id> --turn N'. A query made of ids or codes
 				if h.Tool != "" {
 					kind += ":" + h.Tool
 				}
-				fmt.Fprintf(w, "  %-12s %-22s %s\n", where, truncate(kind, 22), truncate(h.Snippet, 100))
+				fmt.Fprintf(w, "  %-20s %-22s %s\n", where, truncate(kind, 22), truncate(h.Snippet, 100))
 			}
 			return nil
 		},

@@ -148,7 +148,7 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	if err != nil || s2.Totals.Prompts != 3 {
 		t.Fatalf("archived copy after append: prompts=%d err=%v", s2.Totals.Prompts, err)
 	}
-	if hits, _ := search.Run(a.Store, "zebras", search.Options{}); len(hits) != 1 || hits[0].Kind != "prompt" {
+	if hits, _ := search.Run(a.Store, "zebras", search.Options{}); len(hits) != 1 || hits[0].Kind != "prompt" || hits[0].Turn != 2 || hits[0].Action != -1 {
 		t.Fatalf("new prompt should be searchable: %+v", hits)
 	}
 
