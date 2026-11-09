@@ -7,9 +7,7 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
-	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
 )
 
 func newStats() *cobra.Command {
@@ -23,19 +21,11 @@ transcript has one. --context adds the context-window size at every request.`,
 		Example: "  skit stats 36086585\n  skit stats 36086585 --context\n  skit stats 36086585 --json | jq .usage",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			rep, err := catalog.Inspect()
+			r, err := resolve(cmd, args[0])
 			if err != nil {
 				return err
 			}
-			l, err := rep.Find(args[0])
-			if err != nil {
-				return err
-			}
-			s, err := transcript.Load(l.File.Path)
-			if err != nil {
-				return err
-			}
-			sum := stats.Compute(s, l.Project.Slug, stats.Options{Context: context || jsonWanted(cmd)})
+			sum := stats.Compute(r.Session, r.Project, stats.Options{Context: context || jsonWanted(cmd)})
 			if jsonWanted(cmd) {
 				return writeJSON(cmd.OutOrStdout(), sum)
 			}

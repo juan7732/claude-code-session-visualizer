@@ -12,7 +12,6 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
 )
@@ -34,31 +33,28 @@ parsed session is emitted (image bytes replaced by their size).`,
 		Example: "  skit show 36086585\n  skit show 36086585 --turn 12\n  skit show ~/.claude/projects/-Users-me-app/<id>.jsonl --json",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			rep, err := catalog.Inspect()
+			r, err := resolve(cmd, args[0])
 			if err != nil {
 				return err
 			}
-			l, err := rep.Find(args[0])
-			if err != nil {
-				return err
-			}
-			s, err := transcript.Load(l.File.Path)
-			if err != nil {
-				return err
-			}
+			s := r.Session
 			w := cmd.OutOrStdout()
 			if jsonWanted(cmd) {
 				s.StripImages()
 				return writeJSON(w, struct {
 					*transcript.Session
-					Project string        `json:"project"`
-					Summary stats.Summary `json:"summary"`
-				}{s, l.Project.Slug, stats.Compute(s, l.Project.Slug, stats.Options{Context: true})})
+					Project  string        `json:"project"`
+					Archived bool          `json:"archived_only,omitempty"`
+					Summary  stats.Summary `json:"summary"`
+				}{s, r.Project, r.Archived, stats.Compute(s, r.Project, stats.Options{Context: true})})
 			}
 			if cmd.Flags().Changed("turn") {
 				return printTurn(w, s, turn, width)
 			}
-			printTimeline(w, s, l.Project.Slug, width, showContext)
+			if r.Archived {
+				fmt.Fprintln(w, "Source   gone from ~/.claude; showing the archived copy")
+			}
+			printTimeline(w, s, r.Project, width, showContext)
 			return nil
 		},
 	}

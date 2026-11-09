@@ -37,6 +37,9 @@ type Session struct {
 	Subagents   []*Subagent   `json:"subagents,omitempty"`
 	PRLinks     []PRLink      `json:"pr_links,omitempty"`
 	Cost        *CostState    `json:"cost,omitempty"`
+	// OwnerAccount and OwnerOrg come from the session-owner record.
+	OwnerAccount string `json:"owner_account,omitempty"`
+	OwnerOrg     string `json:"owner_org,omitempty"`
 
 	// Chain is the main line of the conversation, root to tip, as uuids.
 	Chain []string `json:"-"`
@@ -226,10 +229,6 @@ func (s *Session) loadSubagents(dir string) error {
 	if err != nil {
 		return err
 	}
-	byToolUse := map[string]*ToolCall{}
-	for _, c := range s.ToolCalls {
-		byToolUse[c.ID] = c
-	}
 	for _, e := range entries {
 		name := e.Name()
 		if e.IsDir() || !strings.HasSuffix(name, ".jsonl") {
@@ -257,14 +256,23 @@ func (s *Session) loadSubagents(dir string) error {
 				sa.ToolUseID = m.ToolUseID
 			}
 		}
-		if c, ok := byToolUse[sa.ToolUseID]; ok {
-			c.Subagent = sa
-		}
-		s.Subagents = append(s.Subagents, sa)
+		s.AttachSubagent(sa)
 	}
+	return nil
+}
+
+// AttachSubagent links a subagent to the tool call that spawned it (by
+// ToolUseID) and adds it to the session. Used by Load and by the archive.
+func (s *Session) AttachSubagent(sa *Subagent) {
+	for _, c := range s.ToolCalls {
+		if sa.ToolUseID != "" && c.ID == sa.ToolUseID {
+			c.Subagent = sa
+			break
+		}
+	}
+	s.Subagents = append(s.Subagents, sa)
 	sort.Slice(s.Subagents, func(i, j int) bool { return s.Subagents[i].AgentID < s.Subagents[j].AgentID })
 	s.Totals.Subagents = len(s.Subagents)
-	return nil
 }
 
 // SyntheticModel is the model name Claude Code uses for messages it generates
@@ -370,7 +378,15 @@ func Build(recs []*Record) *Session {
 			}
 		case "api-request", "api-request-blob", "api-request-shape":
 			s.Totals.APIRequests++
-		case "queue-operation", "bridge-session", "atis-latch", "mode", "permission-mode", "session-owner",
+		case "session-owner":
+			var o struct {
+				Account string `json:"accountUuid"`
+				Org     string `json:"organizationUuid"`
+			}
+			if r.Decode(&o) == nil {
+				s.OwnerAccount, s.OwnerOrg = o.Account, o.Org
+			}
+		case "queue-operation", "bridge-session", "atis-latch", "mode", "permission-mode",
 			"tools-used", "file-history-snapshot", "file-history-delta":
 			// known, not modelled yet
 		default:

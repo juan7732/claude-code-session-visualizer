@@ -4,6 +4,7 @@ package integration
 
 import (
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -136,21 +137,20 @@ func TestShow_ContextAndSynthetic(t *testing.T) {
 	}
 }
 
-func TestList_UsesSummaryCache(t *testing.T) {
+func TestList_UsesIndexAsCache(t *testing.T) {
 	t.Parallel()
 	h := harness.New(t)
-	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+	h.SeedFixture("synthetic-basics", "-Users-me-work")
 
 	first := h.Run("list", "--json")
 	first.AssertOK(t)
-	entries, _ := filepath.Glob(filepath.Join(h.Home, ".sessionkit", "cache", "summaries", id+".json"))
-	if len(entries) != 1 {
-		t.Fatalf("expected one cache entry under ~/.sessionkit, got %v", entries)
+	if _, err := os.Stat(filepath.Join(h.Home, ".sessionkit", "skit.sqlite")); err != nil {
+		t.Fatalf("list should create the index under ~/.sessionkit: %v", err)
 	}
 	second := h.Run("list", "--json")
 	second.AssertOK(t)
 	if first.Stdout != second.Stdout {
-		t.Fatalf("cached and uncached list output differ:\n%s\n---\n%s", first.Stdout, second.Stdout)
+		t.Fatalf("indexed and parsed list output differ:\n%s\n---\n%s", first.Stdout, second.Stdout)
 	}
 	third := h.Run("list", "--json", "--no-cache")
 	third.AssertOK(t)

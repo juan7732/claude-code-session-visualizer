@@ -40,8 +40,8 @@ browsable, durable and searchable. Every read command accepts --json for agents.
 		SilenceErrors: true,
 	}
 	root.PersistentFlags().Bool("json", false, "machine-readable output (one JSON document on stdout)")
-	root.PersistentFlags().Bool("no-cache", false, "ignore and do not write the summary cache under ~/.sessionkit/cache")
-	root.AddCommand(newDoctor(), newDescribe(), newProjects(), newList(), newShow(), newStats())
+	root.PersistentFlags().Bool("no-cache", false, "do not read or write indexed summaries in ~/.sessionkit/skit.sqlite")
+	root.AddCommand(newDoctor(), newDescribe(), newProjects(), newList(), newShow(), newStats(), newArchive(), newSearch())
 	return root
 }
 

@@ -70,7 +70,7 @@ names, durations; `--turn N` for detail; `--json` full structure), `stats` (toke
 Code's, tools by name, compactions, context curve as a table), `projects`. Human output designed for a terminal, JSON
 for agents. This is the point where Claude Code itself can start using the tool.
 
-**M3 Archive + keyword search.** `store`: `sessions`, `turns`, `segments` (one per content block, with `kind`,
+**M3 Archive + keyword search (DONE).** `store`: `sessions`, `turns`, `segments` (one per content block, with `kind`,
 `modality`, `loc`), `fts` over segment text, `meta` with schema version + fingerprint. `archive` ingests new or changed
 sessions incrementally by byte offset, keeps the raw JSONL lines (lossless, zstd-compressed) per session minus
 `api-request*` unless debug mode is on, records `session-owner`, and respects the debug-mode setting for `api-request*`.

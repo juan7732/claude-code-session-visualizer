@@ -1,16 +1,24 @@
 package cli
 
 import (
+	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/spf13/cobra"
 
-	"github.com/juan7732/claude-code-session-visualizer/sessionkit/cache"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
 )
+
+// listRow is a summary plus whether the session survives only in the archive.
+type listRow struct {
+	stats.Summary
+	ArchivedOnly bool `json:"archived_only,omitempty"`
+}
 
 func newList() *cobra.Command {
 	var project string
@@ -28,48 +36,71 @@ tokens, Claude Code's cost figure, and the title.`,
 			if err != nil {
 				return err
 			}
-			var store *cache.Store
+			var a *archive.Archive
 			if cacheWanted(cmd) {
-				if store, err = cache.Open(); err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "skit: cache unavailable: %v\n", err)
+				if a, err = archive.Open(); err != nil {
+					fmt.Fprintf(cmd.ErrOrStderr(), "skit: index unavailable: %v\n", err)
+				} else {
+					defer a.Close()
 				}
 			}
-			var rows []stats.Summary
+			var rows []listRow
+			onDisk := map[string]bool{}
 			for _, l := range rep.Sessions() {
 				if l.File.Kind != "main" || (project != "" && !strings.Contains(strings.ToLower(l.Project.Slug), strings.ToLower(project))) {
 					continue
 				}
-				key := cache.KeyFor(l.File.Path, l.File.Bytes, l.File.ModTime, l.File.Subagents, l.File.SubagentBytes)
+				onDisk[l.File.ID] = true
 				var sum stats.Summary
-				if store == nil || !store.Get(l.File.ID, key, &sum) {
+				if a != nil {
+					if sum, _, err = a.Summary(l); err != nil {
+						fmt.Fprintf(cmd.ErrOrStderr(), "skit: skipping %s: %v\n", l.File.Path, err)
+						continue
+					}
+				} else {
 					s, err := transcript.Load(l.File.Path)
 					if err != nil {
 						fmt.Fprintf(cmd.ErrOrStderr(), "skit: skipping %s: %v\n", l.File.Path, err)
 						continue
 					}
 					sum = stats.Compute(s, l.Project.Slug, stats.Options{})
-					if store != nil {
-						if err := store.Put(l.File.ID, key, sum); err != nil {
-							fmt.Fprintf(cmd.ErrOrStderr(), "skit: cache write failed: %v\n", err)
+				}
+				rows = append(rows, listRow{Summary: sum})
+			}
+			// Sessions that only exist in the archive any more (Claude Code swept them).
+			if a != nil {
+				archived, err := a.Store.Sessions()
+				if err == nil {
+					for _, r := range archived {
+						if !r.Archived() || onDisk[r.ID] || (project != "" && !strings.Contains(strings.ToLower(r.Project), strings.ToLower(project))) {
+							continue
+						}
+						var sum stats.Summary
+						if json.Unmarshal(r.Summary, &sum) == nil {
+							rows = append(rows, listRow{Summary: sum, ArchivedOnly: true})
 						}
 					}
 				}
-				rows = append(rows, sum)
-				if limit > 0 && len(rows) >= limit {
-					break
-				}
+			}
+			sort.SliceStable(rows, func(i, j int) bool { return rows[i].LastAt.After(rows[j].LastAt) })
+			if limit > 0 && len(rows) > limit {
+				rows = rows[:limit]
 			}
 			if jsonWanted(cmd) {
 				if rows == nil {
-					rows = []stats.Summary{}
+					rows = []listRow{}
 				}
 				return writeJSON(cmd.OutOrStdout(), rows)
 			}
 			w := cmd.OutOrStdout()
 			fmt.Fprintf(w, "%-8s  %-16s %8s %7s %5s %5s %7s %7s  %s\n", "ID", "LAST ACTIVITY", "DURATION", "PROMPTS", "REQS", "TOOLS", "OUT TOK", "COST", "TITLE")
 			for _, r := range rows {
+				title := truncate(r.Title, 50)
+				if r.ArchivedOnly {
+					title += "  (archived; source gone)"
+				}
 				fmt.Fprintf(w, "%-8s  %-16s %8s %7d %5d %5d %7s %7s  %s\n", r.ID[:8], localTime(r.LastAt), r.Duration, r.Prompts, r.Requests, r.ToolCalls,
-					stats.FormatTokens(r.Usage.OutputTokens), money(r.ClaudeCodeCostUSD), truncate(r.Title, 50))
+					stats.FormatTokens(r.Usage.OutputTokens), money(r.ClaudeCodeCostUSD), title)
 			}
 			if len(rows) == 0 {
 				fmt.Fprintln(w, "no sessions found (see `skit doctor`)")

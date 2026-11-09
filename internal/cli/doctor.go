@@ -3,11 +3,13 @@ package cli
 import (
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/spf13/cobra"
 
-	"github.com/juan7732/claude-code-session-visualizer/sessionkit/cache"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/home"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/store"
 )
 
 func newDoctor() *cobra.Command {
@@ -51,9 +53,19 @@ func printDoctor(w io.Writer, r *catalog.Report) {
 	for _, l := range r.Live {
 		fmt.Fprintf(w, "  pid %-6d %-5s %-24s %s  (Claude Code %s)\n", l.PID, l.Status, l.Name, l.Cwd, l.Version)
 	}
-	if dir, err := cache.Dir(); err == nil {
-		files, bytes := cache.SizeAt(dir)
-		fmt.Fprintf(w, "skit home          %s   (summary cache: %d entries, %s)\n", dir, files, humanBytes(bytes))
+	if dir, err := home.Dir(); err == nil {
+		line := fmt.Sprintf("skit home          %s", dir)
+		if _, statErr := os.Stat(home.DBPath(dir)); statErr == nil {
+			if st, err := store.Open(home.DBPath(dir)); err == nil {
+				if c, err := st.Counts(); err == nil {
+					line += fmt.Sprintf("   index: %d sessions (%d archived), %d segments, %s", c.Sessions, c.Archived, c.Segments, humanBytes(c.Bytes))
+				}
+				st.Close()
+			}
+		} else {
+			line += "   (no index yet: run `skit archive`)"
+		}
+		fmt.Fprintln(w, line)
 	}
 	if len(r.Projects) > 0 {
 		fmt.Fprintln(w, "Projects")

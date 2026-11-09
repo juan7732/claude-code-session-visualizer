@@ -8,13 +8,18 @@ cmd/skit          binary entry: version wiring, exit code
 internal/cli      Cobra commands. Parse flags → call sessionkit → print. --json on every read command.
 sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no flags, no env reads.
   catalog         find Claude Code's data: dir, projects, session files, subagents, live sessions, retention
-  cache           per-session summary cache under ~/.sessionkit/cache/summaries, keyed by transcript size, mtime and
-                  subagent state; makes `list` read-only on unchanged sessions; absorbed by the M3 store
+  home            skit's own directory: $SKIT_HOME, else ~/.sessionkit
   transcript      JSONL → records → uuid tree → turns (one per request), tool call pairs, compactions, subagents
   stats           per-session summary: usage once per request with subagents rolled in, models, tools, compactions,
                   context-window curve, Claude Code's cost figure (pricing table: M3)
-  store           (M3) SQLite archive + index, ~/.sessionkit/, schema versioned
-  search          (M3/v0.5) FTS5 keyword, then hybrid meaning + words
+  store           the index: ~/.sessionkit/skit.sqlite (pure-Go SQLite). sessions (summary JSON + source fingerprint +
+                  archive state), segments (one per content block), fts (FTS5, porter). Schema versioned. Also the
+                  summary cache: list reads a session's summary from here while its source fingerprint matches.
+  archive         the durable copy: ~/.sessionkit/archive/<project>/<id>.jsonl.zst, raw lines appended by byte offset
+                  as a session grows, api-request* dropped unless --debug, subagents and spilled tool results mirrored.
+                  Load() rebuilds a Session from the copy when Claude Code has deleted the source.
+  search          FTS5 + bm25 candidates, coverage of the query's words, lookup queries weigh words more; v0.5 adds
+                  vectors with DigUp's z-scaled fusion
   embed           (v0.5) Embedder interface + JSON-lines worker client
   serve           (M4) HTTP over a Unix socket; same operations as the CLI
 client/SessionVisualizer   (M6) Swift app; talks only to `skit serve`
@@ -33,9 +38,10 @@ runtime/LlamaRuntime       (v0.5) Swift embedding worker over llama.cpp
 
 ```
 ~/.claude/projects/**.jsonl ──catalog──▶ transcript.Session ──stats──▶ CLI list/show/stats (--json)
-                                             │
-                                             └──store.Archive──▶ ~/.sessionkit/skit.sqlite ──search──▶ CLI search
-                                                                             └──serve──▶ SessionVisualizer
+                                             │                              ▲
+                                             └──archive.Ingest──▶ ~/.sessionkit/archive/**.jsonl.zst ──archive.Load──┘ (source gone)
+                                                       └──▶ ~/.sessionkit/skit.sqlite (summaries, segments, fts) ──search──▶ CLI search
+                                                                                                    └──serve──▶ SessionVisualizer
 ```
 
 ## Testing
