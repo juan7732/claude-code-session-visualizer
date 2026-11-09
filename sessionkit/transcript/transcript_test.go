@@ -1,0 +1,239 @@
+package transcript
+
+import (
+	"encoding/json"
+	"errors"
+	"os"
+	"path/filepath"
+	"strings"
+	"testing"
+)
+
+func TestReaderPartialLineAndMalformed(t *testing.T) {
+	in := "{\"type\":\"user\",\"uuid\":\"a\"}\nnot json\n\n{\"type\":\"assistant\",\"uuid\":\"b\",\"parentUuid\":\"a\"}\n{\"type\":\"user\",\"uuid\":\"c\""
+	rd := NewReader(strings.NewReader(in))
+	var types []string
+	for {
+		rec, err := rd.Next()
+		if err != nil {
+			if !errors.Is(err, ErrPartialLine) {
+				t.Fatalf("want ErrPartialLine at the end, got %v", err)
+			}
+			break
+		}
+		types = append(types, rec.Type)
+		if rec.Type == MalformedType && rec.Malformed == nil {
+			t.Fatal("malformed record must carry its error")
+		}
+	}
+	if got := strings.Join(types, ","); got != "user,<malformed>,assistant" {
+		t.Fatalf("types = %s", got)
+	}
+	if rd.Offset() != int64(strings.LastIndex(in, "{")) {
+		t.Fatalf("offset %d should point at the partial line", rd.Offset())
+	}
+	if rd.Line() != 4 {
+		t.Fatalf("lines = %d, want 4 (blank line counts)", rd.Line())
+	}
+}
+
+func TestRecordKeepsRawAndOffsets(t *testing.T) {
+	in := "{\"type\":\"cost-state\",\"totalCostUSD\":1.5}\n{\"type\":\"user\",\"uuid\":\"a\"}\n"
+	recs, err := ReadAll(strings.NewReader(in))
+	if err != nil || len(recs) != 2 {
+		t.Fatalf("recs=%d err=%v", len(recs), err)
+	}
+	var c CostState
+	if err := recs[0].Decode(&c); err != nil || c.TotalCostUSD != 1.5 {
+		t.Fatalf("Decode must see the raw line: %v %+v (raw=%q)", err, c, recs[0].Raw)
+	}
+	if recs[0].Offset != 0 || recs[0].Line != 1 || recs[1].Offset != int64(strings.Index(in, "\n")+1) || recs[1].Line != 2 {
+		t.Fatalf("offsets/lines wrong: %d/%d %d/%d", recs[0].Offset, recs[0].Line, recs[1].Offset, recs[1].Line)
+	}
+}
+
+func TestStringContentAndUsage(t *testing.T) {
+	in := `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T01:00:00.000Z","message":{"role":"user","content":"hello"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"req_1","apiBlockIndex":0,"timestamp":"2026-11-08T01:00:01.000Z","message":{"id":"msg_1","model":"m","role":"assistant","content":[{"type":"thinking","thinking":"hm","signature":"x"}],"usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":4,"output_tokens_details":{"thinking_tokens":1}}}}
+{"type":"assistant","uuid":"a2","parentUuid":"a1","requestId":"req_1","apiBlockIndex":1,"timestamp":"2026-11-08T01:00:01.500Z","message":{"id":"msg_1","model":"m","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"ls"}}],"stop_reason":"tool_use","usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":4}}}
+{"type":"user","uuid":"u2","parentUuid":"a2","timestamp":"2026-11-08T01:00:02.000Z","toolUseResult":{"ok":true},"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"a.txt"}]}}
+{"type":"assistant","uuid":"a3","parentUuid":"u2","requestId":"req_2","apiBlockIndex":0,"timestamp":"2026-11-08T01:00:03.000Z","message":{"id":"msg_2","model":"m","role":"assistant","content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}],"usage":{"input_tokens":10,"output_tokens":1,"cache_creation_input_tokens":0,"cache_read_input_tokens":0}}}
+{"type":"last-prompt","lastPrompt":"hello","leafUuid":"a3"}
+{"type":"ai-title","aiTitle":"first"}
+{"type":"ai-title","aiTitle":"final"}
+{"type":"brand-new-thing","x":1}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tt := s.Totals
+	if tt.Prompts != 1 || tt.Requests != 2 || tt.AssistantRecords != 3 || tt.ToolCalls != 2 || tt.ToolResults != 1 || tt.UnpairedToolUses != 1 {
+		t.Fatalf("totals = %+v", tt)
+	}
+	if tt.Usage.InputTokens != 11 || tt.Usage.OutputTokens != 3 || tt.Usage.CacheReadInputTokens != 4 || tt.Usage.ThinkingTokens != 1 {
+		t.Fatalf("usage must be counted once per request: %+v", tt.Usage)
+	}
+	if s.Title != "final" || s.UnknownTypes["brand-new-thing"] != 1 {
+		t.Fatalf("title=%q unknown=%v", s.Title, s.UnknownTypes)
+	}
+	if s.Prompts[0].Text != "hello" {
+		t.Fatalf("string content should become a text block: %q", s.Prompts[0].Text)
+	}
+	if len(s.Turns[0].Blocks) != 2 || s.Turns[0].Blocks[1].Type != "tool_use" || s.Turns[0].StopReason != "tool_use" {
+		t.Fatalf("turn 0 blocks = %+v", s.Turns[0].Blocks)
+	}
+	if !s.ToolCalls[0].Paired || s.ToolCalls[0].ResultText() != "a.txt" || s.ToolCalls[1].Paired {
+		t.Fatalf("tool pairing wrong: %+v %+v", s.ToolCalls[0], s.ToolCalls[1])
+	}
+	if strings.Join(s.Chain, ">") != "u1>a1>a2>u2>a3" {
+		t.Fatalf("chain = %v", s.Chain)
+	}
+}
+
+func TestCompactionChain(t *testing.T) {
+	in := `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T01:00:00Z","message":{"role":"user","content":[{"type":"text","text":"go"}]}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T01:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"system","subtype":"compact_boundary","uuid":"c1","parentUuid":null,"logicalParentUuid":"a1","timestamp":"2026-11-08T01:00:02Z","compactMetadata":{"trigger":"auto","preTokens":1000,"postTokens":100}}
+{"type":"user","uuid":"s1","parentUuid":"c1","isCompactSummary":true,"turnOrigin":"human","timestamp":"2026-11-08T01:00:03Z","message":{"role":"user","content":"This session is being continued"}}
+{"type":"user","uuid":"u2","parentUuid":"s1","turnOrigin":"human","timestamp":"2026-11-08T01:00:04Z","message":{"role":"user","content":[{"type":"text","text":"next"},{"type":"image","source":{"type":"base64","media_type":"image/png","data":"AAAA"}}]}}
+{"type":"system","subtype":"api_error","uuid":"e1","parentUuid":"u2","timestamp":"2026-11-08T01:00:05Z","retryAttempt":1}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Totals.Compactions != 1 || s.Compactions[0].Metadata.PreTokens != 1000 || s.Compactions[0].Summary == nil {
+		t.Fatalf("compaction = %+v", s.Compactions)
+	}
+	if s.Totals.Prompts != 2 || s.Totals.Images != 1 || s.Totals.APIErrors != 1 {
+		t.Fatalf("totals = %+v", s.Totals)
+	}
+	if strings.Join(s.Chain, ">") != "u1>a1>c1>s1>u2>e1" {
+		t.Fatalf("chain must cross the compaction via logicalParentUuid: %v", s.Chain)
+	}
+}
+
+// expected.json next to each fixture pins the counts; see internal/tools/expected.
+type expected struct {
+	Title            string         `json:"title"`
+	Records          int            `json:"records"`
+	Prompts          int            `json:"prompts"`
+	Requests         int            `json:"requests"`
+	AssistantRecords int            `json:"assistant_records"`
+	ToolCalls        int            `json:"tool_calls"`
+	ToolResults      int            `json:"tool_results"`
+	Images           int            `json:"images"`
+	Compactions      int            `json:"compactions"`
+	APIErrors        int            `json:"api_errors"`
+	Subagents        int            `json:"subagents"`
+	OutputTokens     int            `json:"output_tokens"`
+	CacheRead        int            `json:"cache_read_input_tokens"`
+	Models           map[string]int `json:"models"`
+	Tools            map[string]int `json:"tools"`
+	ChainLen         int            `json:"chain_len"`
+}
+
+func TestFixtures(t *testing.T) {
+	root := filepath.Join("..", "..", "internal", "testdata", "sessions")
+	dirs, err := os.ReadDir(root)
+	if err != nil {
+		t.Skip("no fixtures:", err)
+	}
+	ran := 0
+	for _, d := range dirs {
+		if !d.IsDir() {
+			continue
+		}
+		dir := filepath.Join(root, d.Name())
+		expB, err := os.ReadFile(filepath.Join(dir, "expected.json"))
+		if err != nil {
+			continue
+		}
+		var exp expected
+		if err := json.Unmarshal(expB, &exp); err != nil {
+			t.Fatalf("%s: %v", dir, err)
+		}
+		files, _ := filepath.Glob(filepath.Join(dir, "*.jsonl"))
+		if len(files) != 1 {
+			t.Fatalf("%s: want exactly one transcript, got %v", dir, files)
+		}
+		ran++
+		t.Run(d.Name(), func(t *testing.T) {
+			s, err := Load(files[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			got := s.Totals
+			check := func(name string, got, want int) {
+				if got != want {
+					t.Errorf("%s: got %d, want %d", name, got, want)
+				}
+			}
+			check("records", got.Records, exp.Records)
+			check("prompts", got.Prompts, exp.Prompts)
+			check("requests", got.Requests, exp.Requests)
+			check("assistant_records", got.AssistantRecords, exp.AssistantRecords)
+			check("tool_calls", got.ToolCalls, exp.ToolCalls)
+			check("tool_results", got.ToolResults, exp.ToolResults)
+			check("images", got.Images, exp.Images)
+			check("compactions", got.Compactions, exp.Compactions)
+			check("api_errors", got.APIErrors, exp.APIErrors)
+			check("subagents", got.Subagents, exp.Subagents)
+			check("output_tokens", got.Usage.OutputTokens, exp.OutputTokens)
+			check("cache_read_input_tokens", got.Usage.CacheReadInputTokens, exp.CacheRead)
+			check("chain_len", len(s.Chain), exp.ChainLen)
+			if s.Title != exp.Title {
+				t.Errorf("title: got %q, want %q", s.Title, exp.Title)
+			}
+			for m, n := range exp.Models {
+				check("model "+m, got.Models[m], n)
+			}
+			for name, n := range exp.Tools {
+				check("tool "+name, got.Tools[name], n)
+			}
+			if len(s.UnknownTypes) > 0 {
+				t.Logf("unknown record types (fine, but worth modelling): %v", s.UnknownTypes)
+			}
+		})
+	}
+	if ran == 0 {
+		t.Skip("no fixtures with expected.json")
+	}
+}
+
+func TestSpilledToolResultResolvesLocally(t *testing.T) {
+	s, err := Load(filepath.Join("..", "..", "internal", "testdata", "sessions", "synthetic-basics", "aaaaaaaa-0000-0000-0000-000000000001.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var edit *ToolCall
+	for _, c := range s.ToolCalls {
+		if c.ID == "toolu_04" {
+			edit = c
+		}
+	}
+	if edit == nil || !edit.Paired || !strings.HasSuffix(edit.Spilled, "tool-results/toolu_04.txt") {
+		t.Fatalf("toolu_04 = %+v", edit)
+	}
+	p, ok := s.SpilledPath(edit)
+	if !ok {
+		t.Fatal("spilled output should resolve under the fixture's companion dir")
+	}
+	b, err := os.ReadFile(p)
+	if err != nil || !strings.HasPrefix(string(b), "full output line 1") {
+		t.Fatalf("read %s: %v %q", p, err, b)
+	}
+	var agent *ToolCall
+	for _, c := range s.ToolCalls {
+		if c.Name == "Agent" {
+			agent = c
+		}
+	}
+	if agent == nil || agent.Subagent == nil || agent.Subagent.AgentID != "a1b2c3d4e5f607182" || agent.Subagent.Session.Totals.Requests != 2 {
+		t.Fatalf("Agent call should link to its subagent: %+v", agent)
+	}
+	if s.Cost == nil || s.Cost.TotalCostUSD != 0.42 || len(s.PRLinks) != 1 || s.Totals.Malformed != 1 || s.UnknownTypes["future-record-kind"] != 1 {
+		t.Fatalf("metadata: cost=%+v pr=%v malformed=%d unknown=%v", s.Cost, s.PRLinks, s.Totals.Malformed, s.UnknownTypes)
+	}
+}

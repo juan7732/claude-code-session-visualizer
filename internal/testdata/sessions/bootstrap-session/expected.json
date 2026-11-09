@@ -1,0 +1,26 @@
+{
+  "api_errors": 0,
+  "assistant_records": 172,
+  "cache_read_input_tokens": 10739247,
+  "chain_len": 381,
+  "compactions": 0,
+  "images": 0,
+  "models": {
+    "claude-fable-5-1": 55
+  },
+  "output_tokens": 183989,
+  "prompts": 9,
+  "records": 690,
+  "requests": 55,
+  "subagents": 1,
+  "title": "Xxxx xxxxxxxxx XXXXXX.xx xxxxx",
+  "tool_calls": 90,
+  "tool_results": 88,
+  "tools": {
+    "Agent": 1,
+    "Bash": 81,
+    "ToolSearch": 1,
+    "WebFetch": 5,
+    "WebSearch": 2
+  }
+}

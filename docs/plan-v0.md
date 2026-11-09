@@ -56,7 +56,7 @@ location, `cleanupPeriodDays`, live sessions, session count, disk use), `describ
 subcommand, flags, output schema, examples), MIT license, CI with `go test ./...` and `go vet`. Promote the
 sessions-study notes into `docs/`.
 
-**M1 Parser.** `transcript.Reader` streams lines, tolerant of a partial last line, tracks byte offset for resume.
+**M1 Parser (DONE).** `transcript.Reader` streams lines, tolerant of a partial last line, tracks byte offset for resume.
 `Record` keeps `json.RawMessage` plus typed views for the record types we know; unknown types become `OpaqueEvent`.
 `Session.Build` makes the uuid tree, finds the tip via `last-prompt`, walks the main chain, groups assistant records
 into `Turn` by requestId (usage once), pairs tool calls, marks `Compaction`s, attaches `Subagent`s from the companion

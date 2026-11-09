@@ -1,0 +1,2 @@
+full output line 1
+full output line 2

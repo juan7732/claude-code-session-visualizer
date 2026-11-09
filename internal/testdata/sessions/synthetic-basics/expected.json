@@ -1,0 +1,26 @@
+{
+  "api_errors": 1,
+  "assistant_records": 8,
+  "cache_read_input_tokens": 23500,
+  "chain_len": 17,
+  "compactions": 1,
+  "images": 2,
+  "models": {
+    "<synthetic>": 1,
+    "claude-fable-5-1": 5
+  },
+  "output_tokens": 230,
+  "prompts": 2,
+  "records": 28,
+  "requests": 6,
+  "subagents": 1,
+  "title": "Synthetic basics",
+  "tool_calls": 4,
+  "tool_results": 4,
+  "tools": {
+    "Agent": 1,
+    "Bash": 1,
+    "Edit": 1,
+    "Read": 1
+  }
+}

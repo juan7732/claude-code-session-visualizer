@@ -8,7 +8,7 @@ cmd/skit          binary entry: version wiring, exit code
 internal/cli      Cobra commands. Parse flags → call sessionkit → print. --json on every read command.
 sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no flags, no env reads.
   catalog         find Claude Code's data: dir, projects, session files, subagents, live sessions, retention
-  transcript      (M1) JSONL → records → tree → turns, tool calls, compactions, subagents
+  transcript      JSONL → records → uuid tree → turns (one per request), tool call pairs, compactions, subagents
   stats           (M2) usage once per request, pricing, reconciliation with Claude Code's cost-state
   store           (M3) SQLite archive + index, ~/.sessionkit/, schema versioned
   search          (M3/v0.5) FTS5 keyword, then hybrid meaning + words
@@ -19,13 +19,15 @@ runtime/LlamaRuntime       (v0.5) Swift embedding worker over llama.cpp
 ```
 
 ## Boundaries
+
 - **Claude Code's files are read-only input.** skit never writes under `~/.claude` or `$CLAUDE_CONFIG_DIR`.
-- **The engine is a process.** The Swift client and any future web renderer talk to `skit serve` over a Unix socket.
-  The process boundary is the future network boundary; the sync service reuses the same operations.
+- **The engine is a process.** The Swift client and any future web renderer talk to `skit serve` over a Unix socket. The
+  process boundary is the future network boundary; the sync service reuses the same operations.
 - **The archive lives in `~/.sessionkit/`.** Never under `~/Library`.
 - **The embedding model runs in a sidecar worker** speaking JSON lines (DigUp's protocol), never linked into the engine.
 
 ## Data flow (v0)
+
 ```
 ~/.claude/projects/**.jsonl ──catalog──▶ transcript.Session ──stats──▶ CLI list/show/stats (--json)
                                              │
@@ -34,12 +36,20 @@ runtime/LlamaRuntime       (v0.5) Swift embedding worker over llama.cpp
 ```
 
 ## Testing
+
 - Unit tests next to each package (`go test ./...`).
-- Parser eval: `internal/testdata/sessions/*` with `expected.json`; drift fails `go test`.
+- Parser eval: `internal/testdata/sessions/<fixture>/` holds one transcript (plus its subagents dir) and an
+  `expected.json` written by the independent Python oracle `internal/tools/expected/expected.py`; `go test` fails on
+  drift. `bootstrap-session` is this project's own first Claude Code session, redacted by `internal/tools/redact`
+  (structure, ids, timestamps and numbers kept; every string masked; images replaced by a 1×1 PNG; `api-request*`
+  dropped). `synthetic-basics` covers compaction, subagent, images, an unpaired tool call, an unknown record type and a
+  malformed line.
 - Hermetic end-to-end suite in `test/integration/`: the real binary runs in a temp HOME with a seeded `~/.claude`,
   inside Docker (`just integration`) or locally against a fresh build (`just integration-local`). Pattern from ergo.
 
 ## Conventions
+
 - Judgment calls are marked in code: `// DECISION:` (chosen among alternatives, with reason), `// REVIEW:` (unsure),
   `// SPEC:` (cites the doc that forced it), `// TODO:` (known gap). `rg "// (DECISION|REVIEW):"` maps every one.
-- Docs in this directory are the source of truth for skit. Early designs may start in the engineering repo and move here.
+- Docs in this directory are the source of truth for skit. Early designs may start in the engineering repo and move
+  here.
