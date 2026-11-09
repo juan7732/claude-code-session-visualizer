@@ -7,6 +7,14 @@ default:
 version := `git describe --tags --always --dirty 2>/dev/null || echo "dev"`
 ldflags := "-X main.version=" + version
 
+# ─── Setup ────────────────────────────────────────────────────────────────────
+
+# One-time: install the git pre-commit hook (gofmt + prettier) and Prettier itself
+setup:
+    git config core.hooksPath .githooks
+    npm install --silent
+    @echo "hooks installed (.githooks), prettier ready"
+
 # ─── Build ────────────────────────────────────────────────────────────────────
 
 # Build the skit binary into bin/
@@ -81,12 +89,15 @@ vet:
     go vet ./...
     go vet -tags=integration ./test/...
 
+# Format Go (gofmt) and docs/config (prettier)
 fmt:
     gofmt -w .
+    node_modules/.bin/prettier --write . --log-level warn
 
 # Fail if any file needs formatting (CI)
 fmt-check:
-    @test -z "$(gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
+    @test -z "$(gofmt -l .)" || (echo "Go files need formatting:" && gofmt -l . && exit 1)
+    node_modules/.bin/prettier --check . --log-level warn
 
 tidy:
     go mod tidy

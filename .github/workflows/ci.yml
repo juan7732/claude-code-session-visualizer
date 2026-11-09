@@ -18,8 +18,14 @@ jobs:
         run: go mod tidy && git diff --exit-code go.mod go.sum
       - name: Vet
         run: go vet ./... && go vet -tags=integration ./test/...
-      - name: Format check
+      - name: Format check (gofmt)
         run: test -z "$(gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Format check (prettier)
+        run: npm ci --silent && npx prettier --check .
       - name: Test with race detector
         run: go test -race ./...
       - name: Build (darwin/arm64, darwin/amd64, linux/amd64, linux/arm64)

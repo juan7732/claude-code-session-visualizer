@@ -1,0 +1,12 @@
+{
+  "name": "skit-dev-tools",
+  "private": true,
+  "description": "Dev-only: Prettier for Markdown, YAML and JSON. Go code uses gofmt.",
+  "devDependencies": {
+    "prettier": "3.6.2"
+  },
+  "scripts": {
+    "fmt": "prettier --write .",
+    "fmt:check": "prettier --check ."
+  }
+}

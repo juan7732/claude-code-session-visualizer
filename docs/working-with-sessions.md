@@ -1,12 +1,11 @@
 # Working with sessions
 
-_Promoted from the workspace `sessions-study` scratchpad on 2026-11-08 (observed on Claude Code 2.1.289–2.1.319)._
-
 ## Parsing rules (for the Go parser)
+
 1. **Stream the file line by line.** Lines reach 1 MB+ (images, big tool results). Never load whole files eagerly.
 2. **Dispatch on `type`, keep unknowns.** Store unknown types as opaque events with their timestamp when present.
-3. **Build the tree by `uuid`/`parentUuid`;** find the tip via `last-prompt.leafUuid`, else the latest timestamp.
-   Main chain = walk up from the tip. Mark compaction roots via `logicalParentUuid`.
+3. **Build the tree by `uuid`/`parentUuid`;** find the tip via `last-prompt.leafUuid`, else the latest timestamp. Main
+   chain = walk up from the tip. Mark compaction roots via `logicalParentUuid`.
 4. **Reassemble turns by `requestId`.** Order blocks by `apiBlockIndex`. Take `usage` once. Pair `tool_use.id` with the
    later `tool_result.tool_use_id`; a `tool_use` with no result is "in flight" or interrupted.
 5. **Resolve spilled tool results** from `<session>/tool-results/<id>.txt` when the result text names one.
@@ -21,14 +20,17 @@ _Promoted from the workspace `sessions-study` scratchpad on 2026-11-08 (observed
    tokens, compactions, images), run in CI. A Claude Code update then fails a test instead of silently miscounting.
 
 ## Finding and identifying sessions
-- Enumerate `~/.claude/projects/*/*.jsonl`, plus `.orphaned-*` and `.superseded-*` variants, plus `<session>/subagents/*.jsonl`.
-- Identity = `sessionId` (file name), display = last `ai-title`, or the session `name` from `sessions/<pid>.json`
-  while live (set by `claude -n` or `/rename`), else the first human prompt.
-- Resume handles we can offer the user: `claude --resume <id|name|absolute path to .jsonl>`, `--fork-session` to
-  branch, `-c` for the latest in a cwd, `--from-pr <n|url>` when a `pr-link` record exists. A "Resume in terminal"
-  button is a one-liner.
+
+- Enumerate `~/.claude/projects/*/*.jsonl`, plus `.orphaned-*` and `.superseded-*` variants, plus
+  `<session>/subagents/*.jsonl`.
+- Identity = `sessionId` (file name), display = last `ai-title`, or the session `name` from `sessions/<pid>.json` while
+  live (set by `claude -n` or `/rename`), else the first human prompt.
+- Resume handles we can offer the user: `claude --resume <id|name|absolute path to .jsonl>`, `--fork-session` to branch,
+  `-c` for the latest in a cwd, `--from-pr <n|url>` when a `pr-link` record exists. A "Resume in terminal" button is a
+  one-liner.
 
 ## Triggers instead of polling
+
 Claude Code hooks (`SessionStart`, `Stop`, `SessionEnd`, `PostCompact`, `PostToolUse`) receive `session_id`,
 `transcript_path` and `cwd` on stdin. A tiny hook that hands `transcript_path` to the engine gives near-real-time
 indexing with zero file watching. Requirements: the **UI installs and removes the hooks** (it edits
@@ -38,8 +40,10 @@ milliseconds, never waits on the engine, and declares a short `timeout`. Dev exp
 watching `~/.claude/projects` (FSEvents from the Swift client, or `fsnotify` in Go) when hooks are not installed.
 
 ## Alternative feed: print mode
-`claude -p --output-format stream-json --verbose` emits the same message shapes live, and `--forward-subagent-text`
-tags subagent output with `parent_tool_use_id`. Useful for a demo or for tests, not needed for the product.
+
+`claude -p --output-format stream-json --verbose` emits the same message shapes live, and `--forward-subagent-text` tags
+subagent output with `parent_tool_use_id`. Useful for a demo or for tests, not needed for the product.
 
 ## Ideas
+
 See `roadmap.md`.

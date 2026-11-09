@@ -1,0 +1,26 @@
+#!/bin/sh
+# Pre-commit: gofmt on staged Go files, Prettier on staged docs/config. Installed by `just setup`.
+set -e
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+[ -z "$staged" ] && exit 0
+
+gofiles=$(printf '%s\n' "$staged" | grep '\.go$' || true)
+if [ -n "$gofiles" ]; then
+  bad=$(gofmt -l $gofiles)
+  if [ -n "$bad" ]; then
+    echo "pre-commit: gofmt needed on:" >&2
+    printf '  %s\n' $bad >&2
+    echo "run: just fmt" >&2
+    exit 1
+  fi
+fi
+
+docfiles=$(printf '%s\n' "$staged" | grep -E '\.(md|ya?ml|json)$' | grep -v -E '^(internal/testdata/|package-lock\.json)' || true)
+if [ -n "$docfiles" ]; then
+  if [ ! -x node_modules/.bin/prettier ]; then
+    echo "pre-commit: prettier not installed; run: just setup" >&2
+    exit 1
+  fi
+  node_modules/.bin/prettier --write $docfiles >/dev/null
+  git add $docfiles
+fi

@@ -1,0 +1,8 @@
+bin/
+node_modules/
+coverage.*
+go.sum
+package-lock.json
+internal/testdata/
+*.jsonl
+CLAUDE.md
