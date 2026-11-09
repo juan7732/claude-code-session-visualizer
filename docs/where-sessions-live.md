@@ -56,6 +56,11 @@ last-session stats); project settings are read from `<cwd>/.claude/`. Consequenc
 stats, text for search, image thumbnails), so a session is still browsable after Claude Code deletes it. Tell the user
 their retention setting and offer to raise it. Never write into `~/.claude/projects`.
 
+## skit's own directory
+
+`~/.sessionkit/` (or `$SKIT_HOME`): `skit.sqlite` (index), `archive/` (raw copies), `models/` (embedding model files,
+pinned and checksummed), `skit.sock` while `skit serve` runs.
+
 ## Security note
 
 Transcripts are plaintext and contain everything a tool saw: file contents, command output, pasted text, and the system

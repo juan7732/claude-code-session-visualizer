@@ -22,3 +22,4 @@ eval is what keeps these notes honest.
 | `subagents.md`             | Subagent transcripts and how they link to the parent                          |
 | `images-and-modalities.md` | How images land in a session; the three embedding tiers                       |
 | `archive-sizing.md`        | Measured sizes and long-term projections                                      |
+| `embedding-spike.md`       | EmbeddingGemma 2 on llama.cpp measured on this Mac; what it decided           |

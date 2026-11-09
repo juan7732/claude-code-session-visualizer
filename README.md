@@ -4,8 +4,8 @@ Browse, archive and search your Claude Code sessions. Claude Code keeps transcri
 deletes them after 30 days by default; skit reads them, keeps a durable lossless copy in `~/.sessionkit/`, shows a
 session as a timeline with its stats, and searches across all of them. Agents can use every command with `--json`.
 
-Status: M4. Read path, durable archive, keyword search and the service mode work end to end on real sessions; the
-embedding spike (M5) and the Swift client (M6) are next. See `docs/plan-v0.md`.
+Status: M5. Read path, durable archive, keyword search and the service mode work end to end on real sessions; the
+embedding spike is done (`docs/embedding-spike.md`), the Swift client (M6) is next. See `docs/plan-v0.md`.
 
 ```
 skit doctor                    where Claude Code keeps sessions, retention setting, live sessions, disk use, index size
