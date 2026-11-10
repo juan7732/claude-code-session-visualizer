@@ -235,6 +235,11 @@ to M13.
 Done when: a question that shares no words with the transcript finds the turn, hybrid beats keyword on the eval, and
 nothing leaves the machine but the one model download.
 
+State, 2026-11-10 (`meaning-search.md`): the `embed` package, index schema 5 (chunks and vectors keyed by a hash of the
+text, where ADR 0005 said "on the segment row"), `skit embed`, `skit eval`, and meaning search in a plain form
+(`skit search --mode meaning`, `/v0/search?mode=meaning`: cosine rank, no gate) are built. Open: the eval queries, the
+scorer and `hybrid` mode tuned on them, embedding at ingest, vectors held in memory by `serve`.
+
 **Not scheduled.** Continue from here (embedded terminal, fork at a turn; needs the feasibility probe in `NOTES.md`).
 Plugins (ergo, git) through the extension points. Image tiers B and C, the hooks installer, HTML export. The pricing
 table (issue #1). A web face: possible because the engine is an HTTP JSON process, not built; the no-derivation rule and

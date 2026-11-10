@@ -9,9 +9,10 @@ import (
 	"io"
 )
 
-// ErrPartialLine is returned by Reader.Next when the input ends without a
-// newline: Claude Code is probably still writing the line. Offset() then
-// points at the start of the partial line, where a later read should resume.
+// ErrPartialLine is returned by Reader.Next when the input ends in the middle
+// of a line: bytes with no newline that are not yet a whole JSON value. Claude
+// Code is probably still writing it. Offset() then points at the start of the
+// partial line, where a later read should resume.
 var ErrPartialLine = errors.New("transcript: partial last line")
 
 // Reader streams records from a transcript. Lines can be megabytes long
@@ -42,20 +43,26 @@ func (r *Reader) Offset() int64 { return r.offset }
 // Line is the number of complete lines read so far.
 func (r *Reader) Line() int { return r.line }
 
-// Next returns the next record. At the end it returns io.EOF; a trailing line
-// with no newline returns ErrPartialLine without consuming it. A line that is
-// not valid JSON is returned as a Record with Type MalformedType and the error
-// in Malformed, so callers can keep the line and keep going.
+// Next returns the next record. At the end it returns io.EOF. A last line with
+// no newline is a record like any other when it is a whole JSON value (a file
+// that simply lacks its final newline loses nothing); when it is not, Next
+// returns ErrPartialLine without consuming it. A complete line that is not
+// valid JSON is returned as a Record with Type MalformedType and the error in
+// Malformed, so callers can keep the line and keep going.
 func (r *Reader) Next() (*Record, error) {
 	raw, err := r.br.ReadBytes('\n')
 	if err != nil {
 		if err == io.EOF {
-			if len(raw) == 0 {
+			if len(bytes.TrimSpace(raw)) == 0 {
 				return nil, io.EOF
 			}
-			return nil, ErrPartialLine
+			if !json.Valid(raw) {
+				return nil, ErrPartialLine
+			}
+			// Whole value, missing only its newline: fall through and return it.
+		} else {
+			return nil, err
 		}
-		return nil, err
 	}
 	start := r.offset
 	r.offset += int64(len(raw))

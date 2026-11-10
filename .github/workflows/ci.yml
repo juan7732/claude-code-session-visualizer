@@ -35,6 +35,24 @@ jobs:
             os="${target%/*}"; arch="${target#*/}"
             GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -ldflags "-X main.version=ci" -o "bin/skit-$os-$arch" ./cmd/skit
           done
+  client:
+    name: Client (Swift, macOS)
+    runs-on: macos-26
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Build
+        run: swift build
+        working-directory: client/SessionVisualizer
+      - name: Contract and unit tests against the engine in this commit
+        run: |
+          set -euo pipefail
+          dir=$(mktemp -d)
+          client/SessionVisualizer/Scripts/record-fixtures.sh "$dir"
+          cd client/SessionVisualizer && SKIT_FIXTURES="$dir" swift test
   integration:
     name: Integration (docker)
     runs-on: ubuntu-latest

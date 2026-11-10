@@ -48,6 +48,10 @@ test-v:
 test-race:
     go test -race ./...
 
+# The real llama-server with the real model against recorded reference vectors (needs `skit embed` to have run once)
+test-model model="$HOME/.sessionkit/models/embeddinggemma-2-Q8_0.gguf":
+    SKIT_TEST_MODEL="{{model}}" go test -count=1 -run TestReferenceVectors -v ./sessionkit/embed/
+
 # Tests matching a pattern, e.g. just test-run TestInspect
 test-run pattern:
     go test -v -run {{pattern}} ./...
@@ -109,3 +113,46 @@ tidy-check:
 
 # Everything CI runs, locally: tidy-check, fmt-check, vet, race tests, integration
 check: tidy-check fmt-check vet test-race integration
+
+# ─── Client (Swift, macOS) ────────────────────────────────────────────────────
+
+client := "client/SessionVisualizer"
+# With only the Command Line Tools installed (no Xcode), the Testing framework
+# is off the default search path and ships without its Foundation overlay module.
+clt_frameworks := "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"
+
+# Build the SessionVisualizer app (debug)
+client-build:
+    cd {{client}} && swift build
+
+# Run the app from the build directory
+client-run: client-build
+    {{client}}/.build/debug/SessionVisualizer
+
+# The client's tests: contract (recorded /v0 responses), transport, the app's state
+client-test:
+    #!/bin/sh
+    set -eu
+    cd {{client}}
+    if xcode-select -p | grep -q CommandLineTools; then
+        exec swift test -Xswiftc -F{{clt_frameworks}} -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays \
+            -Xlinker -F{{clt_frameworks}} -Xlinker -rpath -Xlinker {{clt_frameworks}}
+    fi
+    exec swift test
+
+# Record the /v0 responses the contract tests decode, from this checkout's engine
+client-fixtures:
+    {{client}}/Scripts/record-fixtures.sh
+
+# The contract check CI runs: record from the engine as it is now, then decode with the client as it is now
+client-contract:
+    #!/bin/sh
+    set -eu
+    dir=$(mktemp -d)
+    {{client}}/Scripts/record-fixtures.sh "$dir"
+    SKIT_FIXTURES="$dir" just client-test
+    rm -rf "$dir"
+
+# Render one state of the app to a PNG, e.g. just client-snapshot out.png --page sessions --appearance dark
+client-snapshot out *args: client-build
+    {{client}}/.build/debug/SessionVisualizer --snapshot {{out}} {{args}}

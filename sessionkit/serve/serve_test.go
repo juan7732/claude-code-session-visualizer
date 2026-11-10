@@ -1,6 +1,7 @@
 package serve
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/embed"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/embed/embedtest"
 )
 
 const fixtureID = "aaaaaaaa-0000-0000-0000-000000000001"
@@ -257,5 +260,54 @@ func TestSweepArchivesWhatChangedWhileNothingRan(t *testing.T) {
 	}
 	if changed, _ := s.Sweep(); changed != 1 {
 		t.Fatalf("the sweep should pick up the growth: changed=%d", changed)
+	}
+}
+
+// TestSearchByMeaning walks /v0/search?mode=meaning from "cannot" to "can":
+// no embedder, no vectors, then hits; and the two ways it can fail that are
+// not the caller's doing or are.
+func TestSearchByMeaning(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v0/archive", strings.NewReader(`{}`)))
+	if rec.Code != 200 {
+		t.Fatalf("archive: %d %s", rec.Code, rec.Body.String())
+	}
+	const q = "/v0/search?mode=meaning&q=continued+from+a+previous+conversation"
+	var e map[string]string
+	if code := get(t, h, q, &e); code != 409 || !strings.Contains(e["error"], "skit embed") {
+		t.Fatalf("without an embedder: %d %v", code, e)
+	}
+
+	fake := httptest.NewServer(&embedtest.Server{})
+	defer fake.Close()
+	emb := embed.NewClientEmbedder(&embed.Client{BaseURL: fake.URL}, "fake v1")
+	s.Embedder = emb
+	if code := get(t, h, q, &e); code != 409 || !strings.Contains(e["error"], "no vectors") {
+		t.Fatalf("before embedding: %d %v", code, e)
+	}
+	if _, err := s.Archive.Embed(context.Background(), emb, nil); err != nil {
+		t.Fatal(err)
+	}
+	var hits []map[string]any
+	if code := get(t, h, q, &hits); code != 200 || len(hits) == 0 {
+		t.Fatalf("after embedding: %d %v", code, hits)
+	}
+	// The fixture is redacted to x's; its one passage in sentences is the compaction summary.
+	if hits[0]["match"] != "meaning" || hits[0]["kind"] != "summary" || hits[0]["cosine"].(float64) <= 0 {
+		t.Fatalf("first hit = %v", hits[0])
+	}
+	// Keyword hits say what they are too, and the default mode is unchanged.
+	if code := get(t, h, "/v0/search?q=Bash&kind=tool_use", &hits); code != 200 || len(hits) == 0 || hits[0]["match"] != "keyword" {
+		t.Fatalf("keyword: %d %v", code, hits)
+	}
+	if code := get(t, h, "/v0/search?mode=telepathy&q=x", &e); code != 400 || !strings.Contains(e["error"], "keyword, meaning") {
+		t.Fatalf("unknown mode: %d %v", code, e)
+	}
+	// The embedding server going away is not a bad request.
+	fake.Close()
+	if code := get(t, h, q, &e); code != 503 {
+		t.Fatalf("embedder down: %d %v", code, e)
 	}
 }

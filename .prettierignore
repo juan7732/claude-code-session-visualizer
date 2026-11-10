@@ -6,3 +6,7 @@ package-lock.json
 internal/testdata/
 *.jsonl
 CLAUDE.md
+
+# Swift client: build output and recorded engine responses (written by the engine, not by hand)
+client/SessionVisualizer/.build/
+client/SessionVisualizer/Tests/SkitKitTests/Fixtures/

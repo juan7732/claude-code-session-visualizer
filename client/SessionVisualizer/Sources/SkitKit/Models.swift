@@ -1,0 +1,323 @@
+import Foundation
+
+// The shapes `skit serve` returns under /v0, as far as the client reads them.
+// They are the CLI's `--json` shapes (ADR 0004): fields are only ever added, so
+// anything newer than the first /v0 is optional here and an older engine still
+// decodes.
+//
+// Keys are spelled out in CodingKeys instead of using the decoder's snake_case
+// conversion: that conversion also rewrites dictionary keys, and note keys
+// ("tool:toolu_01AbC") and session ids must arrive exactly as written.
+
+/// A list that an older engine may send as `null` (Go's empty slice) or leave
+/// out. Either way it is empty here, so a view never has to ask.
+@propertyWrapper
+public struct EmptyWhenNull<Element: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {
+    public var wrappedValue: [Element]
+
+    public init(wrappedValue: [Element]) {
+        self.wrappedValue = wrappedValue
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        wrappedValue = container.decodeNil() ? [] : try container.decode([Element].self)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        try container.encode(wrappedValue)
+    }
+}
+
+extension KeyedDecodingContainer {
+    /// A missing key is an empty list too.
+    public func decode<Element>(_ type: EmptyWhenNull<Element>.Type, forKey key: Key) throws -> EmptyWhenNull<Element> {
+        try decodeIfPresent(type, forKey: key) ?? EmptyWhenNull(wrappedValue: [])
+    }
+}
+
+/// `GET /v0`: the routes this engine serves.
+public struct RouteList: Codable, Sendable, Equatable {
+    public var version: String
+    public var routes: [String]
+}
+
+/// `GET /v0/status`.
+public struct EngineStatus: Codable, Sendable, Equatable {
+    public var version: String
+    public var uptime: String
+    public var claudeDir: String
+    public var skitHome: String
+    public var index: IndexCounts
+    @EmptyWhenNull public var live: [LiveSession]
+    public var sessionsOnDisk: Int
+    public var cachedSessions: Int?
+
+    enum CodingKeys: String, CodingKey {
+        case version
+        case uptime
+        case claudeDir = "claude_dir"
+        case skitHome = "skit_home"
+        case index
+        case live
+        case sessionsOnDisk = "sessions_on_disk"
+        case cachedSessions = "cached_sessions"
+    }
+}
+
+public struct IndexCounts: Codable, Sendable, Equatable {
+    public var sessions: Int
+    public var archived: Int
+    public var segments: Int
+    public var bytes: Int64
+}
+
+/// A running Claude Code process, from `~/.claude/sessions/<pid>.json`.
+public struct LiveSession: Codable, Sendable, Equatable, Identifiable {
+    public var pid: Int
+    public var sessionId: String?
+    public var cwd: String?
+    public var name: String?
+    public var status: String?
+    public var version: String?
+    public var id: Int { pid }
+}
+
+/// A session's numbers: one row of `GET /v0/sessions`, and with the context
+/// curve, `GET /v0/sessions/{id}/stats`.
+public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var path: String?
+    public var project: String?
+    public var title: String
+    public var slug: String?
+    public var cwd: String?
+    public var cwds: [String]?
+    public var gitBranch: String?
+    public var claudeCodeVersions: [String]?
+    public var firstAt: Date
+    public var lastAt: Date
+    public var duration: String
+    public var partial: Bool?
+
+    public var prompts: Int
+    public var turns: Int
+    public var systemTurns: Int
+    public var rewoundTurns: Int?
+    public var rewoundActions: Int?
+    /// API requests: the session's actions, subagents included.
+    public var requests: Int
+    public var toolCalls: Int
+    public var toolErrors: Int
+    public var images: Int
+    public var compactions: Int
+    public var apiErrors: Int
+    public var subagents: Int
+    public var branches: Int
+
+    public var usage: Usage
+    public var cacheHitRatio: Double
+    @EmptyWhenNull public var models: [NameCount]
+    @EmptyWhenNull public var tools: [ToolCount]
+    public var compactionList: [CompactionInfo]?
+
+    /// Claude Code's own figure, when the transcript carries one.
+    public var claudeCodeCostUsd: Double?
+    public var linesAdded: Int?
+    public var linesRemoved: Int?
+
+    /// The context-window size at each action, in order (stats only).
+    public var context: [ContextPoint]?
+    /// The source transcript is gone; this row comes from the archive.
+    public var archivedOnly: Bool?
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case path
+        case project
+        case title
+        case slug
+        case cwd
+        case cwds
+        case gitBranch = "git_branch"
+        case claudeCodeVersions = "claude_code_versions"
+        case firstAt = "first_at"
+        case lastAt = "last_at"
+        case duration
+        case partial
+        case prompts
+        case turns
+        case systemTurns = "system_turns"
+        case rewoundTurns = "rewound_turns"
+        case rewoundActions = "rewound_actions"
+        case requests
+        case toolCalls = "tool_calls"
+        case toolErrors = "tool_errors"
+        case images
+        case compactions
+        case apiErrors = "api_errors"
+        case subagents
+        case branches
+        case usage
+        case cacheHitRatio = "cache_hit_ratio"
+        case models
+        case tools
+        case compactionList = "compaction_list"
+        case claudeCodeCostUsd = "claude_code_cost_usd"
+        case linesAdded = "lines_added"
+        case linesRemoved = "lines_removed"
+        case context
+        case archivedOnly = "archived_only"
+    }
+}
+
+public struct Usage: Codable, Sendable, Equatable {
+    public var inputTokens: Int
+    public var outputTokens: Int
+    public var cacheCreationInputTokens: Int
+    public var cacheReadInputTokens: Int
+
+    enum CodingKeys: String, CodingKey {
+        case inputTokens = "input_tokens"
+        case outputTokens = "output_tokens"
+        case cacheCreationInputTokens = "cache_creation_input_tokens"
+        case cacheReadInputTokens = "cache_read_input_tokens"
+    }
+}
+
+public struct NameCount: Codable, Sendable, Equatable {
+    public var name: String
+    public var count: Int
+}
+
+public struct ToolCount: Codable, Sendable, Equatable {
+    public var name: String
+    public var calls: Int
+    public var errors: Int
+}
+
+public struct CompactionInfo: Codable, Sendable, Equatable {
+    public var at: Date
+    public var trigger: String?
+    public var preTokens: Int
+    public var postTokens: Int
+
+    enum CodingKeys: String, CodingKey {
+        case at
+        case trigger
+        case preTokens = "pre_tokens"
+        case postTokens = "post_tokens"
+    }
+}
+
+public struct ContextPoint: Codable, Sendable, Equatable {
+    public var index: Int
+    public var turn: Int
+    public var at: Date
+    public var tokens: Int
+    public var cacheRead: Int
+    public var output: Int
+
+    enum CodingKeys: String, CodingKey {
+        case index
+        case turn
+        case at
+        case tokens
+        case cacheRead = "cache_read"
+        case output
+    }
+}
+
+/// What the human added to a session: `GET /v0/sessions/{id}/annotations`.
+public struct Annotation: Codable, Sendable, Equatable {
+    public var pinned: Bool
+    @EmptyWhenNull public var tags: [String]
+    /// Keyed by what the note is about: "session", "turn:3", "action:60", "tool:<id>".
+    public var notes: [String: String]
+    public var updatedAt: Date?
+
+    public init(pinned: Bool = false, tags: [String] = [], notes: [String: String] = [:], updatedAt: Date? = nil) {
+        self.pinned = pinned
+        self.tags = tags
+        self.notes = notes
+        self.updatedAt = updatedAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        pinned = try container.decodeIfPresent(Bool.self, forKey: .pinned) ?? false
+        _tags = try container.decode(EmptyWhenNull<String>.self, forKey: .tags)
+        notes = try container.decodeIfPresent([String: String].self, forKey: .notes) ?? [:]
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case pinned
+        case tags
+        case notes
+        case updatedAt = "updated_at"
+    }
+}
+
+/// The body of `PATCH /v0/sessions/{id}/annotations`. Nil fields are left alone;
+/// a note set to "" is removed.
+public struct AnnotationPatch: Codable, Sendable, Equatable {
+    public var pinned: Bool?
+    public var addTags: [String]?
+    public var removeTags: [String]?
+    public var notes: [String: String]?
+
+    public init(pinned: Bool? = nil, addTags: [String]? = nil, removeTags: [String]? = nil, notes: [String: String]? = nil) {
+        self.pinned = pinned
+        self.addTags = addTags
+        self.removeTags = removeTags
+        self.notes = notes
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case pinned
+        case addTags = "add_tags"
+        case removeTags = "remove_tags"
+        case notes
+    }
+}
+
+/// One result of `POST /v0/archive`.
+public struct ArchiveResult: Codable, Sendable, Equatable {
+    public var id: String
+    public var project: String
+    /// archived | updated | unchanged | failed
+    public var action: String
+    public var records: Int
+    public var bytes: Int64
+    public var path: String
+    public var kept: [String]?
+}
+
+/// `skit service status --json`: the background agent that keeps `skit serve` running.
+public struct ServiceStatus: Codable, Sendable, Equatable {
+    public var supported: Bool
+    public var installed: Bool
+    public var running: Bool
+    public var pid: Int?
+    public var label: String
+    public var plist: String?
+    public var binary: String?
+    public var binaryExists: Bool?
+    public var log: String?
+    public var detail: String?
+
+    enum CodingKeys: String, CodingKey {
+        case supported
+        case installed
+        case running
+        case pid
+        case label
+        case plist
+        case binary
+        case binaryExists = "binary_exists"
+        case log
+        case detail
+    }
+}

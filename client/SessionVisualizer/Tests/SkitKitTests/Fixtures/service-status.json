@@ -1,0 +1,9 @@
+{
+  "supported": true,
+  "installed": false,
+  "running": false,
+  "label": "dev.sessionkit.skit",
+  "plist": "/fixture/home/Library/LaunchAgents/dev.sessionkit.skit.plist",
+  "binary_exists": false,
+  "detail": "not installed: sessions are archived only while `skit serve` runs or when `skit archive` is run"
+}

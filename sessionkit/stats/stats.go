@@ -153,6 +153,9 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		}
 		addTools(sa.Session)
 	}
+	// Lists are never null in the JSON: a session with no requests has empty
+	// lists, so a client can decode every row the same way.
+	sum.Models, sum.Tools = []Count{}, []ToolCount{}
 	for m, n := range models {
 		sum.Models = append(sum.Models, Count{m, n})
 	}

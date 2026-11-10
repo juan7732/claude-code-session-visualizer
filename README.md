@@ -21,7 +21,11 @@ skit context <id> [--action N] what the model received for an action: system pro
                                --compaction N explains a compaction: before, summary sections, preserved, re-injected, after
 skit archive [id...]           copy sessions losslessly into ~/.sessionkit/archive (raw JSONL, zstd) and index them for search;
                                --verify checks every copy against the index and changes nothing
-skit search <words> [--kind K] find turns across archived sessions; a query of ids or codes weighs exact words more
+skit search <words> [--kind K] find turns across archived sessions; a query of ids or codes weighs exact words more;
+                               --mode meaning ranks by what the text says, shared words or not (after `skit embed`)
+skit embed                     give archived prose vectors for meaning search, with EmbeddingGemma 2 in a local
+                               llama-server; the first run downloads the model once (310 MB, checksum verified)
+skit eval <queries.json>       measure search against queries whose answers are known: R@1, R@5, R@10, MRR per mode
 skit serve [--socket P]        the same operations over HTTP on a Unix socket (/v0/…); watches ~/.claude and archives
 skit service install           keep `skit serve` running from login on (a launchd agent), so sessions are archived
                                without being asked; `service status`, `service uninstall`
@@ -41,6 +45,10 @@ plain JSONL under zstd: `zstd -dc <file>` gives the transcript back without skit
 did: if a transcript shrinks or is replaced, the fuller copy stays beside the new one as `<copy>.prev-<time>`
 (`docs/decisions/0008-the-archive-never-shrinks.md`).
 
+Meaning search (`docs/meaning-search.md`) is being built: `skit embed` and `skit search --mode meaning` work, the
+ranking is plain cosine similarity and not yet tuned. It needs `llama-server` (`brew install llama.cpp`). Nothing leaves
+the machine; the only network use in skit is the one model download that `skit embed` makes.
+
 ## Build and test
 
 Requires Go 1.26, [just](https://github.com/casey/just) and Node (for Prettier). Docker for the hermetic integration
@@ -53,6 +61,16 @@ just test               # unit tests
 just integration        # hermetic end-to-end suite in Docker
 just integration-local  # same suite against a local build
 just check              # everything CI runs
+```
+
+## The app
+
+`client/SessionVisualizer` is the native macOS client (SwiftUI, a Swift package; Xcode not required).
+
+```
+just client-run         # build and launch
+just client-test        # contract, transport and state tests
+just client-contract    # the same, against /v0 recorded from this checkout's engine
 ```
 
 ## Layout

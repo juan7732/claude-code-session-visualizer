@@ -533,3 +533,20 @@ func TestRewoundBranch(t *testing.T) {
 		t.Fatalf("totals must include rewound work: turns=%d requests=%d out=%d", tot.Turns, tot.Requests, tot.Usage.OutputTokens)
 	}
 }
+
+// TestLastLineWithoutNewline: a whole JSON value at the end of the file is a
+// record even when its newline is missing; only an unfinished value is partial.
+func TestLastLineWithoutNewline(t *testing.T) {
+	in := "{\"type\":\"user\",\"uuid\":\"a\"}\n{\"type\":\"assistant\",\"uuid\":\"b\",\"parentUuid\":\"a\"}"
+	recs, err := ReadAll(strings.NewReader(in))
+	if err != nil || len(recs) != 2 || recs[1].UUID != "b" || recs[1].Offset != int64(strings.LastIndex(in, "{")) {
+		t.Fatalf("records=%d err=%v", len(recs), err)
+	}
+	if _, err := ReadAll(strings.NewReader(in + "\n  \n")); err != nil {
+		t.Fatalf("trailing blank lines are the end, not a partial line: %v", err)
+	}
+	s, err := Parse(strings.NewReader(in))
+	if err != nil || s.Partial || s.Totals.Records != 2 {
+		t.Fatalf("partial=%v records=%d err=%v", s.Partial, s.Totals.Records, err)
+	}
+}

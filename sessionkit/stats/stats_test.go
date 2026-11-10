@@ -1,7 +1,9 @@
 package stats
 
 import (
+	"encoding/json"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -37,6 +39,19 @@ func TestComputeRollsSubagentsIn(t *testing.T) {
 	}
 	if sum.Title != "Synthetic basics" || len(sum.Cwds) != 2 {
 		t.Fatalf("title=%q cwds=%v", sum.Title, sum.Cwds)
+	}
+}
+
+// TestEmptySessionHasEmptyLists: a transcript with no requests still answers
+// with lists, not nulls (the Swift client decodes every row the same way).
+func TestEmptySessionHasEmptyLists(t *testing.T) {
+	s, err := transcript.Parse(strings.NewReader(`{"type":"queue-operation","sessionId":"e","timestamp":"2026-11-08T10:00:00Z"}` + "\n"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(Compute(s, "p", Options{}))
+	if !strings.Contains(string(b), `"models":[]`) || !strings.Contains(string(b), `"tools":[]`) {
+		t.Fatalf("models and tools must be [] for an empty session: %s", b)
 	}
 }
 

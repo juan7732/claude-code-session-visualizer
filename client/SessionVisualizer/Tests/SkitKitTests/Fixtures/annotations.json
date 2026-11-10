@@ -1,0 +1,13 @@
+{
+  "aaaaaaaa-0000-0000-0000-000000000001": {
+    "pinned": true,
+    "tags": [
+      "keep"
+    ],
+    "notes": {
+      "session": "a note",
+      "tool:toolu_01AbC": "on a tool call"
+    },
+    "updated_at": "2026-11-10T12:00:00.123456789Z"
+  }
+}

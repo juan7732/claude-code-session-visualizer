@@ -1,11 +1,19 @@
-// Package search finds segments by words. FTS5 with bm25 supplies candidates;
-// the final score adds how many of the query's words each segment contains,
-// and a query made of ids or codes ("E1234", "toolu_01…") weighs words more.
-// Meaning (vectors) joins in v0.5 with DigUp's z-scaled fusion.
+// Package search finds segments, by words or by meaning.
+//
+// By words (Run): FTS5 with bm25 supplies candidates; the final score adds how
+// many of the query's words each segment contains, and a query made of ids or
+// codes ("E1234", "toolu_01…") weighs words more.
+//
+// By meaning (Meaning, in meaning.go): the query and every piece of prose in
+// the index have a vector; the nearest pieces win, shared words or not.
+//
+// Evaluate (eval.go) measures either against queries with known answers, which
+// is how a scoring change is judged.
 package search
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
@@ -28,12 +36,21 @@ type Hit struct {
 	Tool     string    `json:"tool,omitempty"`
 	At       time.Time `json:"at"`
 	Snippet  string    `json:"snippet"`
-	Coverage float64   `json:"coverage"`
-	Score    float64   `json:"score"`
+	Coverage float64   `json:"coverage"` // share of the query's words found in the text
+	Score    float64   `json:"score"`    // what the hits are ordered by; comparable within one result only
+	// Match says why the hit is here: "keyword" (it has the words) or "meaning"
+	// (its text is close to the query's).
+	Match string `json:"match"`
+	// Cosine and Z are set on meaning hits: the similarity of the closest piece
+	// of the segment, and how many standard deviations that stands above the
+	// mean over every piece scored for this query. The snippet is that piece.
+	Cosine float64 `json:"cosine,omitempty"`
+	Z      float64 `json:"z,omitempty"`
 }
 
 // Options narrow a search.
 type Options struct {
+	Mode       string // keyword (default) | meaning; see Search
 	Limit      int
 	Project    string // substring of the project slug
 	Session    string // exact session id
@@ -96,11 +113,15 @@ func FTSQuery(terms []string, prefixLast bool) string {
 	return strings.Join(parts, " OR ")
 }
 
-// Run searches the index.
+// ErrEmptyQuery: the query has no word to look for (it is empty, or made of
+// words like "the" and "where" that keyword search ignores).
+var ErrEmptyQuery = errors.New("nothing to search for")
+
+// Run searches the index by words.
 func Run(st *store.Store, query string, opt Options) ([]Hit, error) {
 	terms := Terms(query)
 	if len(terms) == 0 {
-		return nil, fmt.Errorf("nothing to search for in %q", query)
+		return nil, fmt.Errorf("%w in %q", ErrEmptyQuery, query)
 	}
 	if opt.Limit <= 0 {
 		opt.Limit = 20
@@ -151,6 +172,7 @@ func Run(st *store.Store, query string, opt Options) ([]Hit, error) {
 		if len(terms) > 1 && h.Coverage < 0.5 {
 			continue // one common word is not a match
 		}
+		h.Match = ModeKeyword
 		h.Score = -bm // bm25 is negative, more negative is better
 		if h.Score > best {
 			best = h.Score

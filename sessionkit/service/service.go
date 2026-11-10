@@ -20,6 +20,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Label is the launchd label of the agent.
@@ -60,6 +61,7 @@ type launchd struct {
 	agentsDir string
 	domain    string // gui/<uid>
 	run       func(args ...string) ([]byte, error)
+	wait      func() // between status checks after an install; nil sleeps 100 ms
 }
 
 func system() (*launchd, error) {
@@ -134,7 +136,22 @@ func (l *launchd) install(c Config) (Status, error) {
 	if out, err := l.run("bootstrap", l.domain, l.plistPath()); err != nil {
 		return l.inspect(), fmt.Errorf("launchctl bootstrap: %v: %s", err, strings.TrimSpace(string(out)))
 	}
-	return l.inspect(), nil
+	// bootstrap returns before launchd has started the process. Asked at once,
+	// launchd says "not running" about an agent that is about to be.
+	st := l.inspect()
+	for i := 0; i < 50 && !st.Running; i++ {
+		l.pause()
+		st = l.inspect()
+	}
+	return st, nil
+}
+
+func (l *launchd) pause() {
+	if l.wait != nil {
+		l.wait()
+		return
+	}
+	time.Sleep(100 * time.Millisecond)
 }
 
 func (l *launchd) uninstall() (Status, error) {

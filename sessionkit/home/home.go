@@ -25,3 +25,7 @@ func DBPath(dir string) string { return filepath.Join(dir, "skit.sqlite") }
 
 // ArchiveDir is where raw transcripts are kept inside a skit home.
 func ArchiveDir(dir string) string { return filepath.Join(dir, "archive") }
+
+// RunDir holds small files about processes skit started (the embedding
+// sidecar), so a later skit can clean up after one that was killed.
+func RunDir(dir string) string { return filepath.Join(dir, "run") }

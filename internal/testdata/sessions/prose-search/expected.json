@@ -1,0 +1,24 @@
+{
+  "api_errors": 0,
+  "assistant_records": 8,
+  "cache_read_input_tokens": 6000,
+  "chain_len": 14,
+  "compactions": 0,
+  "images": 0,
+  "models": {
+    "claude-fable-5-1": 6
+  },
+  "output_tokens": 605,
+  "prompts": 5,
+  "records": 15,
+  "requests": 6,
+  "subagents": 0,
+  "system_turns": 0,
+  "title": "",
+  "tool_calls": 1,
+  "tool_results": 1,
+  "tools": {
+    "Bash": 1
+  },
+  "turns": 5
+}

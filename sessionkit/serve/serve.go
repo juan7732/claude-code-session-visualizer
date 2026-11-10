@@ -17,7 +17,7 @@
 //	GET  /v0/sessions/{id}/annotations          pin, tags and notes; PATCH the same path to change them
 //	GET  /v0/annotations                        every annotated session
 //	GET  /v0/claude?root=                       how Claude Code is configured: settings layers, experiments, flags (redacted)
-//	GET  /v0/search?q=&limit=&project=&session=&kind=&prefix=
+//	GET  /v0/search?q=&mode=&limit=&project=&session=&kind=&prefix=   mode: keyword (default) | meaning
 //	POST /v0/archive                  {"ids": [...], "project": "", "strip_requests": false} → archive results
 //	GET  /v0/archive/verify?id=       every archived copy (or those ids) checked against the index
 package serve
@@ -60,6 +60,9 @@ type Server struct {
 	// LogRequests logs one line per request. Off for the launchd agent, whose
 	// log would otherwise grow with every click in the client.
 	LogRequests bool
+	// Embedder embeds queries for /v0/search?mode=meaning. Nil means this
+	// server cannot search by meaning.
+	Embedder search.QueryEmbedder
 
 	annMu   sync.Mutex
 	started time.Time
@@ -131,7 +134,7 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
 			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
 			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=",
-			"GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive", "GET /v0/archive/verify?id=",
+			"GET /v0/search?q=&mode=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive", "GET /v0/archive/verify?id=",
 		},
 	})
 }
@@ -413,9 +416,24 @@ func (s *Server) claude(w http.ResponseWriter, r *http.Request) {
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	hits, err := search.Run(s.Archive.Store, q.Get("q"), search.Options{Limit: limit, Project: q.Get("project"), Session: q.Get("session"),
-		Kind: q.Get("kind"), PrefixLast: q.Get("prefix") == "1" || q.Get("prefix") == "true"})
-	if err != nil {
+	hits, err := search.Search(r.Context(), s.Archive.Store, s.Embedder, q.Get("q"), search.Options{Mode: q.Get("mode"), Limit: limit,
+		Project: q.Get("project"), Session: q.Get("session"), Kind: q.Get("kind"), PrefixLast: q.Get("prefix") == "1" || q.Get("prefix") == "true"})
+	switch {
+	case err == nil:
+	case errors.Is(err, search.ErrNoEmbedder), errors.Is(err, search.ErrNoVectors), errors.Is(err, search.ErrStaleVectors):
+		// The request is fine; the index is not ready for it. `skit embed` is.
+		writeError(w, http.StatusConflict, err.Error()+": run `skit embed`")
+		return
+	case errors.Is(err, search.ErrEmptyQuery), errors.Is(err, search.ErrUnknownMode):
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	default:
+		// Meaning search can fail for reasons that are not the caller's: the
+		// model is missing, llama-server did not start.
+		if q.Get("mode") == search.ModeMeaning {
+			writeError(w, http.StatusServiceUnavailable, err.Error())
+			return
+		}
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}

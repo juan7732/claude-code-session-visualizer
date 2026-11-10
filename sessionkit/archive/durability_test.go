@@ -2,10 +2,14 @@ package archive
 
 import (
 	"bytes"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/klauspost/compress/zstd"
 
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 )
@@ -296,5 +300,77 @@ func TestIngestDoesNotFillTheCache(t *testing.T) {
 	r, err := a.Resolve(rep, fixtureID)
 	if err != nil || r.Session.Totals.Records != 31 || a.CachedSessions() != 1 {
 		t.Fatalf("after growth the cached session must be the grown one: %v, %d cached", err, a.CachedSessions())
+	}
+}
+
+// decoded returns the raw copy, decompressed.
+func decoded(t *testing.T, path string) []byte {
+	t.Helper()
+	f, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer f.Close()
+	dec, err := zstd.NewReader(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer dec.Close()
+	b, err := io.ReadAll(dec)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return b
+}
+
+// TestUnfinishedLastLineIsArchived: the copy is the source byte for byte at
+// every step, whether or not the last line has its newline yet.
+func TestUnfinishedLastLineIsArchived(t *testing.T) {
+	a, claude, src, _ := setup(t, 31)
+	whole := `{"type":"user","uuid":"u9","parentUuid":"a8","turnOrigin":"human","sessionId":"` + fixtureID + `","timestamp":"2026-11-08T10:02:00.000Z","message":{"role":"user","content":"a prompt cut in two"}}`
+	half := len(whole) / 2
+	appendTo := func(s string) {
+		f, _ := os.OpenFile(src, os.O_APPEND|os.O_WRONLY, 0o644)
+		f.WriteString(s)
+		f.Close()
+	}
+	same := func(step string, res Result) {
+		t.Helper()
+		want, _ := os.ReadFile(src)
+		if got := decoded(t, res.Path); !bytes.Equal(got, want) {
+			t.Fatalf("%s: the copy (%d bytes) is not the source (%d bytes)", step, len(got), len(want))
+		}
+		if res.Bytes != int64(len(want)) {
+			t.Fatalf("%s: covered %d of %d bytes", step, res.Bytes, len(want))
+		}
+	}
+
+	// Half a line, as a crash mid-write would leave it. It is kept, not parsed.
+	appendTo(whole[:half])
+	res := mustIngest(t, a, claude, Options{})
+	same("half a line", res)
+	s, _, err := a.Load(fixtureID)
+	if err != nil || !s.Partial || s.Totals.Prompts != 2 {
+		t.Fatalf("an unfinished line is evidence, not a record: partial=%v prompts=%d err=%v", s.Partial, s.Totals.Prompts, err)
+	}
+
+	// The rest arrives without a newline: a whole record, and the copy continues the same line.
+	appendTo(whole[half:])
+	res = mustIngest(t, a, claude, Options{})
+	same("whole line, no newline", res)
+	if len(res.Kept) != 0 {
+		t.Fatalf("growth mid-line is an append, nothing to keep aside: %+v", res)
+	}
+	s, _, err = a.Load(fixtureID)
+	if err != nil || s.Partial || s.Totals.Prompts != 3 {
+		t.Fatalf("a last line that is whole JSON counts without its newline: partial=%v prompts=%d err=%v", s.Partial, s.Totals.Prompts, err)
+	}
+
+	// The newline and one more line.
+	appendTo("\n" + strings.Replace(whole, `"u9"`, `"u10"`, 1) + "\n")
+	res = mustIngest(t, a, claude, Options{})
+	same("newline and another line", res)
+	if c, _ := a.Verify(nil); c[0].Status != "ok" || c[0].Records != 33 {
+		t.Fatalf("verify = %+v", c[0])
 	}
 }

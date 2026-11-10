@@ -18,7 +18,22 @@ const fixtureID = "aaaaaaaa-0000-0000-0000-000000000001"
 // seed copies the synthetic fixture into a fake ~/.claude project and returns a Located for it.
 func seed(t *testing.T) (claude string, l catalog.Located) {
 	t.Helper()
-	src := filepath.Join("..", "..", "internal", "testdata", "sessions", "synthetic-basics")
+	return seedFixture(t, "synthetic-basics", fixtureID)
+}
+
+// proseID is the prose-search fixture: five turns in plain sentences on
+// different subjects, for search and vectors (the other fixtures are redacted
+// to x's, which no chunk of is worth a vector).
+const proseID = "bbbbbbbb-0000-0000-0000-000000000002"
+
+func seedProse(t *testing.T) (claude string, l catalog.Located) {
+	t.Helper()
+	return seedFixture(t, "prose-search", proseID)
+}
+
+func seedFixture(t *testing.T, name, id string) (claude string, l catalog.Located) {
+	t.Helper()
+	src := filepath.Join("..", "..", "internal", "testdata", "sessions", name)
 	claude = t.TempDir()
 	proj := filepath.Join(claude, "projects", "-Users-xxxx-work")
 	copyTree(t, src, proj)
@@ -27,7 +42,7 @@ func seed(t *testing.T) (claude string, l catalog.Located) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	l, err = rep.Find(fixtureID)
+	l, err = rep.Find(id)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -145,8 +160,8 @@ func TestIngestLoadRoundTrip(t *testing.T) {
 	if err != nil || res2.Action != "updated" || res2.Records != 32 {
 		t.Fatalf("append ingest = %+v %v", res2, err)
 	}
-	if res2.Bytes != l.File.Bytes+int64(len(line)) {
-		t.Fatalf("covered bytes %d should stop before the partial line (%d)", res2.Bytes, l.File.Bytes+int64(len(line)))
+	if res2.Bytes != l2.File.Bytes {
+		t.Fatalf("covered bytes %d should be the whole file, unfinished last line included (%d)", res2.Bytes, l2.File.Bytes)
 	}
 	s2, _, err := a.Load(fixtureID)
 	if err != nil || s2.Totals.Prompts != 3 {

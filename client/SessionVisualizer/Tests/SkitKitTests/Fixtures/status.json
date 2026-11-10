@@ -1,0 +1,24 @@
+{
+  "version": "fixture",
+  "uptime": "0s",
+  "claude_dir": "/fixture/home/.claude",
+  "skit_home": "/fixture/home/.sessionkit",
+  "index": {
+    "sessions": 0,
+    "archived": 0,
+    "segments": 0,
+    "bytes": 65928
+  },
+  "live": [
+    {
+      "pid": 4242,
+      "sessionId": "aaaaaaaa-0000-0000-0000-000000000001",
+      "cwd": "/Users/me/work",
+      "name": "work-1",
+      "status": "busy",
+      "version": "2.1.319"
+    }
+  ],
+  "sessions_on_disk": 2,
+  "cached_sessions": 0
+}

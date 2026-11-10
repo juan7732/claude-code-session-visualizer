@@ -95,7 +95,7 @@ func (a *Archive) Summary(l catalog.Located) (sum stats.Summary, fresh bool, err
 	if err != nil {
 		return sum, false, err
 	}
-	if row != nil && row.Schema == store.SchemaVersion && a.sourceMatches(row, l) {
+	if row != nil && row.Schema == store.IndexedVersion && a.sourceMatches(row, l) {
 		if json.Unmarshal(row.Summary, &sum) == nil {
 			return sum, true, nil
 		}
@@ -145,7 +145,7 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 	// Unchanged means the copy was made from exactly this source state and is
 	// still the size we left it. The row's source_* columns cannot answer this:
 	// list refreshes them without copying anything.
-	if row != nil && row.Archived() && row.KeepsRequests == keep && row.Schema == store.SchemaVersion && row.ArchivedFP == fp && row.ArchivePath == res.Path {
+	if row != nil && row.Archived() && row.KeepsRequests == keep && row.Schema == store.IndexedVersion && row.ArchivedFP == fp && row.ArchivePath == res.Path {
 		if fi, err := os.Stat(row.ArchivePath); err == nil && fi.Size() == row.ArchiveSize {
 			res.Action, res.Records, res.Bytes = "unchanged", row.Records, row.ArchivedBytes
 			return res, nil

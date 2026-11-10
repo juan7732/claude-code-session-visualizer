@@ -32,6 +32,9 @@ projects directory and archives a session a few seconds after it stops changing,
 so the archive and search stay current while it runs. On start, and every hour
 after, it also archives whatever changed while no skit was running.
 
+/v0/search?mode=meaning starts a local llama-server with the first such query
+and stops it after ten minutes without one ('skit embed' prepares the index).
+
 'skit service install' keeps it running from login on, so nothing depends on
 remembering to start it.
 
@@ -55,6 +58,13 @@ Try it:  curl --unix-socket ~/.sessionkit/skit.sock http://skit/v0/status`,
 			s := serve.New(cmd.Root().Version, a)
 			s.Logf = logger.Printf
 			s.LogRequests = !quiet
+			// Meaning search on demand: the sidecar starts with the first
+			// meaning query and is stopped after ten quiet minutes, so the
+			// model is in memory only while someone is searching.
+			e := newEmbedder(a.Home, false)
+			e.IdleStop = 10 * time.Minute
+			defer e.Close()
+			s.Embedder = e
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			// Bind first: when another skit already serves this socket, this one

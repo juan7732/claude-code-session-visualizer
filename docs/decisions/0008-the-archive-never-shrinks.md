@@ -36,5 +36,8 @@ problem.
 **Consequences.** Rows from schema 2 know none of the three facts, so their first ingest after the upgrade rewrites the
 copy under the length check; nothing is lost and it happens once. `.prev-` files accumulate only when a source really
 shrank or was replaced; they are plain zstd (`zstd -dc`) and are listed by `--verify`. Nothing reads them back
-automatically: deciding which copy is the session is left to the user. A line that Claude Code never finished writing
-(no newline) is still not archived until it completes.
+automatically: deciding which copy is the session is left to the user. Since 2026-11-10 the copy also takes the bytes
+after the last newline, so it is an exact prefix of the source at every moment: a line that never got its newline (a
+crash mid-write, a file with no final newline) is archived as it stands, and when the source grows the next append
+continues it byte for byte. The parser counts such a last line as a record when it is a whole JSON value and reports the
+session as partial when it is not.

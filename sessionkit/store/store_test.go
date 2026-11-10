@@ -94,7 +94,7 @@ PRAGMA user_version = 1;`); err != nil {
 	}
 	defer old.Close()
 
-	for _, table := range []string{"sessions", "segments"} {
+	for _, table := range []string{"sessions", "segments", "chunks", "vectors"} {
 		f, m := columns(t, fresh, table), columns(t, old, table)
 		if len(f) == 0 || strings.Join(f, "\n") != strings.Join(m, "\n") {
 			t.Fatalf("%s differs.\nfresh:\n  %s\nmigrated:\n  %s", table, strings.Join(f, "\n  "), strings.Join(m, "\n  "))
@@ -111,5 +111,167 @@ PRAGMA user_version = 1;`); err != nil {
 	row, err := old.Session("s1")
 	if err != nil || row.ArchivePath != want.Path || row.ArchivedBytes != 10 || row.ArchiveSize != 7 || row.ArchiveTail != "abc" || row.ArchivedFP != want.Fingerprint || !row.KeepsRequests {
 		t.Fatalf("archive state = %+v %v", row, err)
+	}
+}
+
+// TestMigrateFromV4KeepsEverything: schema 5 only adds, so segments stay, rows
+// keep the version they were indexed at (no session is parsed again), and the
+// new tables work on the migrated index.
+func TestMigrateFromV4KeepsEverything(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "skit.sqlite")
+	db, err := sql.Open("sqlite", path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Schema 4 is the latest schema without what v5 added.
+	v4 := strings.Replace(strings.TrimSuffix(schemaLatest, schemaVectors), "text    TEXT NOT NULL,\n  chunked INTEGER NOT NULL DEFAULT 0  -- 1 once its chunks are written (possibly none: nothing worth a vector)\n", "text    TEXT NOT NULL\n", 1)
+	if strings.Contains(v4, "chunked") || strings.Contains(v4, "vectors") {
+		t.Fatal("the test's schema 4 still has schema 5 in it")
+	}
+	if _, err := db.Exec(v4 + `
+INSERT INTO sessions(id, project, source_path, source_size, source_mtime, summary, indexed_at, schema) VALUES('s1','p','/x',1,1,'{}','now',4);
+INSERT INTO segments(session, turn, kind, text) VALUES('s1', 3, 'assistant', 'a row that must survive');
+PRAGMA user_version = 4;`); err != nil {
+		t.Fatal(err)
+	}
+	db.Close()
+	st, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	var version, segs int
+	st.db.QueryRow(`PRAGMA user_version`).Scan(&version)
+	st.db.QueryRow(`SELECT count(*) FROM segments`).Scan(&segs)
+	row, err := st.Session("s1")
+	if err != nil || version != 5 || segs != 1 || row.Schema != IndexedVersion {
+		t.Fatalf("version=%d segments=%d row schema=%d err=%v (a v4 row must still count as indexed)", version, segs, row.Schema, err)
+	}
+	todo, err := st.UnchunkedSegments([]string{"assistant"}, 10)
+	if err != nil || len(todo) != 1 || todo[0].Text != "a row that must survive" {
+		t.Fatalf("segments from before the migration should be waiting to be cut: %+v %v", todo, err)
+	}
+	var hits int
+	st.db.QueryRow(`SELECT count(*) FROM fts WHERE fts MATCH 'survive'`).Scan(&hits)
+	if hits != 1 {
+		t.Fatalf("keyword search lost the row: %d hits", hits)
+	}
+}
+
+func TestChunksAndVectors(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "skit.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	if err := st.UpsertSummary(SessionRow{ID: "s1", Project: "p", SourcePath: "/x", Summary: []byte(`{}`)}); err != nil {
+		t.Fatal(err)
+	}
+	// Multi-byte text: chunk offsets are bytes, and must come back as the same text.
+	long := "héllo wörld, première partie. " + "日本語の二番目の部分です。"
+	cut := len("héllo wörld, première partie. ")
+	segs := []Segment{
+		{Session: "s1", Kind: "prompt", Text: long},
+		{Session: "s1", Kind: "assistant", Text: "the same words twice"},
+		{Session: "s1", Kind: "assistant", Text: "the same words twice"},
+		{Session: "s1", Kind: "tool_result", Text: "not for vectors"},
+		{Session: "s1", Kind: "prompt", Text: "ok"},
+	}
+	if err := st.ReplaceSegments("s1", segs); err != nil {
+		t.Fatal(err)
+	}
+	todo, err := st.UnchunkedSegments([]string{"prompt", "assistant"}, 100)
+	if err != nil || len(todo) != 4 {
+		t.Fatalf("unchunked = %d %v, want the four prompt and assistant rows", len(todo), err)
+	}
+	var ids []int64
+	var chunks []Chunk
+	for _, g := range todo {
+		ids = append(ids, g.ID)
+		switch g.Text {
+		case long:
+			chunks = append(chunks, Chunk{Segment: g.ID, Ord: 0, Start: 0, Len: cut, Hash: ChunkHash(long[:cut])},
+				Chunk{Segment: g.ID, Ord: 1, Start: cut, Len: len(long) - cut, Hash: ChunkHash(long[cut:])})
+		case "ok": // cut, and nothing worth a vector
+		default:
+			chunks = append(chunks, Chunk{Segment: g.ID, Ord: 0, Start: 0, Len: len(g.Text), Hash: ChunkHash(g.Text)})
+		}
+	}
+	ids = append(ids, 9999) // a segment that vanished meanwhile
+	chunks = append(chunks, Chunk{Segment: 9999, Ord: 0, Start: 0, Len: 1, Hash: ChunkHash("gone")})
+	if err := st.PutChunks(ids, chunks); err != nil {
+		t.Fatal(err)
+	}
+	if again, _ := st.UnchunkedSegments([]string{"prompt", "assistant"}, 100); len(again) != 0 {
+		t.Fatalf("%d segments still waiting, the one with no chunk included", len(again))
+	}
+	c, err := st.VectorCounts()
+	if err != nil || c.Chunks != 4 || c.Texts != 3 || c.Vectors != 0 || c.Source != "" {
+		t.Fatalf("counts = %+v %v, want 4 chunks of 3 distinct texts", c, err)
+	}
+
+	missing, err := st.ChunksWithoutVector(100)
+	if err != nil || len(missing) != 3 {
+		t.Fatalf("missing = %d %v", len(missing), err)
+	}
+	if missing[0].Text != long[:cut] || missing[1].Text != long[cut:] || missing[2].Text != "the same words twice" {
+		t.Fatalf("chunk texts came back wrong: %q", missing)
+	}
+	if dropped, err := st.UseVectorSource("model A"); err != nil || dropped != 0 {
+		t.Fatalf("first source: %d %v", dropped, err)
+	}
+	var hashes, vecs [][]byte
+	for i, m := range missing {
+		hashes = append(hashes, m.Hash)
+		vecs = append(vecs, []byte{byte(i), 0})
+	}
+	if err := st.PutVectors(hashes[:2], vecs[:2]); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := st.ChunksWithoutVector(100); len(left) != 1 || left[0].Text != "the same words twice" {
+		t.Fatalf("after two vectors, missing = %q", left)
+	}
+	if err := st.PutVectors(hashes, vecs); err != nil { // the first two again: kept, not an error
+		t.Fatal(err)
+	}
+	c, _ = st.VectorCounts()
+	if c.Vectors != 3 || c.Bytes != 6 || c.Source != "model A" {
+		t.Fatalf("counts = %+v", c)
+	}
+
+	// The same source again changes nothing; another drops every vector.
+	if dropped, _ := st.UseVectorSource("model A"); dropped != 0 {
+		t.Fatalf("same source dropped %d", dropped)
+	}
+	if dropped, _ := st.UseVectorSource("model B"); dropped != 3 {
+		t.Fatalf("new source dropped %d, want 3", dropped)
+	}
+	if err := st.PutVectors(hashes, vecs); err != nil {
+		t.Fatal(err)
+	}
+
+	// Replacing the session's segments takes the chunks; the vectors stay
+	// until pruned, and are pruned only when nothing uses them.
+	if err := st.ReplaceSegments("s1", segs[1:2]); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ = st.VectorCounts(); c.Chunks != 0 || c.Vectors != 0 {
+		t.Fatalf("after replacing segments: %+v", c)
+	}
+	todo, _ = st.UnchunkedSegments([]string{"assistant"}, 100)
+	if len(todo) != 1 {
+		t.Fatalf("the new row should be waiting: %d", len(todo))
+	}
+	if err := st.PutChunks([]int64{todo[0].ID}, []Chunk{{Segment: todo[0].ID, Start: 0, Len: len(todo[0].Text), Hash: ChunkHash(todo[0].Text)}}); err != nil {
+		t.Fatal(err)
+	}
+	if left, _ := st.ChunksWithoutVector(100); len(left) != 0 {
+		t.Fatalf("the text kept its vector by hash, yet %d are missing", len(left))
+	}
+	if n, err := st.PruneVectors(); err != nil || n != 2 {
+		t.Fatalf("pruned %d %v, want the 2 no chunk uses", n, err)
+	}
+	if c, _ = st.VectorCounts(); c.Chunks != 1 || c.Vectors != 1 {
+		t.Fatalf("at the end: %+v", c)
 	}
 }

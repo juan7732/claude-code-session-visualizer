@@ -1,8 +1,8 @@
 // Package store is skit's index: one SQLite file holding every session's
 // summary and source fingerprint, one segment per content block, and an FTS5
-// table over segment text. Vectors join it later. The raw transcripts live
-// beside it as files (see package archive); the index can always be rebuilt
-// from them.
+// table over segment text, and the vectors for meaning search (vectors.go).
+// The raw transcripts live beside it as files (see package archive); the index
+// can always be rebuilt from them.
 package store
 
 import (
@@ -19,7 +19,16 @@ import (
 )
 
 // SchemaVersion is bumped with every migration.
-const SchemaVersion = 4
+const SchemaVersion = 5
+
+// IndexedVersion is the last schema that changed what a session's summary or
+// segments hold. A session row records the one it was indexed at, and a row
+// from an earlier one is re-indexed by the next `archive` or `list`.
+//
+// DECISION: kept apart from SchemaVersion so that a migration which only adds
+// tables (schema 5: chunks and vectors) does not make every session be parsed
+// again for nothing.
+const IndexedVersion = 4
 
 // Store is an open index.
 type Store struct {
@@ -104,6 +113,15 @@ func (s *Store) migrate() error {
 		// re-indexed by the next `archive` or `list` instead of reporting zeros.
 		version = 4
 	}
+	if version == 4 {
+		// v5: meaning search. A segment is cut into chunks, each chunk names
+		// its text by hash, and a vector is stored once per hash. Nothing is
+		// filled in here: `skit embed` chunks and embeds what is there.
+		if _, err := tx.Exec(`ALTER TABLE segments ADD COLUMN chunked INTEGER NOT NULL DEFAULT 0;` + schemaVectors); err != nil {
+			return err
+		}
+		version = 5
+	}
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion)); err != nil {
 		return err
 	}
@@ -133,7 +151,7 @@ CREATE TABLE sessions(
   archived_bytes INTEGER NOT NULL DEFAULT 0, -- source bytes copied so far (append offset)
   debug          INTEGER NOT NULL DEFAULT 0, -- api-request* records kept in the raw copy (name is historical)
   archived_at    TEXT,
-  schema         INTEGER NOT NULL DEFAULT 1, -- SchemaVersion that produced the summary and segments
+  schema         INTEGER NOT NULL DEFAULT 1, -- IndexedVersion that produced the summary and segments
   archive_size   INTEGER NOT NULL DEFAULT 0, -- size of the raw copy on disk after the last write (0: unknown)
   archive_tail   TEXT NOT NULL DEFAULT '',   -- sha256 of the source bytes just before archived_bytes
   archived_fp    TEXT NOT NULL DEFAULT ''    -- source fingerprint the raw copy was made from
@@ -149,7 +167,8 @@ CREATE TABLE segments(
   kind    TEXT NOT NULL,              -- prompt | context | assistant | thinking | tool_use | tool_result | summary
   tool    TEXT NOT NULL DEFAULT '',
   at      TEXT,
-  text    TEXT NOT NULL
+  text    TEXT NOT NULL,
+  chunked INTEGER NOT NULL DEFAULT 0  -- 1 once its chunks are written (possibly none: nothing worth a vector)
 );
 CREATE INDEX segments_session ON segments(session);
 CREATE VIRTUAL TABLE fts USING fts5(text, content='segments', content_rowid='id', tokenize="porter unicode61 remove_diacritics 2");
@@ -159,6 +178,23 @@ END;
 CREATE TRIGGER segments_ad AFTER DELETE ON segments BEGIN
   INSERT INTO fts(fts, rowid, text) VALUES ('delete', old.id, old.text);
 END;
+` + schemaVectors
+
+// schemaVectors is what schema 5 added, shared by a new index and the migration.
+const schemaVectors = `
+CREATE TABLE chunks(
+  segment INTEGER NOT NULL REFERENCES segments(id) ON DELETE CASCADE,
+  ord     INTEGER NOT NULL,  -- position among the segment's chunks
+  start   INTEGER NOT NULL,  -- byte offset into segments.text
+  len     INTEGER NOT NULL,  -- bytes
+  hash    BLOB NOT NULL,     -- first 16 bytes of sha256(chunk text): the key into vectors
+  PRIMARY KEY(segment, ord)
+) WITHOUT ROWID;
+CREATE INDEX chunks_hash ON chunks(hash);
+CREATE TABLE vectors(
+  hash BLOB PRIMARY KEY,
+  vec  BLOB NOT NULL         -- little-endian float16, L2-normalised; made by meta.vector_source
+) WITHOUT ROWID;
 `
 
 // SessionRow is one indexed session.
@@ -221,7 +257,7 @@ ON CONFLICT(id) DO UPDATE SET project=excluded.project, source_path=excluded.sou
   last_at=excluded.last_at, title=excluded.title, owner_account=excluded.owner_account, owner_org=excluded.owner_org,
   summary=excluded.summary, indexed_at=excluded.indexed_at, schema=excluded.schema`,
 		r.ID, r.Project, r.SourcePath, r.SourceSize, r.SourceMtime, r.SourceSub, r.Records, timeText(r.FirstAt), timeText(r.LastAt),
-		r.Title, r.OwnerAccount, r.OwnerOrg, string(r.Summary), time.Now().UTC().Format(time.RFC3339Nano), SchemaVersion)
+		r.Title, r.OwnerAccount, r.OwnerOrg, string(r.Summary), time.Now().UTC().Format(time.RFC3339Nano), IndexedVersion)
 	return err
 }
 

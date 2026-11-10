@@ -31,5 +31,19 @@ resident memory from about 0.5 GB to 1.1 GB; skit starts the server with it only
 are 768-dimensional (the model's maximum); Matryoshka truncation is possible but not used. Q8_0 over BF16: identical
 vectors (cosine 0.9999), half the size.
 
+**Amended 2026-11-10, while building it** (`../meaning-search.md`).
+
+- Vectors are not stored on the segment row. A segment's prose is cut into chunks of at most 1,500 characters, each
+  chunk names its text by hash, and one vector is stored per hash. The index replaces a session's segment rows on every
+  ingest, so a vector on the row would be recomputed each time a live session grows; and a segment can be longer than
+  the 2,048 tokens the model reads, so one vector per segment would cover only its start.
+- The API key is passed in `LLAMA_API_KEY`, not `--api-key`, so it does not appear in the process list. The server also
+  gets `--offline`, `--no-webui` and `--no-slots`.
+- One sidecar belongs to one `skit` process, which stops it; `serve` stops its own after ten idle minutes. There is no
+  shared daemon. A sidecar orphaned by a killed `skit` is stopped by the next one through a run file in
+  `~/.sessionkit/run/`.
+- Only `skit embed` downloads the model. Nothing else reaches the network.
+- "DigUp's z-scaled fusion" is not built yet: meaning search ranks by plain cosine until the eval exists.
+
 **Consequences.** Text, image and audio search ship without writing or maintaining llama.cpp bindings. The `embed`
 package is a client for one well-documented HTTP API plus process management and model downloads.

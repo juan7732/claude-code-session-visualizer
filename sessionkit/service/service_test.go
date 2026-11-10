@@ -88,6 +88,28 @@ func TestInstallStatusUninstall(t *testing.T) {
 	}
 }
 
+// TestInstallWaitsForTheProcess: launchd loads the agent, then starts it. A
+// status read in between must not be what install reports.
+func TestInstallWaitsForTheProcess(t *testing.T) {
+	l, _ := fake(t)
+	inner, prints, waits := l.run, 0, 0
+	l.run = func(args ...string) ([]byte, error) {
+		if args[0] == "print" {
+			if prints++; prints <= 2 {
+				return []byte("gui/501/dev.sessionkit.skit = {\n\tstate = spawn scheduled\n}\n"), nil
+			}
+		}
+		return inner(args...)
+	}
+	l.wait = func() { waits++ }
+	bin := filepath.Join(t.TempDir(), "skit")
+	os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755)
+	st, err := l.install(Config{Binary: bin, SkitHome: t.TempDir()})
+	if err != nil || !st.Running || st.PID != 4242 || waits != 2 {
+		t.Fatalf("install should wait until the process is up: %+v err=%v waits=%d", st, err, waits)
+	}
+}
+
 func TestInstallRefusesABadBinary(t *testing.T) {
 	l, calls := fake(t)
 	if _, err := l.install(Config{Binary: "skit", SkitHome: t.TempDir()}); err == nil {

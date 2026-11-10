@@ -152,9 +152,8 @@ func prepareAppend(dst string, size, archivedBytes int64, lossless bool) bool {
 	return os.Truncate(dst, size) == nil
 }
 
-// appendFrame appends the complete lines of src from offset start to dst as a
-// new zstd frame and syncs it. It returns the source offset just past the last
-// complete line and dst's new size.
+// appendFrame appends src from offset start to dst as a new zstd frame and
+// syncs it. It returns the source offset it reached and dst's new size.
 func appendFrame(src, dst string, start int64, keep bool) (covered, size int64, err error) {
 	in, err := os.Open(src)
 	if err != nil {
@@ -187,8 +186,7 @@ func appendFrame(src, dst string, start int64, keep bool) (covered, size int64, 
 	return covered, fi.Size(), nil
 }
 
-// compressTo writes every complete line of src into <dst>.tmp as one zstd
-// frame, synced. It returns the source offset covered, the bytes written
+// compressTo writes src into <dst>.tmp as one zstd frame, synced. It returns the source offset covered, the bytes written
 // before compression, and the temp file's path. The caller places it.
 func compressTo(src, dst string, keep bool) (covered, written int64, tmp string, err error) {
 	in, err := os.Open(src)
@@ -345,8 +343,15 @@ func decodedFileLen(path string) (int64, error) {
 	return n, err
 }
 
-// filterLines copies complete lines, dropping api-request* unless keepRequests,
-// and returns the offset after the last complete line.
+// filterLines copies src from start to its end, dropping api-request* lines
+// unless keepRequests, and returns the source offset it reached.
+//
+// DECISION: the bytes after the last newline are copied too, as they are. An
+// unfinished line used to wait for its newline, so one that never got it (a
+// crash mid-write, a file with no final newline) was never archived. Copying
+// it loses nothing and breaks nothing: zstd frames concatenate, so when the
+// source grows the next append continues the same line byte for byte, and the
+// copy is at every moment an exact prefix of the source.
 func filterLines(r *bufio.Reader, w io.Writer, start int64, keepRequests bool) (int64, error) {
 	offset := start
 	for {
@@ -355,16 +360,14 @@ func filterLines(r *bufio.Reader, w io.Writer, start int64, keepRequests bool) (
 			return offset, err
 		}
 		complete := err == nil
-		if complete {
-			if keepRequests || !isAPIRequest(line) {
-				if _, werr := w.Write(line); werr != nil {
-					return offset, werr
-				}
+		if len(line) > 0 && (!complete || keepRequests || !isAPIRequest(line)) {
+			if _, werr := w.Write(line); werr != nil {
+				return offset, werr
 			}
-			offset += int64(len(line))
 		}
+		offset += int64(len(line))
 		if err == io.EOF {
-			return offset, nil // a partial last line is left for the next ingest
+			return offset, nil
 		}
 	}
 }

@@ -3,3 +3,7 @@ coverage.out
 coverage.html
 .DS_Store
 node_modules/
+
+# Swift client
+client/SessionVisualizer/.build/
+client/SessionVisualizer/.swiftpm/

@@ -23,3 +23,4 @@ eval is what keeps these notes honest.
 | `images-and-modalities.md` | How images land in a session; the three embedding tiers                       |
 | `archive-sizing.md`        | Measured sizes and long-term projections                                      |
 | `embedding-spike.md`       | EmbeddingGemma 2 on llama.cpp measured on this Mac; what it decided           |
+| `meaning-search.md`        | Search by meaning: chunks, vectors, the sidecar, the eval, what is not built  |

@@ -19,6 +19,8 @@ import (
 type doctorReport struct {
 	*catalog.Report
 	Archiver archiverReport `json:"archiver"`
+	// Meaning says whether search by meaning can run and what it covers.
+	Meaning meaningReport `json:"meaning"`
 }
 
 type archiverReport struct {
@@ -63,7 +65,9 @@ func newDoctor() *cobra.Command {
 projects, session files, subagents, live sessions, disk use, and the retention
 setting that decides when Claude Code deletes transcripts. It also says whether
 anything keeps the archive current: the background agent ('skit service') and how
-many sessions on disk are not archived yet or changed since they were.`,
+many sessions on disk are not archived yet or changed since they were. And it
+says whether search by meaning is set up: llama-server, the embedding model, and
+how much of the indexed text has vectors ('skit embed').`,
 		Example: "  skit doctor\n  skit doctor --json | jq .retention",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -72,12 +76,17 @@ many sessions on disk are not archived yet or changed since they were.`,
 				return err
 			}
 			ar := inspectArchiver(rep)
+			var meaning meaningReport
+			if dir, err := home.Dir(); err == nil {
+				meaning = inspectMeaning(dir)
+			}
 			if jsonWanted(cmd) {
-				return writeJSON(cmd.OutOrStdout(), doctorReport{Report: rep, Archiver: ar})
+				return writeJSON(cmd.OutOrStdout(), doctorReport{Report: rep, Archiver: ar, Meaning: meaning})
 			}
 			printDoctor(cmd.OutOrStdout(), rep)
 			if rep.Exists {
 				printArchiver(cmd.OutOrStdout(), ar)
+				printMeaning(cmd.OutOrStdout(), meaning)
 			}
 			return nil
 		},
