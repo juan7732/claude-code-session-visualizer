@@ -1,26 +1,56 @@
 import SkitKit
 import SwiftUI
 
-/// One session. M7 brings the Summary's head and the two cards that /stats
-/// alone can fill; the other views name the milestone that brings them.
+/// One session: its views over one selection, and the drawer under them.
+/// The Summary's head and the Transcript are built; the other views name the
+/// milestone that brings them.
 struct SessionPage: View {
     @Environment(AppStore.self) private var store
     @Environment(WindowState.self) private var window
     @Environment(\.palette) private var palette
+    @AppStorage(SettingsKey.inspector) private var inspector = true
     var id: String
 
     var body: some View {
-        Group {
-            if let session = store.session(id) {
-                switch window.sessionView {
-                case .summary: SummaryView(session: session)
-                default: ComingPage(title: window.sessionView.title, milestone: window.sessionView.arrives ?? "")
+        VStack(spacing: 0) {
+            Group {
+                if let session = store.session(id) {
+                    switch window.sessionView {
+                    case .summary: SummaryView(session: session)
+                    case .transcript: transcript
+                    default: ComingPage(title: window.sessionView.title, milestone: window.sessionView.arrives ?? "")
+                    }
+                } else {
+                    ComingPage(title: "No session \(Format.shortID(id))", detail: "It is neither on disk nor in the archive.")
                 }
-            } else {
-                ComingPage(title: "No session \(Format.shortID(id))", detail: "It is neither on disk nor in the archive.")
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            if inspector, window.sessionView == .transcript, let key = window.selection, let model = store.model(id) {
+                Drawer(model: model, key: key).transition(.move(edge: .bottom))
             }
         }
+        .animation(.easeOut(duration: 0.15), value: window.selection == nil)
         .task(id: id) { await store.loadStats(id) }
+        .task(id: id) { await store.loadModel(id) }
+    }
+
+    @ViewBuilder private var transcript: some View {
+        switch store.models[id] {
+        case .loaded(let model):
+            if model.items.isEmpty {
+                ComingPage(title: "Nothing was said", detail: "This session has no prompts and no requests.")
+            } else {
+                TranscriptView(model: model)
+            }
+        case .failed(let why):
+            ComingPage(title: "Could not read the session", detail: why)
+        case .loading, nil:
+            VStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Reading the session").foregroundStyle(palette.muted)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(palette.bg)
+        }
     }
 }
 
@@ -44,6 +74,7 @@ struct SummaryView: View {
                     }
                 }
                 .padding(.top, 18)
+                SessionNote(sessionID: session.id).padding(.top, 12)
                 Text("What it is about, where it ended, outcome, problems and parallel work arrive with the full Summary (M9).")
                     .font(.system(size: 11.5)).foregroundStyle(palette.muted).padding(.top, 14)
             }
@@ -156,6 +187,37 @@ struct SummaryView: View {
         let list = stats.compactionList ?? []
         guard !list.isEmpty else { return "none" }
         return list.map { "\(Format.tokens($0.preTokens)) → \(Format.tokens($0.postTokens))" }.joined(separator: ", ")
+    }
+}
+
+/// A note on the session as a whole, kept by the engine.
+private struct SessionNote: View {
+    @Environment(AppStore.self) private var store
+    @Environment(\.palette) private var palette
+    var sessionID: String
+    @State private var text = ""
+    @State private var saved = ""
+
+    var body: some View {
+        Card(title: "Note") {
+            TextField("Add a note on this session", text: $text, axis: .vertical)
+                .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...8)
+                .onSubmit { save() }
+            if text != saved {
+                Button("Save") { save() }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(palette.accent)
+            }
+        }
+        .onAppear {
+            saved = store.annotation(sessionID).notes["session"] ?? ""
+            text = saved
+        }
+        .onDisappear { if text != saved { save() } }
+    }
+
+    private func save() {
+        let (id, value) = (sessionID, text)
+        saved = value
+        Task { await store.setNote(id, key: "session", value) }
     }
 }
 

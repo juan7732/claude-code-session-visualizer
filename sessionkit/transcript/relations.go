@@ -416,10 +416,29 @@ func firstNonEmpty(a ...string) string {
 // writesTo says whether a shell command writes the path: a redirect, tee, an
 // in-place edit, or the destination of cp, mv or touch.
 func writesTo(cmd, path string) bool {
-	q := regexp.QuoteMeta(path)
-	re, err := regexp.Compile(`(?:>{1,2}\s*|tee\s+(?:-a\s+)?|sed\s+-i[^|;&\n]*\s|cp\s+\S+\s+|mv\s+\S+\s+|touch\s+)` + q)
-	return err == nil && re.MatchString(cmd)
+	// Find the path as plain text, then look at what stands just before it.
+	// Running one pattern per path over the whole command (commands can be
+	// whole files in a heredoc) was most of the relations pass.
+	for from := 0; ; {
+		i := strings.Index(cmd[from:], path)
+		if i < 0 {
+			return false
+		}
+		i += from
+		if writeBefore.MatchString(cmd[max(0, i-writeLookback):i]) {
+			return true
+		}
+		from = i + 1
+	}
 }
+
+// writeBefore matches what precedes a path that is being written: a redirect,
+// tee, an in-place sed, or the source argument of cp or mv, or touch.
+var writeBefore = regexp.MustCompile(`(?:>{1,2}\s*|tee\s+(?:-a\s+)?|sed\s+-i[^|;&\n]*\s|cp\s+\S+\s+|mv\s+\S+\s+|touch\s+)$`)
+
+// writeLookback is how far before a path writeBefore looks: room for a long
+// sed expression or a long source path.
+const writeLookback = 512
 
 // errorText renders a record's error field: a string, or an object's message.
 func errorText(raw json.RawMessage) string {

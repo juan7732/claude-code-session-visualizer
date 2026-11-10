@@ -21,6 +21,33 @@ Added with M6 (2026-11-10), for the client as well:
   `/actions/{n}` answer in about a millisecond after the first request.
 - `skit service status --json`: whether the background agent that runs `serve` is installed and running.
 
+Added with M8 (2026-11-10), for the Transcript:
+
+- `result_head` and `result_bytes` on every answered tool call in the session document: the first line of what came
+  back, shortened to 200 characters, and the result's full size. A transcript row can say what shaped the next step
+  without fetching the result; the full text stays on `/actions/{n}`.
+- Lists in the session document and in stats are always lists, never `null`: a session with no prompts has an empty list
+  of prompts.
+
+Opening a session, made fast (2026-11-10, issue #2). Measured on the largest session on the development machine (166 MB
+transcript, 255 actions), through the background agent:
+
+|                                     | before | after  |
+| ----------------------------------- | ------ | ------ |
+| Document, session not in memory     | 2.7 s  | 0.41 s |
+| Document, session in memory         | 190 ms | 7 ms   |
+| Relations, first call after a parse | 490 ms | 61 ms  |
+| Relations, again                    | 490 ms | 1 ms   |
+
+- Transcript lines are decoded in parallel (`transcript.ReadAll`): 1.93 s → 0.38 s for that file on 16 cores.
+- The relations and the encoded session document are kept with the parsed session in `skit serve`'s cache and derived
+  again only when the transcript changes. When an ingest re-parses a session a reader has open, both are made ready
+  before the reader asks.
+- `writesTo` looks at what stands before each mention of a path, where it ran one pattern per path over the whole
+  command. Same files and writes on both sessions checked (201 and 112, 192 and 46).
+- The agent runs as an interactive process, not a background one (ADR 0009): throttled, it took six times as long.
+- `skit serve` answers in compact JSON. `skit <command> --json` prints the same shapes indented.
+
 ## Relations
 
 `Session.Relations()` derives, on read:
@@ -39,8 +66,8 @@ Added with M6 (2026-11-10), for the client as well:
 - **outside**: web hosts fetched, web searches, skills and MCP connectors.
 - **events**: API errors (system records) and messages Claude Code wrote itself, each with its time and turn.
 
-Relations are heuristics over tool inputs and results, computed on read and not stored, so they can improve without a
-re-index.
+Relations are heuristics over tool inputs and results. They are derived from the parsed session and never written to the
+index, so they can improve without a re-index; `skit serve` keeps them in memory beside the parsed session.
 
 ## Annotations
 

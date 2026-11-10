@@ -18,9 +18,11 @@ Considered and not chosen: Claude Code hooks (`SessionEnd`, `Stop`) that call `s
 they mean editing the user's Claude Code settings, they do not fire for a session that crashes, and they need the same
 catch-up sweep anyway. They stay on the roadmap as an addition.
 
-**Consequences.** One process stays resident. It holds a parsed session only while something reads it and drops it after
-ten idle minutes (`archive.DefaultCacheBytes`). The plist is the one file skit writes outside `~/.sessionkit`: launchd
-reads agents from nowhere else. The agent points at an absolute path to `skit`; if that binary moves, `status` and
-`doctor` say so and `install` fixes it. macOS only for now: elsewhere the command says so and `skit serve` can run under
-any supervisor. The log (`~/.sessionkit/serve.log`) is not rotated; without per-request lines it grows by a line per
-archived change.
+**Consequences.** One process stays resident. It runs as an interactive process (`ProcessType`), not a background one:
+it answers the app, and throttled to the efficiency cores it took 2.7 s to open a session that takes 0.4 s otherwise. It
+holds a parsed session only while something reads it and drops it after ten idle minutes (`archive.DefaultCacheBytes`).
+The plist is the one file skit writes outside `~/.sessionkit`: launchd reads agents from nowhere else. The agent points
+at an absolute path to `skit`; if that binary moves, `status` and `doctor` say so and `install` fixes it. macOS only for
+now: elsewhere the command says so and `skit serve` can run under any supervisor. The log (`~/.sessionkit/serve.log`) is
+capped: `skit serve` checks it at start and hourly, and past 50 MB cuts it back to its newest 10 MB, in place, because
+launchd keeps the file open.

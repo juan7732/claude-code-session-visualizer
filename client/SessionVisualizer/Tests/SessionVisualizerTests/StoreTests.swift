@@ -114,7 +114,7 @@ nonisolated enum Fake {
         row("ccc", cwd: "/Users/me/work/alpha", last: "2026-11-04T10:00:00Z", turns: 5, cost: 1.25),
     ].joined(separator: ",") + "]"
 
-    static let routes = #"{"version":"t","routes":["GET /v0/status","GET /v0/sessions?project=&limit=","GET /v0/sessions/{id}","GET /v0/sessions/{id}/stats","GET /v0/sessions/{id}/annotations","PATCH /v0/sessions/{id}/annotations","GET /v0/annotations","POST /v0/archive"]}"#
+    static let routes = #"{"version":"t","routes":["GET /v0/status","GET /v0/sessions?project=&limit=","GET /v0/sessions/{id}","GET /v0/sessions/{id}/stats","GET /v0/sessions/{id}/actions/{n}","GET /v0/sessions/{id}/relations","GET /v0/search?q=","GET /v0/sessions/{id}/annotations","PATCH /v0/sessions/{id}/annotations","GET /v0/annotations","POST /v0/archive"]}"#
     static let status = #"{"version":"t","uptime":"1s","claude_dir":"/c","skit_home":"/s","index":{"sessions":3,"archived":3,"segments":9,"bytes":10},"live":[{"pid":7,"sessionId":"bbb","cwd":"/Users/me/work/beta","name":"beta-1","status":"busy","version":"2"}],"sessions_on_disk":3,"cached_sessions":0}"#
 
     /// A stand-in for `skit serve` that remembers pins and tags like the real one.
@@ -134,6 +134,10 @@ nonisolated enum Fake {
                 return json(state.apply(id, body))
             }
             if line.hasPrefix("GET /v0/sessions/aaa/stats ") { return json(row("aaa", cwd: "/Users/me/work/alpha", last: "2026-11-03T10:00:00Z", turns: 2)) }
+            // The session itself is the recorded synthetic fixture.
+            if line.hasPrefix("GET /v0/sessions/aaa/relations ") { return StubServer.http(200, (try? Fixtures.data("relations.json")) ?? Data()) }
+            if line.hasPrefix("GET /v0/sessions/aaa/actions/3 ") { return StubServer.http(200, (try? Fixtures.data("action.json")) ?? Data()) }
+            if line.hasPrefix("GET /v0/sessions/aaa ") { return StubServer.http(200, (try? Fixtures.data("document.json")) ?? Data()) }
             return StubServer.http(404, Data(#"{"error":"no route"}"#.utf8))
         }
     }
@@ -154,6 +158,7 @@ nonisolated final class Annotations: @unchecked Sendable {
             var note = byID[id] ?? Annotation()
             if let pinned = patch.pinned { note.pinned = pinned }
             note.tags = (note.tags + (patch.addTags ?? [])).filter { !(patch.removeTags ?? []).contains($0) }
+            for (key, text) in patch.notes ?? [:] { note.notes[key] = text.isEmpty ? nil : text }
             byID[id] = note
             return String(decoding: try! JSONEncoder().encode(note), as: UTF8.self)
         }

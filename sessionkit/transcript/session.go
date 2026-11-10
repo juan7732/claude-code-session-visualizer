@@ -186,11 +186,16 @@ type ToolCall struct {
 	// Spilled is the path Claude Code recorded for a tool output too large for
 	// the transcript (<session>/tool-results/<id>.txt). Resolve it with
 	// Session.SpilledPath, since the recorded path is from the original machine.
-	Spilled   string    `json:"spilled,omitempty"`
-	Use       *Record   `json:"-"`
-	Result    *Record   `json:"-"`
-	ResultIdx int       `json:"-"` // index of the tool_result block in Result.Message.Content
-	Subagent  *Subagent `json:"-"`
+	Spilled string `json:"spilled,omitempty"`
+	// ResultHead is the first line of what came back, shortened: enough for a
+	// transcript row to say what shaped the next step without fetching the
+	// result. ResultBytes is the result's full size as text.
+	ResultHead  string    `json:"result_head,omitempty"`
+	ResultBytes int       `json:"result_bytes,omitempty"`
+	Use         *Record   `json:"-"`
+	Result      *Record   `json:"-"`
+	ResultIdx   int       `json:"-"` // index of the tool_result block in Result.Message.Content
+	Subagent    *Subagent `json:"-"`
 }
 
 // Result text, when paired.
@@ -481,7 +486,58 @@ func Build(recs []*Record) *Session {
 	s.buildChain(leaf)
 	s.markRewound()
 	s.groupTurns(actionsByReq)
+	s.noNullLists()
 	return s
+}
+
+// noNullLists makes every list in the session document a list. A nil slice is
+// `null` in JSON, and a client should not have to tell "none" from "absent":
+// a session with no prompts has an empty list of prompts.
+func (s *Session) noNullLists() {
+	if s.Prompts == nil {
+		s.Prompts = []*Prompt{}
+	}
+	if s.Turns == nil {
+		s.Turns = []*Turn{}
+	}
+	if s.Actions == nil {
+		s.Actions = []*Action{}
+	}
+	if s.ToolCalls == nil {
+		s.ToolCalls = []*ToolCall{}
+	}
+	if s.Compactions == nil {
+		s.Compactions = []*Compaction{}
+	}
+	for _, t := range s.Turns {
+		if t.Actions == nil {
+			t.Actions = []*Action{}
+		}
+	}
+	for _, a := range s.Actions {
+		if a.Blocks == nil {
+			a.Blocks = []Block{}
+		}
+	}
+}
+
+// maxResultHead caps ToolCall.ResultHead, in runes.
+const maxResultHead = 200
+
+// headLine is the first non-empty line of text with its whitespace collapsed,
+// cut to max runes with an ellipsis.
+func headLine(text string, max int) string {
+	for _, line := range strings.Split(text, "\n") {
+		line = strings.Join(strings.Fields(line), " ")
+		if line == "" {
+			continue
+		}
+		if r := []rune(line); len(r) > max {
+			return string(r[:max-1]) + "…"
+		}
+		return line
+	}
+	return ""
 }
 
 // startsTurn says whether a user record opens a new turn, and with which
@@ -614,7 +670,9 @@ func (s *Session) addUser(r *Record, calls map[string]*ToolCall, pending *Compac
 			}
 			if c, ok := calls[b.ToolUseID]; ok {
 				c.Result, c.ResultIdx, c.Paired, c.EndedAt, c.IsError = r, i, true, r.Timestamp, b.IsError
-				c.Spilled = spilledPath(r.ToolUseResult, b.PlainText())
+				text := b.PlainText()
+				c.Spilled = spilledPath(r.ToolUseResult, text)
+				c.ResultHead, c.ResultBytes = headLine(text, maxResultHead), len(text)
 				if b.IsError {
 					s.Totals.ToolErrors++
 				}

@@ -472,7 +472,10 @@ func TestRelationsOnBootstrapFixture(t *testing.T) {
 }
 
 func TestRelationsHeuristics(t *testing.T) {
-	if !writesTo("cat > docs/a.md <<'EOF'", "docs/a.md") || !writesTo("sed -i '' s/x/y/ src/b.go", "src/b.go") || writesTo("cat docs/a.md", "docs/a.md") {
+	if !writesTo("cat > docs/a.md <<'EOF'", "docs/a.md") || !writesTo("sed -i '' s/x/y/ src/b.go", "src/b.go") || writesTo("cat docs/a.md", "docs/a.md") ||
+		// The second mention is the one that writes; cp and mv write their destination, not their source.
+		!writesTo("cat docs/a.md && echo x >> docs/a.md", "docs/a.md") || !writesTo("cp src/b.go docs/a.md", "docs/a.md") || writesTo("cp docs/a.md /tmp/x", "docs/a.md") ||
+		!writesTo("ls | tee -a out/log.txt", "out/log.txt") || !writesTo("touch notes/n.md", "notes/n.md") {
 		t.Fatal("writesTo: redirects and in-place edits write, cat reads")
 	}
 	if got := errorText(json.RawMessage(`{"status":529,"error":{"message":"Overloaded"}}`)); got != "529 Overloaded" {
@@ -548,5 +551,53 @@ func TestLastLineWithoutNewline(t *testing.T) {
 	s, err := Parse(strings.NewReader(in))
 	if err != nil || s.Partial || s.Totals.Records != 2 {
 		t.Fatalf("partial=%v records=%d err=%v", s.Partial, s.Totals.Records, err)
+	}
+}
+
+// TestDocumentListsAndResultHeads: the session document a client reads has no
+// null where a list belongs, and every answered tool call says what came back.
+func TestDocumentListsAndResultHeads(t *testing.T) {
+	s, err := Load(filepath.Join("..", "..", "internal", "testdata", "sessions", "synthetic-basics", "aaaaaaaa-0000-0000-0000-000000000001.jsonl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	heads := 0
+	for _, c := range s.ToolCalls {
+		if !c.Paired && (c.ResultHead != "" || c.ResultBytes != 0) {
+			t.Fatalf("an unanswered tool call has no result to describe: %s head=%q bytes=%d", c.ID, c.ResultHead, c.ResultBytes)
+		}
+		if c.ResultHead != "" {
+			heads++
+			if strings.Contains(c.ResultHead, "\n") || len([]rune(c.ResultHead)) > maxResultHead {
+				t.Fatalf("a result head is one short line: %q", c.ResultHead)
+			}
+		}
+	}
+	if heads == 0 {
+		t.Fatal("the fixture's answered tool calls should carry a result head")
+	}
+	if got := headLine("\n\n   first   real\tline  \nsecond", 200); got != "first real line" {
+		t.Fatalf("headLine = %q", got)
+	}
+	if got := headLine(strings.Repeat("é", 300), 10); got != strings.Repeat("é", 9)+"…" {
+		t.Fatalf("headLine must cut on runes: %q", got)
+	}
+
+	for name, in := range map[string]string{
+		"unused session":        `{"type":"queue-operation","sessionId":"e","timestamp":"2026-11-08T10:00:00Z"}` + "\n",
+		"prompt with no answer": `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n",
+		"assistant with no blocks": `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n" +
+			`{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T10:00:01Z","message":{"model":"m","content":[]}}` + "\n",
+	} {
+		s, err := Parse(strings.NewReader(in))
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, _ := json.Marshal(s)
+		for _, key := range []string{"prompts", "turns", "actions", "tool_calls", "compactions", "blocks"} {
+			if strings.Contains(string(b), `"`+key+`":null`) {
+				t.Fatalf("%s: %q must be a list, never null: %s", name, key, b)
+			}
+		}
 	}
 }

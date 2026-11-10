@@ -27,9 +27,16 @@ import (
 // @N for an agent turn of the main transcript or @A-B for any turn in a range.
 // Without @, any hit in the session counts. A query that expects nothing is
 // there to measure the opposite: whether search can say it found nothing.
+//
+// "exclude" lists sessions (id prefixes) whose hits are left out before
+// anything is counted. The sessions in which the queries were written belong
+// there: they quote every query word for word, so they would come first for
+// each one and "answer" the queries that should find nothing.
 
 // EvalFile is the parsed query file.
 type EvalFile struct {
+	// Exclude holds session id prefixes whose hits do not count.
+	Exclude []string    `json:"exclude,omitempty"`
 	Queries []EvalQuery `json:"queries"`
 }
 
@@ -38,6 +45,9 @@ type EvalQuery struct {
 	Q      string   `json:"q"`
 	Expect []string `json:"expect"`
 	Tag    string   `json:"tag,omitempty"`
+	// Note is for whoever maintains the file (why this target, who wrote the
+	// query). It plays no part in the scores.
+	Note string `json:"note,omitempty"`
 }
 
 // evalTarget is a parsed, resolved expectation.
@@ -66,6 +76,11 @@ func LoadEval(st *store.Store, data []byte) (*Eval, error) {
 	if len(ev.File.Queries) == 0 {
 		return nil, errors.New("eval file has no queries")
 	}
+	for _, x := range ev.File.Exclude {
+		if strings.TrimSpace(x) == "" {
+			return nil, errors.New("eval file: an empty entry in \"exclude\" would leave out every session")
+		}
+	}
 	ev.targets = make([][]evalTarget, len(ev.File.Queries))
 	for i, q := range ev.File.Queries {
 		if strings.TrimSpace(q.Q) == "" {
@@ -76,10 +91,25 @@ func LoadEval(st *store.Store, data []byte) (*Eval, error) {
 			if err != nil {
 				return nil, fmt.Errorf("eval query %d (%q): %w", i+1, q.Q, err)
 			}
+			if ev.excluded(t.session) {
+				return nil, fmt.Errorf("eval query %d (%q): target %q is in an excluded session", i+1, q.Q, raw)
+			}
 			ev.targets[i] = append(ev.targets[i], t)
 		}
 	}
 	return ev, nil
+}
+
+// excluded reports whether a session's hits are left out of the eval. An
+// excluded prefix that matches no archived session is not an error: the
+// session may simply not be archived on this machine.
+func (ev *Eval) excluded(session string) bool {
+	for _, x := range ev.File.Exclude {
+		if strings.HasPrefix(session, x) {
+			return true
+		}
+	}
+	return false
 }
 
 func resolveTarget(st *store.Store, raw string) (evalTarget, error) {
@@ -189,13 +219,27 @@ func (ev *Eval) Run(ctx context.Context, modes []string, search func(ctx context
 		em := EvalMode{Mode: mode}
 		for i, q := range ev.File.Queries {
 			// Several segments of one turn can each be a hit. Ask for enough
-			// that ten distinct turns are in there.
-			hits, err := search(ctx, q.Q, Options{Mode: mode, Limit: 5 * evalDepth})
+			// that ten distinct turns are in there, and for more when some
+			// sessions' hits will be dropped.
+			limit := 5 * evalDepth
+			if len(ev.File.Exclude) > 0 {
+				limit *= 4
+			}
+			hits, err := search(ctx, q.Q, Options{Mode: mode, Limit: limit})
 			if errors.Is(err, ErrEmptyQuery) {
 				hits, err = nil, nil // a query of nothing but stopwords finds nothing by words; that is a result
 			}
 			if err != nil {
 				return rep, fmt.Errorf("%s search for %q: %w", mode, q.Q, err)
+			}
+			if len(ev.File.Exclude) > 0 {
+				kept := hits[:0:0]
+				for _, h := range hits {
+					if !ev.excluded(h.Session) {
+						kept = append(kept, h)
+					}
+				}
+				hits = kept
 			}
 			out := EvalOutcome{Q: q.Q, Tag: q.Tag, Expect: q.Expect, Hits: len(hits)}
 			if out.Expect == nil {

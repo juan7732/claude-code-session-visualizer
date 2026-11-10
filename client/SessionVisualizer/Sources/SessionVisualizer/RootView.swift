@@ -5,8 +5,9 @@ import SwiftUI
 struct RootView: View {
     @Environment(AppStore.self) private var store
     @Environment(\.palette) private var palette
-    @State private var window = WindowState()
+    @State var window = WindowState()
     @AppStorage(SettingsKey.sidebar) private var sidebar = true
+    @AppStorage(SettingsKey.inspector) private var inspector = true
     /// Opens the window on a session (Open in New Window).
     var initialSession: String?
     /// Opens the window on a page and a view (snapshots).
@@ -19,7 +20,6 @@ struct RootView: View {
             page.frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(palette.bg)
-        .environment(window)
         .focusedSceneValue(\.windowState, window)
         .navigationTitle(title)
         .toolbar { toolbar }
@@ -38,6 +38,8 @@ struct RootView: View {
             }
         }
         .frame(minWidth: 760, minHeight: 480)
+        // Last, so the toolbar's own views (the find field) see the window's state too.
+        .environment(window)
     }
 
     @ViewBuilder private var page: some View {
@@ -88,6 +90,17 @@ struct RootView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden()
             }
+            if window.sessionView == .transcript {
+                ToolbarItem(placement: .primaryAction) { FindField(sessionID: id) }
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        inspector.toggle()
+                    } label: {
+                        Label(inspector ? "Hide Inspector" : "Show Inspector", systemImage: "rectangle.bottomthird.inset.filled")
+                    }
+                    .help(inspector ? "Hide Inspector (⌥⌘I)" : "Show Inspector (⌥⌘I)")
+                }
+            }
             ToolbarItem(placement: .primaryAction) {
                 Menu {
                     SessionActions(id: id)
@@ -112,6 +125,110 @@ struct RootView: View {
                 }
                 .transition(.opacity)
         }
+    }
+}
+
+/// Find in this session (⌘F): the engine's search over prompts, replies,
+/// thinking, tool inputs and tool results, stepped through in reading order.
+struct FindField: View {
+    @Environment(AppStore.self) private var store
+    @Environment(WindowState.self) private var window
+    @Environment(\.palette) private var palette
+    var sessionID: String
+    @FocusState private var focused: Bool
+    @State private var searching = false
+    /// The query the current hits belong to.
+    @State private var searched = ""
+
+    private var needle: String { window.transcript.query.trimmingCharacters(in: .whitespaces) }
+
+    var body: some View {
+        let state = window.transcript
+        HStack(spacing: 6) {
+            Image(systemName: "magnifyingglass").font(.system(size: 11)).foregroundStyle(palette.muted)
+            TextField("Find in this session", text: Binding(get: { state.query }, set: { state.query = $0 }))
+                .textFieldStyle(.plain).font(.system(size: 12.5)).frame(width: state.query.isEmpty && !focused ? 120 : 190)
+                .focused($focused)
+                .onSubmit {
+                    // Return does not wait for the pause after typing.
+                    if searched == needle { step(1) } else { Task { await search(state.query, wait: false) } }
+                }
+                .onKeyPress(.escape) {
+                    state.query = ""
+                    focused = false
+                    return .handled
+                }
+            if state.query.trimmingCharacters(in: .whitespaces).count >= 2 {
+                Text(searching ? "…" : state.hits.isEmpty ? "none" : "\(state.hitIndex + 1) of \(state.hits.count)")
+                    .font(.system(size: 11)).foregroundStyle(palette.muted).monospacedDigit().fixedSize()
+                Button { step(-1) } label: { Image(systemName: "chevron.up") }.disabled(state.hits.isEmpty).help("Previous match")
+                Button { step(1) } label: { Image(systemName: "chevron.down") }.disabled(state.hits.isEmpty).help("Next match (Return)")
+            }
+        }
+        .buttonStyle(.borderless)
+        .padding(.horizontal, 8).padding(.vertical, 4)
+        .task(id: state.query) { await search(state.query) }
+        .onChange(of: state.findRequests) { focused = true }
+        .help("Find in this session (⌘F)")
+    }
+
+    /// Searches once the typing has paused: every keystroke would otherwise
+    /// search for a half-word and move the transcript under the typist.
+    private func search(_ query: String, wait: Bool = true) async {
+        let state = window.transcript
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard needle.count >= 2 else {
+            state.hits = []
+            searched = ""
+            return
+        }
+        if needle == searched { return }
+        if wait {
+            try? await Task.sleep(for: .milliseconds(650))
+            if Task.isCancelled { return }
+        }
+        searching = true
+        defer { searching = false }
+        let found = await store.find(needle, in: sessionID)
+        guard !Task.isCancelled, let model = store.model(sessionID) else { return }
+        // A hit names a turn or an action; subagent text belongs to the subagent's strand.
+        var keys = Set<NodeKey>()
+        for hit in found {
+            if let agent = hit.agent, !agent.isEmpty {
+                keys.insert(.subagent(agent))
+            } else if hit.action >= 0 {
+                keys.insert(.action(hit.action))
+            } else if hit.turn >= 0 {
+                keys.insert(.turn(hit.turn))
+            }
+        }
+        // Reading order, whatever is folded: every turn, action and strand has a place in the unfolded order.
+        let order = model.focusOrder(folded: [])
+        state.hits = order.filter(keys.contains)
+        state.hitIndex = 0
+        searched = needle
+        show()
+    }
+
+    private func step(_ by: Int) {
+        let state = window.transcript
+        guard !state.hits.isEmpty else { return }
+        state.hitIndex = (state.hitIndex + by + state.hits.count) % state.hits.count
+        show()
+    }
+
+    private func show() {
+        let state = window.transcript
+        guard state.hits.indices.contains(state.hitIndex), let model = store.model(sessionID) else { return }
+        let key = state.hits[state.hitIndex]
+        // A match inside folded tool calls shows them again.
+        if let turn = model.turnIndex(of: key), state.folded.contains(turn), model.isHiddenWhenFolded(key) {
+            window.setFolded(turn, false, in: model)
+        }
+        state.focus = key
+        if case .subagent(let id) = key, let tool = model.subagent(id)?.toolUseId { state.open.insert(.tool(tool)) }
+        state.scrollTarget = model.itemID(for: key)
+        if window.selection != nil { window.selection = key }
     }
 }
 

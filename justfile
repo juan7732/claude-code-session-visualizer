@@ -117,9 +117,9 @@ check: tidy-check fmt-check vet test-race integration
 # ─── Client (Swift, macOS) ────────────────────────────────────────────────────
 
 client := "client/SessionVisualizer"
-# With only the Command Line Tools installed (no Xcode), the Testing framework
-# is off the default search path and ships without its Foundation overlay module.
-clt_frameworks := "/Library/Developer/CommandLineTools/Library/Developer/Frameworks"
+# With only the Command Line Tools selected (no Xcode), the Testing framework and
+# the library it loads are off the default search paths; `client-test` adds them.
+clt_dev := "/Library/Developer/CommandLineTools/Library/Developer"
 
 # Build the SessionVisualizer app (debug)
 client-build:
@@ -135,8 +135,12 @@ client-test:
     set -eu
     cd {{client}}
     if xcode-select -p | grep -q CommandLineTools; then
-        exec swift test -Xswiftc -F{{clt_frameworks}} -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays \
-            -Xlinker -F{{clt_frameworks}} -Xlinker -rpath -Xlinker {{clt_frameworks}}
+        fw={{clt_dev}}/Frameworks
+        set -- -Xswiftc -F$fw -Xlinker -F$fw -Xlinker -rpath -Xlinker $fw -Xlinker -rpath -Xlinker {{clt_dev}}/usr/lib
+        # Command Line Tools before 27 shipped Testing without its Foundation overlay module.
+        [ -e $fw/_Testing_Foundation.framework/Modules/_Testing_Foundation.swiftmodule ] || \
+            set -- "$@" -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays
+        exec swift test "$@"
     fi
     exec swift test
 

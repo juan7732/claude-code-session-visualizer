@@ -132,8 +132,27 @@ func (l *launchd) install(c Config) (Status, error) {
 		return l.inspect(), err
 	}
 	// Unload a previous copy first; "not loaded" is the usual answer and is fine.
-	_, _ = l.run("bootout", l.domain+"/"+Label)
-	if out, err := l.run("bootstrap", l.domain, l.plistPath()); err != nil {
+	// bootout returns before launchd has finished tearing the old agent down,
+	// and a bootstrap that arrives meanwhile fails with "5: Input/output error"
+	// and leaves nothing loaded. So: wait until launchd no longer knows the
+	// agent, then load it, and try again if launchd was still not ready.
+	if _, err := l.run("bootout", l.domain+"/"+Label); err == nil {
+		for i := 0; i < 50; i++ {
+			if _, err := l.run("print", l.domain+"/"+Label); err != nil {
+				break
+			}
+			l.pause()
+		}
+	}
+	var out []byte
+	var err error
+	for attempt := 0; attempt < 10; attempt++ {
+		if out, err = l.run("bootstrap", l.domain, l.plistPath()); err == nil {
+			break
+		}
+		l.pause()
+	}
+	if err != nil {
 		return l.inspect(), fmt.Errorf("launchctl bootstrap: %v: %s", err, strings.TrimSpace(string(out)))
 	}
 	// bootstrap returns before launchd has started the process. Asked at once,
@@ -201,6 +220,12 @@ func (l *launchd) inspect() Status {
 }
 
 // Plist renders the agent's property list.
+//
+// DECISION: ProcessType is Interactive, not Background. The agent archives in
+// the background, but it also answers the app, and every view waits on it. As
+// a Background process launchd keeps it on throttled cores: opening a 166 MB
+// session took 2.7 s through the agent and 0.5 s from a terminal (measured
+// 2026-11-10). It is idle unless a session changed or someone is reading.
 func Plist(c Config) []byte {
 	var b bytes.Buffer
 	esc := func(s string) string {
@@ -208,7 +233,7 @@ func Plist(c Config) []byte {
 		_ = xml.EscapeText(&e, []byte(s))
 		return e.String()
 	}
-	log := filepath.Join(c.SkitHome, "serve.log")
+	log := LogPath(c.SkitHome)
 	b.WriteString(`<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <!-- Written by "skit service install". Remove with "skit service uninstall". -->
@@ -229,7 +254,7 @@ func Plist(c Config) []byte {
 	<key>ThrottleInterval</key>
 	<integer>30</integer>
 	<key>ProcessType</key>
-	<string>Background</string>
+	<string>Interactive</string>
 	<key>StandardOutPath</key>
 	<string>` + esc(log) + `</string>
 	<key>StandardErrorPath</key>

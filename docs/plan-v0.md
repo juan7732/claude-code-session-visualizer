@@ -132,7 +132,7 @@ Rules for every client milestone:
   system; OLED is a setting. The other six styles in the mock are not ported.
 - **Code layout:** `client/SessionVisualizer/` (SwiftPM, SwiftUI, macOS 14+). The engine stays untouched by client work.
 
-**M7 App skeleton and Sessions.** Mock: the shell and `#/sessions`.
+**M7 App skeleton and Sessions (DONE).** Mock: the shell and `#/sessions`.
 
 - SwiftPM app, one window. On first launch it runs `skit service install` for its own `skit`, so archiving and the
   socket are there from then on; it shows a clear state when the engine is missing or the version does not match.
@@ -148,21 +148,27 @@ Rules for every client milestone:
 Engine: `/status`, `/sessions`, `/sessions/{id}`, `/stats`, `/annotations`. Done when: launch, see every session on this
 Mac, filter by project, pin one, open one.
 
-**M8 Transcript and the drawer.** Mock: `?view=transcript` (Chat+) and the bottom drawer.
+**M8 Transcript and the drawer (DONE).** Mock: `?view=transcript` (Chat+) and the bottom drawer.
 
-- Chat+ flow: prompt cards, prose, compact tool rows with the result excerpt, the parallel group, subagent strands,
-  background-task links, thinking collapsed, "21m later" rules, compaction markers, API-error rows, rewound turns
-  marked.
-- Turn detail loaded on demand; the list stays smooth on a 250-action session. **Risk:** variable-height rows in a long
-  SwiftUI list. Spike it first; fall back to an AppKit-backed list if needed.
-- The selection model shared by every later view, and the bottom drawer on it: Details, Input and result, Note;
-  breadcrumb turn › action › tool; previous and next.
-- Keyboard cycling (j/k, J/K, open and close, `?` for the list), the scroll map, find in session (⌘F).
-- Notes on a session, turn, action or tool call.
+- Chat+ flow: prompt cards, prose rendered block by block (paragraphs, headings, lists, code, tables), compact tool rows
+  with the result excerpt, the parallel group, subagent strands, background-task links, thinking folded, "21m later"
+  rules, compaction markers, API-error rows, rewound turns marked.
+- **Folding**, added after Juan's first use: a turn's tool calls fold into one line per run ("63 tool calls · Bash 58 ·
+  Write 5 · 2 failed · 29m 1s") and what was said stays. ← on a call or an action with nothing open folds its turn; → or
+  a click on the line shows the calls again; ⌥⌘← and ⌥⌘→ for the whole session; a setting opens sessions folded.
+- One selection per window, shared by the session's views, and the bottom drawer on it: Details, Input and result, Note;
+  breadcrumb turn › action › tool; previous and next; resizable.
+- Keyboard: j/k (an action with one tool call is one stop), J/K turns, Return or i inspects in the drawer, → opens, ←
+  closes then folds, e/c every call of the turn, g/G, / find, ? the list. The scroll map. Find in session (⌘F) through
+  the engine's search, after a pause in typing.
+- Notes on a session, turn, action, tool call, subagent or compaction, kept by the engine.
 
-Engine: `/turns/{n}`, `/actions/{n}`, `/compactions/{n}`, `/search?session=`, `/relations` (task links, hand-backs,
-retries, events), `/annotations`. Done when: the largest session reads top to bottom without a stall; "docker" is found
-and its tool result read; a note survives a restart.
+Engine, for it: `result_head` and `result_bytes` on tool calls; lists never `null`; parallel line decoding; relations
+and the encoded document kept per parsed session; the agent as an interactive process
+(`relations-and-client-routes.md`). Largest session through the agent: 2.7 s → 0.41 s not in memory, 8 ms in memory.
+
+Carried to M9: Copy Link (needs the app's URL scheme, so the bundle), the drawer on the Summary, selecting a single
+subagent step, the `/compactions/{n}` detail in the drawer, a ⚙ popover per view (the options are a Settings tab).
 
 **M9 Summary, Search and the bundled app (v0).** Mock: `?view=summary` (Dashboard), `#/search` (Finder), ⌘K.
 
@@ -172,7 +178,8 @@ and its tool result read; a note survives a restart.
   Open in Transcript or Summary), kinds as a scope bar, live as you type, recent searches.
 - ⌘K palette: sessions, mentions, commands.
 - Export Session as Markdown, Copy Turn as Markdown.
-- `build.sh` for a signed `.app` with `skit` in `Contents/Helpers/`.
+- `build.sh` for a signed `.app` with `skit` in `Contents/Helpers/`, and the app's URL scheme, so Copy Link works.
+- From M8: the drawer on the Summary, a single subagent step selectable, the compaction detail in the drawer.
 
 Engine: `/stats`, `/search`, `/relations` (files, outside, events). Missing: the model's context-window limit; fork
 parent and child ids ("How it ran" shows what exists until then). Done when: for any session, what it was about, what

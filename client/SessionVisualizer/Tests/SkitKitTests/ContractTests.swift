@@ -94,3 +94,79 @@ import Testing
         #expect(object["remove_tags"] == nil)
     }
 }
+
+/// The session document and what hangs off it: the shapes M8's views read.
+@Suite struct DocumentContractTests {
+    let id = "aaaaaaaa-0000-0000-0000-000000000001"
+
+    @Test func document() throws {
+        let doc = try decode(SessionDocument.self, "document.json")
+        #expect(doc.id == id)
+        #expect(doc.prompts.count == 2 && doc.turns.count == 2 && doc.actions.count == 6 && doc.toolCalls.count == 4)
+        #expect(doc.summary.requests == 7)
+
+        // A turn refers to its prompt and its actions by index.
+        let first = doc.turns[0]
+        #expect(first.isHuman && first.promptIndex == 0)
+        #expect(first.actionIndexes == [0, 1, 2, 3])
+        #expect(doc.turns.flatMap(\.actionIndexes) == doc.actions.map(\.index))
+        #expect(doc.prompts[1].context.count == 1)
+
+        // Blocks keep their order; a tool call is found by the id in its tool_use block.
+        let action = doc.actions[0]
+        #expect(action.blocks.map(\.type) == ["thinking", "text", "tool_use"])
+        #expect(action.thinking == "xxxx")
+        let call = try #require(doc.toolCalls.first { $0.id == action.toolUseIDs.first })
+        #expect(call.name == "Bash" && call.paired && call.action == 0 && call.turn == 0)
+        #expect(call.input?["command"]?.string == "xx -xx")
+        #expect(abs((call.duration ?? 0) - 0.8) < 1e-6)
+        #expect(call.resultHead?.isEmpty == false)
+
+        // An unanswered call has no end and no result: the engine writes Go's zero time for it.
+        let open = try JSONDecoder.skit().decode(ToolCall.self, from: Data(#"{"id":"t9","name":"Bash","input":{},"at":"2026-11-08T10:00:02Z","ended_at":"0001-01-01T00:00:00Z","paired":false,"turn":0,"action":0}"#.utf8))
+        #expect(open.endedAt == nil && open.duration == nil && open.resultHead == nil && !open.isError)
+
+        let cut = try #require(doc.compactions.first)
+        #expect(cut.metadata?.preTokens == 6400 && cut.metadata?.trigger == "auto")
+        #expect(cut.summary?.isEmpty == false)
+
+        let sub = try #require(doc.subagents.first)
+        #expect(sub.toolUseId == "toolu_03" && sub.meta?.model == "haiku")
+        #expect(sub.session?.actions.count == 2)
+        #expect(doc.toolCalls.contains { $0.id == sub.toolUseId })
+    }
+
+    @Test func actionDetailCarriesTheFullResult() throws {
+        let detail = try decode(ActionDetail.self, "action.json")
+        #expect(detail.index == 3 && detail.turn == 0)
+        let result = try #require(detail.toolCalls.first)
+        #expect(result.name == "Edit")
+        #expect(result.result?.hasPrefix("full output line 1") == true)
+        // The output was spilled to a file; the source says which.
+        #expect(result.resultSource?.hasSuffix("toolu_04.txt") == true)
+    }
+
+    @Test func relations() throws {
+        let relations = try decode(Relations.self, "relations.json")
+        #expect(relations.spans.count == 6)
+        #expect(relations.spans.allSatisfy { $0.end >= $0.at })
+        let handback = try #require(relations.handbacks.first)
+        #expect(handback.spawn.toolId == "toolu_03")
+    }
+
+    @Test func searchHitsSayWhereTheyAre() throws {
+        let hits = try decode([SearchHit].self, "search.json")
+        #expect(!hits.isEmpty)
+        #expect(hits.allSatisfy { $0.session == id })
+        #expect(hits.contains { $0.kind == "tool_use" && $0.action >= 0 && $0.snippet.contains("«") })
+    }
+
+    @Test func toolInputsStayAsWritten() throws {
+        let value = try JSONDecoder().decode(JSONValue.self, from: Data(#"{"b":[1,2.5,true,null],"a":{"path":"x/y","n":3},"s":"q\"uote"}"#.utf8))
+        #expect(value["a"]?["path"]?.string == "x/y")
+        #expect(value.firstString("missing", "s") == "q\"uote")
+        #expect(value["b"] == .array([.number(1), .number(2.5), .bool(true), .null]))
+        #expect(value.pretty == "{\n \"a\": {\n  \"n\": 3,\n  \"path\": \"x/y\"\n },\n \"b\": [\n  1,\n  2.5,\n  true,\n  null\n ],\n \"s\": \"q\\\"uote\"\n}")
+        #expect(try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value)) == value)
+    }
+}

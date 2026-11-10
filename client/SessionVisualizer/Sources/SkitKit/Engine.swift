@@ -135,7 +135,13 @@ public struct EngineConnector: Sendable {
     /// `onStarting` is told which `skit` is being started, for the window to say so.
     public func connect(onStarting: @Sendable (String) async -> Void = { _ in }) async -> Outcome {
         if let outcome = await attach() { return outcome }
-        guard managesEngine else { return .failed("Nothing is serving on \(client.http.socketPath).") }
+        guard managesEngine else {
+            // Say why when it is not simply "nobody home" (a socket path too long to connect to).
+            if case .pathTooLong(let n) = probeFailure() {
+                return .failed("The socket path is \(n) bytes; a Unix socket allows 103: \(client.http.socketPath)")
+            }
+            return .failed("Nothing is serving on \(client.http.socketPath).")
+        }
         guard let binary = locator.findBinary() else { return .missing(lookedIn: locator.binaryCandidates) }
         await onStarting(binary)
         do {
@@ -149,6 +155,17 @@ public struct EngineConnector: Sendable {
             if attempt < attempts - 1 { try? await Task.sleep(for: pause) }
         }
         return .failed("The background agent was installed but does not answer on \(client.http.socketPath). See serve.log in \(locator.skitHome).")
+    }
+
+    private func probeFailure() -> UnixHTTP.Failure {
+        do {
+            _ = try client.http.send(method: "GET", path: "/v0")
+            return .malformedResponse
+        } catch let failure as UnixHTTP.Failure {
+            return failure
+        } catch {
+            return .io("\(error)")
+        }
     }
 
     /// Nil when nothing is serving; otherwise what answered.

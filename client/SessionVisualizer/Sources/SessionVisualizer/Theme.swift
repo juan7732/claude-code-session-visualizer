@@ -10,7 +10,22 @@ struct Palette: Equatable {
     var line, line2: Color
     var accent, accentSoft: Color
     var warn, err, ok, tool: Color
+    /// Outside services and connectors; injected context and control calls.
+    var plug, ctx: Color
     var shadow: Color
+
+    /// The colour a tool call is drawn in, by what it is for.
+    func color(_ family: ToolFamily) -> Color {
+        switch family {
+        case .shell: tool
+        case .file: ink2
+        case .web, .connector: plug
+        case .agent: warn
+        case .skill: accent
+        case .control: ctx
+        case .other: muted
+        }
+    }
 
     static let light = Palette(
         bg: Color(hex: 0xEEEEF0), panel: Color(hex: 0xFFFFFF), panel2: Color(hex: 0xE4E4E8),
@@ -18,6 +33,7 @@ struct Palette: Equatable {
         line: .black.opacity(0.06), line2: .black.opacity(0.12),
         accent: Color(hex: 0x5B5BD6), accentSoft: Color(hex: 0x5B5BD6).opacity(0.12),
         warn: Color(hex: 0xD98A00), err: Color(hex: 0xD9485F), ok: Color(hex: 0x2F9E6F), tool: Color(hex: 0x2F9E6F),
+        plug: Color(hex: 0xC2419A), ctx: Color(hex: 0xA0A0A8),
         shadow: Color(hex: 0x17171A).opacity(0.18))
 
     static let dark = Palette(
@@ -26,6 +42,7 @@ struct Palette: Equatable {
         line: .white.opacity(0.07), line2: .white.opacity(0.14),
         accent: Color(hex: 0x8B8BFF), accentSoft: Color(hex: 0x8B8BFF).opacity(0.18),
         warn: Color(hex: 0xD98A00), err: Color(hex: 0xD9485F), ok: Color(hex: 0x2F9E6F), tool: Color(hex: 0x4FD1A0),
+        plug: Color(hex: 0xC2419A), ctx: Color(hex: 0xA0A0A8),
         shadow: .black.opacity(0.5))
 
     static let oled = Palette(
@@ -34,6 +51,7 @@ struct Palette: Equatable {
         line: .white.opacity(0.09), line2: .white.opacity(0.22),
         accent: Color(hex: 0x9B9BFF), accentSoft: Color(hex: 0x9B9BFF).opacity(0.18),
         warn: Color(hex: 0xFFB340), err: Color(hex: 0xFF6B7A), ok: Color(hex: 0x2F9E6F), tool: Color(hex: 0x5FE0B0),
+        plug: Color(hex: 0xC2419A), ctx: Color(hex: 0xA0A0A8),
         shadow: .black.opacity(0.7))
 
     static func resolve(_ scheme: ColorScheme, oled: Bool) -> Palette {
@@ -131,4 +149,11 @@ enum SettingsKey {
     static let oled = "appearance.oled"
     static let sidebar = "shell.sidebar"
     static let sessionSort = "sessions.sort"
+    static let inspector = "shell.inspector"
+    static let inspectorHeight = "shell.inspectorHeight"
+    static let compactTools = "transcript.compactTools"
+    static let showThinking = "transcript.showThinking"
+    static let scrollMap = "transcript.scrollMap"
+    static let keyHint = "transcript.keyHint"
+    static let foldByDefault = "transcript.foldByDefault"
 }

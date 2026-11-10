@@ -3,7 +3,9 @@ import SkitKit
 import SwiftUI
 
 /// `SessionVisualizer --snapshot out.png [--page sessions|session:<id>|search|stats|claude]
-/// [--view summary|…] [--appearance light|dark|oled] [--size 1500x940] [--socket path] [--flyout]`
+/// [--view summary|…] [--appearance light|dark|oled] [--size 1500x940] [--socket path] [--flyout]
+/// [--select action:6|turn:0|tool:<id>|subagent:<id>|compaction:0|work:1] [--tab details|io|note] [--query text]
+/// [--open-calls] [--fold]`
 ///
 /// Renders one state of the app to a PNG and exits, without showing a window:
 /// the way a view is held against its mock (plan, "Judged against the mock").
@@ -16,6 +18,14 @@ struct SnapshotRequest {
     var size = CGSize(width: 1500, height: 940)
     var socket: String?
     var flyout = false
+    /// A node to select (opens the drawer) and scroll to.
+    var select: NodeKey?
+    var tab: InspectorTab?
+    var query: String?
+    /// Opens every tool row of the selected node's turn.
+    var openCalls = false
+    /// Folds every turn's tool calls.
+    var fold = false
 
     init?(arguments: [String]) {
         guard let at = arguments.firstIndex(of: "--snapshot"), at + 1 < arguments.count else { return nil }
@@ -40,6 +50,57 @@ struct SnapshotRequest {
         }
         socket = value("--socket")
         flyout = arguments.contains("--flyout")
+        if let select = value("--select"), let colon = select.firstIndex(of: ":") {
+            let id = String(select[select.index(after: colon)...])
+            switch select[..<colon] {
+            case "action": self.select = Int(id).map { .action($0) }
+            case "turn": self.select = Int(id).map { .turn($0) }
+            case "compaction": self.select = Int(id).map { .compaction($0) }
+            case "work": self.select = Int(id).map { .work($0) }
+            case "tool": self.select = .tool(id)
+            case "subagent": self.select = .subagent(id)
+            default: break
+            }
+        }
+        tab = value("--tab").flatMap(InspectorTab.init(rawValue:))
+        query = value("--query")
+        openCalls = arguments.contains("--open-calls")
+        fold = arguments.contains("--fold")
+    }
+}
+
+/// `SessionVisualizer --measure <session id> [--socket path]`: how long opening a
+/// session takes, step by step, without a window. "Measure before you tune."
+enum Measure {
+    static func run(arguments: [String]) -> Never? {
+        guard let at = arguments.firstIndex(of: "--measure"), at + 1 < arguments.count else { return nil }
+        let id = arguments[at + 1]
+        let socket = arguments.firstIndex(of: "--socket").flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil }
+        let http = UnixHTTP(socketPath: socket ?? EngineLocator().socketPath)
+        func ms(_ start: Date) -> String { String(format: "%7.1f ms", Date().timeIntervalSince(start) * 1000) }
+        do {
+            for pass in ["first", "again"] {
+                var t = Date()
+                let raw = try http.send(method: "GET", path: "/v0/sessions/\(id)")
+                print("\(pass): document fetched  \(ms(t))  \(raw.body.count / 1024) kB")
+                t = Date()
+                let doc = try JSONDecoder.skit().decode(SessionDocument.self, from: raw.body)
+                print("\(pass): document decoded  \(ms(t))  \(doc.turns.count) turns, \(doc.actions.count) actions, \(doc.toolCalls.count) tool calls")
+                t = Date()
+                let rel = try http.send(method: "GET", path: "/v0/sessions/\(id)/relations")
+                print("\(pass): relations fetched \(ms(t))  \(rel.body.count / 1024) kB")
+                t = Date()
+                let relations = try JSONDecoder.skit().decode(Relations.self, from: rel.body)
+                print("\(pass): relations decoded \(ms(t))")
+                t = Date()
+                let model = SessionModel(doc: doc, relations: relations)
+                print("\(pass): model built       \(ms(t))  \(model.items.count) rows")
+            }
+        } catch {
+            print("measure: \(error)")
+            exit(1)
+        }
+        exit(0)
     }
 }
 
@@ -52,7 +113,8 @@ enum Snapshot {
                                                 forName: UserDefaults.argumentDomain)
 
         let store = AppStore(socketPath: request.socket, managesEngine: false)
-        let root = Themed { RootView(initialPage: request.page, initialView: request.view) }
+        let state = WindowState()
+        let root = Themed { RootView(window: state, initialPage: request.page, initialView: request.view) }
             .environment(store)
             .environment(\.snapshotFlyout, request.flyout)
         let window = OffscreenWindow(contentRect: CGRect(origin: .zero, size: request.size),
@@ -69,9 +131,26 @@ enum Snapshot {
         Task {
             await store.connect()
             if case .session(let id) = request.page {
-                // Wait for the numbers the page asks for.
-                for _ in 0..<200 {
-                    if case .loading = store.stats[id] ?? .loading { try? await Task.sleep(for: .milliseconds(100)) } else { break }
+                // Wait for what the page asks for: the numbers, and for the Transcript the document.
+                for _ in 0..<300 {
+                    let statsReady: Bool = if case .loading = store.stats[id] ?? .loading { false } else { true }
+                    let modelReady: Bool = if case .loading = store.models[id] ?? .loading { request.view == .summary } else { true }
+                    if statsReady && modelReady { break }
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                if let model = store.model(id) {
+                    if let query = request.query { state.transcript.query = query }
+                    if request.fold { for turn in model.doc.turns where turn.toolCalls > 0 { state.setFolded(turn.index, true, in: model) } }
+                    if let key = request.select {
+                        if let tab = request.tab { state.inspectorTab = tab }
+                        state.select(key, in: model)
+                        if request.openCalls, let turn = model.turnIndex(of: key).flatMap({ model.turn($0) }) {
+                            for call in turn.actionIndexes.compactMap({ model.action($0) }).flatMap({ model.tools(of: $0) }) {
+                                state.transcript.open.insert(.tool(call.id))
+                            }
+                        }
+                    }
+                    try? await Task.sleep(for: .milliseconds(900)) // scrolling, the drawer, the results
                 }
             }
             try? await Task.sleep(for: .milliseconds(600))

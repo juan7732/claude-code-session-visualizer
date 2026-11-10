@@ -1,0 +1,44 @@
+{
+  "index": 3,
+  "turn": 0,
+  "request_id": "req_4",
+  "message_id": "msg_4",
+  "model": "claude-fable-5-1",
+  "at": "2026-11-08T10:00:09Z",
+  "stop_reason": "tool_use",
+  "usage": {
+    "input_tokens": 1,
+    "output_tokens": 20,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 6300
+  },
+  "blocks": [
+    {
+      "type": "tool_use",
+      "id": "toolu_04",
+      "name": "Edit",
+      "input": {
+        "file_path": "/xxx/y.go"
+      }
+    }
+  ],
+  "tool_calls": [
+    {
+      "id": "toolu_04",
+      "name": "Edit",
+      "input": {
+        "file_path": "/xxx/y.go"
+      },
+      "at": "2026-11-08T10:00:09Z",
+      "ended_at": "2026-11-08T10:00:09.5Z",
+      "paired": true,
+      "turn": 0,
+      "action": 3,
+      "spilled": "/Users/xxxx/.claude/projects/-Users-xxxx-work/aaaaaaaa-0000-0000-0000-000000000001/tool-results/toolu_04.txt",
+      "result_head": "\u003cpersisted-output\u003e",
+      "result_bytes": 202,
+      "result": "full output line 1\nfull output line 2\n",
+      "result_source": "/fixture/home/.claude/projects/-Users-me-work/aaaaaaaa-0000-0000-0000-000000000001/tool-results/toolu_04.txt"
+    }
+  ]
+}

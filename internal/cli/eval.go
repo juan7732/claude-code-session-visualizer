@@ -41,6 +41,11 @@ counted in distinct turns, so several hits from one turn take one place. A
 query with an empty "expect" should find nothing: eval reports how many of
 those were answered anyway.
 
+Beside "queries" the file may hold "exclude": a list of session id prefixes
+whose hits are dropped before anything is counted. Put the sessions in which
+the queries were written there: they quote every query word for word. A query
+may carry a "note" for whoever maintains the file; it is not scored.
+
 Every target must be an archived session, or eval stops before running.
 --misses lists the queries whose answer did not come first.`,
 		Example: "  skit eval queries.json\n  skit eval queries.json --mode keyword --misses\n  skit eval queries.json --json | jq '.modes[] | {mode, overall}'",

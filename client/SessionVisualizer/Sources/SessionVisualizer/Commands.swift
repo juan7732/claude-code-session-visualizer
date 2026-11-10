@@ -7,9 +7,17 @@ struct AppCommands: Commands {
     var store: AppStore
     @FocusedValue(\.windowState) private var window
     @AppStorage(SettingsKey.sidebar) private var sidebar = true
+    @AppStorage(SettingsKey.inspector) private var inspector = true
     @Environment(\.openWindow) private var openWindow
 
     private var sessionID: String? { window?.sessionID }
+    private var inTranscript: Bool { sessionID != nil && window?.sessionView == .transcript }
+
+    /// Folds every turn's tool calls into one line per run, or shows them all again.
+    private func setAllFolded(_ folded: Bool) {
+        guard let window, let model = sessionID.flatMap({ store.model($0) }) else { return }
+        for turn in model.doc.turns where turn.toolCalls > 0 { window.setFolded(turn.index, folded, in: model) }
+    }
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -20,7 +28,11 @@ struct AppCommands: Commands {
         }
         CommandGroup(after: .pasteboard) {
             Divider()
-            Button("Find") {}.keyboardShortcut("f").disabled(true) // M8
+            Button("Find") {
+                window?.sessionView = .transcript
+                window?.transcript.findRequests += 1
+            }
+            .keyboardShortcut("f").disabled(sessionID == nil)
             Button("Copy Link") {}.keyboardShortcut("c", modifiers: [.command, .shift]).disabled(true) // M8
         }
         CommandGroup(before: .sidebar) {
@@ -32,10 +44,13 @@ struct AppCommands: Commands {
             Divider()
             Button(sidebar ? "Hide Sidebar" : "Show Sidebar") { sidebar.toggle() }
                 .keyboardShortcut("s", modifiers: [.command, .control])
-            Button("Show Inspector") {}.keyboardShortcut("i", modifiers: [.command, .option]).disabled(true) // M8
+            Button(inspector ? "Hide Inspector" : "Show Inspector") { inspector.toggle() }
+                .keyboardShortcut("i", modifiers: [.command, .option])
             Divider()
-            Button("Expand All") {}.disabled(true) // M8
-            Button("Collapse All") {}.disabled(true)
+            Button("Show All Tool Calls") { setAllFolded(false) }
+                .keyboardShortcut(.rightArrow, modifiers: [.command, .option]).disabled(!inTranscript)
+            Button("Fold All Tool Calls") { setAllFolded(true) }
+                .keyboardShortcut(.leftArrow, modifiers: [.command, .option]).disabled(!inTranscript)
             Divider()
             Button("Zoom In") {}.keyboardShortcut("+").disabled(true) // M10
             Button("Zoom Out") {}.keyboardShortcut("-").disabled(true)
@@ -60,7 +75,8 @@ struct AppCommands: Commands {
                 .disabled(sessionID == nil)
         }
         CommandGroup(replacing: .help) {
-            Button("Keyboard Shortcuts") {}.keyboardShortcut("/", modifiers: [.command, .shift]).disabled(true) // M8
+            Button("Keyboard Shortcuts") { window?.transcript.helpShown.toggle() }
+                .keyboardShortcut("/", modifiers: [.command, .shift]).disabled(!inTranscript)
         }
     }
 }

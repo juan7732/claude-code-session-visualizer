@@ -4,13 +4,13 @@
 #
 #   Scripts/record-fixtures.sh [output directory]
 #
-# Default output: Tests/SkitKitTests/Fixtures. CI records into a temp directory
+# Default output: Sources/SkitTestSupport/Fixtures. CI records into a temp directory
 # and points the tests at it (SKIT_FIXTURES), so the tests always decode what
 # the current engine really serves.
 set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 repo=$(cd "$here/../.." && pwd)
-out=${1:-$here/Tests/SkitKitTests/Fixtures}
+out=${1:-$here/Sources/SkitTestSupport/Fixtures}
 # A throwaway directory. Its path appears in the responses and is rewritten to
 # /fixture below, so a recording does not depend on where it was made.
 work=$(mktemp -d)
@@ -40,10 +40,14 @@ get /v0 routes.json
 get /v0/status status.json
 get /v0/sessions sessions.json
 get "/v0/sessions/$id/stats" stats.json
+get "/v0/sessions/$id" document.json
+get "/v0/sessions/$id/actions/3" action.json
+get "/v0/sessions/$id/relations" relations.json
 get "/v0/sessions/$id/annotations" annotation-empty.json
 send PATCH "/v0/sessions/$id/annotations" '{"pinned":true,"add_tags":["keep"],"notes":{"session":"a note","tool:toolu_01AbC":"on a tool call"}}' annotation.json
 get /v0/annotations annotations.json
 send POST /v0/archive "{\"ids\":[\"$id\"]}" archive.json
+get "/v0/search?q=Bash&session=$id&limit=50" search.json
 curl -sS --unix-socket "$sock" "http://skit/v0/sessions/nope/stats" -o "$out/error.json"
 "$work/skit" service status --json > "$out/service-status.json"
 

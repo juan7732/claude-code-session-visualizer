@@ -303,3 +303,47 @@ func equalInts(a, b []int) bool {
 	}
 	return true
 }
+
+// TestEvalLeavesOutExcludedSessions: the session in which the queries were
+// written quotes each of them, so it would come first for every one. Its hits
+// are dropped before anything is counted.
+func TestEvalLeavesOutExcludedSessions(t *testing.T) {
+	a, e := embedded(t)
+	run := func(ctx context.Context, q string, opt Options) ([]Hit, error) {
+		return Search(ctx, a.Store, e, q, opt)
+	}
+	const queries = `"queries": [{"q": "retention sweep deletes session files", "expect": [], "tag": "nothing", "note": "answered only by the excluded session"}]`
+
+	ev, err := LoadEval(a.Store, []byte(`{`+queries+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := ev.Run(context.Background(), []string{ModeKeyword, ModeMeaning}, run)
+	if err != nil || rep.Modes[0].Nothing.Answered != 1 || rep.Modes[1].Nothing.Answered != 1 {
+		t.Fatalf("without exclude both modes answer: %+v %v", rep.Modes, err)
+	}
+
+	// A prefix that matches nothing on this machine is fine; the one that
+	// matches takes every hit of that session out.
+	ev, err = LoadEval(a.Store, []byte(`{"exclude": ["ffffffff", "bbbbbbbb-0000"], `+queries+`}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err = ev.Run(context.Background(), []string{ModeKeyword, ModeMeaning}, run)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, m := range rep.Modes {
+		if o := m.Outcomes[0]; o.Hits != 0 || o.Top != "" || m.Nothing.Answered != 0 {
+			t.Fatalf("%s still counts hits from an excluded session: %+v", m.Mode, o)
+		}
+	}
+
+	// Expecting an answer inside an excluded session can never succeed: say so.
+	if _, err := LoadEval(a.Store, []byte(`{"exclude": ["bbbbbbbb"], "queries": [{"q": "x", "expect": ["bbbbbbbb@0"]}]}`)); err == nil || !strings.Contains(err.Error(), "excluded session") {
+		t.Fatalf("target in an excluded session: %v", err)
+	}
+	if _, err := LoadEval(a.Store, []byte(`{"exclude": [""], `+queries+`}`)); err == nil || !strings.Contains(err.Error(), "every session") {
+		t.Fatalf("empty exclude entry: %v", err)
+	}
+}

@@ -35,6 +35,9 @@ public struct SkitClient: Sendable {
         "GET /v0/sessions",
         "GET /v0/sessions/{id}",
         "GET /v0/sessions/{id}/stats",
+        "GET /v0/sessions/{id}/actions/{n}",
+        "GET /v0/sessions/{id}/relations",
+        "GET /v0/search",
         "GET /v0/sessions/{id}/annotations",
         "PATCH /v0/sessions/{id}/annotations",
         "GET /v0/annotations",
@@ -59,6 +62,27 @@ public struct SkitClient: Sendable {
 
     public func stats(session id: String) async throws -> SessionSummary {
         try await get("/v0/sessions/\(Self.escape(id))/stats")
+    }
+
+    /// The whole session: prompts, turns, actions, tool calls, compactions, subagents.
+    public func document(session id: String) async throws -> SessionDocument {
+        try await get("/v0/sessions/\(Self.escape(id))")
+    }
+
+    /// One action with the full text of its tool results.
+    public func action(session id: String, _ index: Int) async throws -> ActionDetail {
+        try await get("/v0/sessions/\(Self.escape(id))/actions/\(index)")
+    }
+
+    public func relations(session id: String) async throws -> Relations {
+        try await get("/v0/sessions/\(Self.escape(id))/relations")
+    }
+
+    /// Keyword search, across every archived session or inside one.
+    public func search(_ query: String, session: String? = nil, limit: Int = 200) async throws -> [SearchHit] {
+        var parts = ["q=" + Self.escape(query), "limit=\(limit)"]
+        if let session { parts.append("session=" + Self.escape(session)) }
+        return try await get("/v0/search?" + parts.joined(separator: "&"))
     }
 
     /// Every annotated session, keyed by session id.

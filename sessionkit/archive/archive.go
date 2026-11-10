@@ -158,6 +158,9 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 	if err != nil {
 		return res, err
 	}
+	// A reader has this session open and it has just been parsed again:
+	// have the answers it will ask for ready before it asks.
+	go loaded.warm()
 	s := loaded.Session
 	sum := stats.Compute(s, l.Project.Slug, stats.Options{})
 

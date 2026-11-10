@@ -197,7 +197,16 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, archive.Document(res))
+	// The document is megabytes: encoded once per parsed session, then served from memory.
+	body, err := res.DocumentJSON()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(len(body)))
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(body)
 }
 
 func (s *Server) sessionStats(w http.ResponseWriter, r *http.Request) {
@@ -319,7 +328,7 @@ func (s *Server) relations(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	writeJSON(w, http.StatusOK, res.Session.Relations())
+	writeJSON(w, http.StatusOK, res.Relations())
 }
 
 func (s *Server) images(w http.ResponseWriter, r *http.Request) {
@@ -661,9 +670,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener, socket string) erro
 func writeJSON(w http.ResponseWriter, code int, v any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
-	enc := json.NewEncoder(w)
-	enc.SetIndent("", "  ")
-	_ = enc.Encode(v)
+	// Compact: the reader is a program. `skit <command> --json` prints the same
+	// shapes indented for people.
+	_ = json.NewEncoder(w).Encode(v)
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

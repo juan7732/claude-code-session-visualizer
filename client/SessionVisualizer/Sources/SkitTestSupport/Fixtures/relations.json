@@ -1,0 +1,115 @@
+{
+  "spans": [
+    {
+      "action": 0,
+      "turn": 0,
+      "at": "2026-11-08T10:00:02Z",
+      "gen_end": "2026-11-08T10:00:02.2Z",
+      "tools_end": "2026-11-08T10:00:03Z",
+      "end": "2026-11-08T10:00:05Z"
+    },
+    {
+      "action": 1,
+      "turn": 0,
+      "at": "2026-11-08T10:00:05Z",
+      "gen_end": "2026-11-08T10:00:05Z",
+      "tools_end": "2026-11-08T10:00:05.5Z",
+      "end": "2026-11-08T10:00:07Z"
+    },
+    {
+      "action": 2,
+      "turn": 0,
+      "at": "2026-11-08T10:00:07Z",
+      "gen_end": "2026-11-08T10:00:07Z",
+      "tools_end": "2026-11-08T10:00:07.2Z",
+      "end": "2026-11-08T10:00:09Z"
+    },
+    {
+      "action": 3,
+      "turn": 0,
+      "at": "2026-11-08T10:00:09Z",
+      "gen_end": "2026-11-08T10:00:09Z",
+      "tools_end": "2026-11-08T10:00:09.5Z",
+      "end": "2026-11-08T10:00:09.5Z"
+    },
+    {
+      "action": 4,
+      "turn": 1,
+      "at": "2026-11-08T10:01:03Z",
+      "gen_end": "2026-11-08T10:01:03.5Z",
+      "tools_end": "2026-11-08T10:01:03.5Z",
+      "end": "2026-11-08T10:01:03.5Z",
+      "said": true
+    },
+    {
+      "action": 5,
+      "turn": 1,
+      "at": "2026-11-08T10:01:03.5Z",
+      "gen_end": "2026-11-08T10:01:03.5Z",
+      "tools_end": "2026-11-08T10:01:03.5Z",
+      "end": "2026-11-08T10:01:03.5Z"
+    }
+  ],
+  "tasks": [],
+  "handbacks": [
+    {
+      "agent_id": "a1b2c3d4e5f607182",
+      "spawn": {
+        "tool_id": "toolu_03",
+        "action": 2,
+        "turn": 0,
+        "at": "2026-11-08T10:00:07Z"
+      },
+      "ended_at": "2026-11-08T10:00:09Z",
+      "action": 3
+    }
+  ],
+  "retries": [],
+  "files": [
+    {
+      "path": "/xxx/y.go",
+      "writes": 1,
+      "turns": 1,
+      "touches": [
+        {
+          "tool_id": "toolu_04",
+          "action": 3,
+          "turn": 0,
+          "at": "2026-11-08T10:00:09Z",
+          "mode": "write",
+          "tool": "Edit"
+        }
+      ]
+    },
+    {
+      "path": "/xxx/x.png",
+      "writes": 0,
+      "turns": 1,
+      "touches": [
+        {
+          "tool_id": "toolu_02",
+          "action": 1,
+          "turn": 0,
+          "at": "2026-11-08T10:00:05Z",
+          "mode": "read",
+          "tool": "Read"
+        }
+      ]
+    }
+  ],
+  "outside": [],
+  "events": [
+    {
+      "kind": "api_error",
+      "at": "2026-11-08T10:00:08Z",
+      "turn": 0
+    },
+    {
+      "kind": "synthetic",
+      "at": "2026-11-08T10:01:03.5Z",
+      "turn": 1,
+      "action": 5,
+      "message": "Xxxxxxx xxxxxxx."
+    }
+  ]
+}

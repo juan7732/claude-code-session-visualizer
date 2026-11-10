@@ -29,15 +29,20 @@ public enum RFC3339 {
 
         var fraction = 0.0
         if skip(".") {
-            var scale = 0.1
+            // Read the digits as one integer and divide once: adding tenths,
+            // hundredths and so on one by one drifts.
+            var numerator = 0.0, denominator = 1.0
             var digits = 0
             while let byte = s.first, byte >= 48, byte <= 57 {
-                fraction += Double(byte - 48) * scale
-                scale /= 10
+                if digits < 15 {
+                    numerator = numerator * 10 + Double(byte - 48)
+                    denominator *= 10
+                }
                 digits += 1
                 s = s.dropFirst()
             }
             guard digits > 0 else { return nil }
+            fraction = numerator / denominator
         }
 
         var offset = 0

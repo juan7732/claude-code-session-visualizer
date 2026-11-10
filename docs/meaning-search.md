@@ -99,6 +99,11 @@ one target is enough. Places are counted in distinct turns, so several segments 
 an empty `expect` should find nothing, and the report says how many of those got an answer anyway. Every target must
 resolve to an archived session or the eval stops before it runs.
 
+Two more fields. `"exclude": ["a9534066"]` beside `queries` lists session id prefixes whose hits are dropped before
+anything is counted: the sessions in which the queries were written quote every query word for word, so they would come
+first for each one and answer the queries that should find nothing. A query may carry a `"note"` for whoever maintains
+the file; it is not scored.
+
 ## Measured so far
 
 On Juan's MacBook Pro (M4 Max), llama.cpp 0.9.0, a copy of the archive made on 2026-11-10:
@@ -122,9 +127,10 @@ an impression, not an eval.
 
 - **The scorer.** Fusing meaning with keyword scores, the gate (z, an absolute cosine floor, or both) and a `hybrid`
   mode. It is tuned on the eval, and each change carries its delta.
-- **The eval queries**, in Juan's words, about his sessions.
-- **Embedding at ingest.** Today `skit embed` is run by hand after `skit archive`. The watcher and the background agent
-  do not embed.
+- **The eval queries**, in Juan's words, about his sessions. They are being collected outside this repository for now,
+  because they quote real sessions.
+- **Embedding without being asked.** Today `skit embed` is run by hand after `skit archive`. The watcher and the
+  background agent do not embed. Deferred to issue #3: the agent embeds on its own, periodically.
 - **Vectors held in memory by `skit serve`.** Each meaning query reads and decodes every vector from SQLite, which is
   milliseconds for thousands of pieces and will not be for hundreds of thousands.
 - **A hermetic end-to-end test of the real binary.** The pinned model is 310 MB, so `test/integration` cannot run

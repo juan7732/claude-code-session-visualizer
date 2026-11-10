@@ -114,6 +114,9 @@ func (c *cache) get(key, stamp string, cost int64, load func() (Resolved, error)
 	c.mu.Unlock()
 
 	e.res, e.err = load()
+	if e.err == nil && e.res.memo == nil {
+		e.res.memo = &memo{}
+	}
 	close(e.ready)
 	if e.err != nil {
 		c.mu.Lock()

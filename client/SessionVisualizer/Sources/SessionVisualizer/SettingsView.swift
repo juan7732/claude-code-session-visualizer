@@ -1,15 +1,15 @@
 import SkitKit
 import SwiftUI
 
-/// The Settings window (⌘,). A tab per view arrives with the view; M7 has
-/// what is global: appearance and the engine.
+/// The Settings window (⌘,): what is global, and a tab per view that has options.
 struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
+            TranscriptSettings().tabItem { Label("Transcript", systemImage: "text.bubble") }
             EngineSettings().tabItem { Label("Engine", systemImage: "shippingbox") }
         }
-        .frame(width: 520, height: 340)
+        .frame(width: 520, height: 420)
     }
 }
 
@@ -26,6 +26,35 @@ private struct GeneralSettings: View {
             }
             Section("Window") {
                 Toggle("Show the sidebar", isOn: $sidebar)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct TranscriptSettings: View {
+    @AppStorage(SettingsKey.compactTools) private var compact = true
+    @AppStorage(SettingsKey.showThinking) private var thinking = true
+    @AppStorage(SettingsKey.scrollMap) private var map = true
+    @AppStorage(SettingsKey.keyHint) private var hint = true
+    @AppStorage(SettingsKey.inspector) private var inspector = true
+    @AppStorage(SettingsKey.foldByDefault) private var fold = false
+
+    var body: some View {
+        Form {
+            Section("Tool calls") {
+                Toggle("Fold them when a session opens", isOn: $fold)
+                Text("Folded, a turn shows what was said and one line per run of tool calls. ← and → on a prompt fold and show a turn; ⌥⌘← and ⌥⌘→ do it for the whole session.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Toggle("Compact rows", isOn: $compact)
+                Text("One line per call: what it was for, what came back, how long it took. Off shows the result on a second line. A click opens the input and the full result either way.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Show") {
+                Toggle("Thinking", isOn: $thinking)
+                Toggle("The scroll map at the right edge", isOn: $map)
+                Toggle("The keyboard hint", isOn: $hint)
+                Toggle("The inspector when something is selected", isOn: $inspector)
             }
         }
         .formStyle(.grouped)

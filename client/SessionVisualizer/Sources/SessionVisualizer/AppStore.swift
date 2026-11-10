@@ -37,6 +37,11 @@ final class AppStore {
     private(set) var sessions: [SessionSummary] = []
     private(set) var annotations: [String: Annotation] = [:]
     private(set) var stats: [String: Loadable<SessionSummary>] = [:]
+    /// Sessions opened in this run, ready to draw. A few are kept; a document is megabytes.
+    private(set) var models: [String: Loadable<SessionModel>] = [:]
+    private var modelOrder: [String] = []
+    /// The full results of an action's tool calls, fetched when a row or the drawer shows them.
+    private(set) var actionDetails: [String: [Int: Loadable<ActionDetail>]] = [:]
     /// The last thing that went wrong after the engine was ready (a failed pin, a failed refresh).
     var notice: String?
 
@@ -112,7 +117,57 @@ final class AppStore {
         }
     }
 
+    /// Loads the session document and its relations and builds the model the
+    /// views draw from. Decoding and indexing happen off the main actor.
+    func loadModel(_ id: String) async {
+        if case .loaded = models[id] { return }
+        models[id] = .loading
+        let client = self.client
+        do {
+            let model = try await Task.detached(priority: .userInitiated) {
+                async let doc = client.document(session: id)
+                async let relations = client.relations(session: id)
+                return SessionModel(doc: try await doc, relations: try await relations)
+            }.value
+            models[id] = .loaded(model)
+            modelOrder.removeAll { $0 == id }
+            modelOrder.append(id)
+            while modelOrder.count > 3 {
+                let old = modelOrder.removeFirst()
+                models[old] = nil
+                actionDetails[old] = nil
+            }
+        } catch {
+            models[id] = .failed("\(error)")
+        }
+    }
+
+    func model(_ id: String) -> SessionModel? {
+        if case .loaded(let model) = models[id] { model } else { nil }
+    }
+
+    func loadAction(_ id: String, _ index: Int) async {
+        if actionDetails[id]?[index] != nil { return }
+        actionDetails[id, default: [:]][index] = .loading
+        do {
+            actionDetails[id, default: [:]][index] = .loaded(try await client.action(session: id, index))
+        } catch {
+            actionDetails[id, default: [:]][index] = .failed("\(error)")
+        }
+    }
+
+    /// Keyword search inside one session: the nodes that match, in reading order.
+    func find(_ query: String, in id: String) async -> [SearchHit] {
+        (try? await client.search(query, session: id, limit: 500)) ?? []
+    }
+
     // MARK: What the human adds
+
+    /// Sets or, with empty text, removes the note on a node (or on the session: key "session").
+    func setNote(_ id: String, key: String, _ text: String) async {
+        await annotate(id, AnnotationPatch(notes: [key: text.trimmingCharacters(in: .whitespacesAndNewlines)]))
+    }
+
 
     func togglePin(_ id: String) async {
         await annotate(id, AnnotationPatch(pinned: !annotation(id).pinned))

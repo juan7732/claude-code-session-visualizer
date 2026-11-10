@@ -16,6 +16,7 @@ import (
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/home"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/serve"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/service"
 )
 
 func newServe() *cobra.Command {
@@ -73,6 +74,8 @@ Try it:  curl --unix-socket ~/.sessionkit/skit.sock http://skit/v0/status`,
 			if err != nil {
 				return err
 			}
+			// The agent's log only ever grows; keep it under its cap.
+			go service.KeepLogCapped(ctx, a.Home, logger.Printf)
 			if !noWatch {
 				if dir, err := catalog.Dir(); err == nil {
 					go func() {

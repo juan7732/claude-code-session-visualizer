@@ -2,6 +2,7 @@ package archive
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
 	"os"
 	"path/filepath"
@@ -372,5 +373,56 @@ func TestUnfinishedLastLineIsArchived(t *testing.T) {
 	same("newline and another line", res)
 	if c, _ := a.Verify(nil); c[0].Status != "ok" || c[0].Records != 33 {
 		t.Fatalf("verify = %+v", c[0])
+	}
+}
+
+// TestMemoisedPerParsedSession: a cached session derives its relations and
+// encodes its document once; a session that changed is derived again.
+func TestMemoisedPerParsedSession(t *testing.T) {
+	a, claude, src, _ := setup(t, 31)
+	resolve := func() Resolved {
+		t.Helper()
+		rep, err := catalog.InspectDir(claude)
+		if err != nil {
+			t.Fatal(err)
+		}
+		r, err := a.Resolve(rep, fixtureID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return r
+	}
+
+	// Without a cache nothing is kept: every call derives afresh.
+	if one := resolve(); one.Relations() == one.Relations() {
+		t.Fatal("a one-shot Resolved has nowhere to keep its relations")
+	}
+
+	a.EnableCache(DefaultCacheBytes)
+	first, again := resolve(), resolve()
+	if first.Relations() != again.Relations() {
+		t.Fatal("two requests for the same parsed session must share one Relations")
+	}
+	doc1, err := first.DocumentJSON()
+	doc2, _ := again.DocumentJSON()
+	if err != nil || len(doc1) == 0 || &doc1[0] != &doc2[0] {
+		t.Fatalf("the document must be encoded once and shared: err=%v", err)
+	}
+	want, _ := json.Marshal(Document(first))
+	if !bytes.Equal(doc1, want) {
+		t.Fatal("the memoised document must be exactly Document(), encoded")
+	}
+
+	// The transcript grows: a new parse, new answers.
+	f, _ := os.OpenFile(src, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.WriteString(`{"type":"user","uuid":"u9","parentUuid":"a8","turnOrigin":"human","sessionId":"` + fixtureID + `","timestamp":"2026-11-08T10:02:00.000Z","message":{"role":"user","content":"later"}}` + "\n")
+	f.Close()
+	grown := resolve()
+	if grown.Relations() == first.Relations() {
+		t.Fatal("a session that changed must be derived again")
+	}
+	doc3, _ := grown.DocumentJSON()
+	if bytes.Equal(doc3, doc1) {
+		t.Fatal("the grown session's document must differ")
 	}
 }

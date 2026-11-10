@@ -6,6 +6,7 @@ import (
 	"os"
 	"sort"
 	"strings"
+	"sync"
 
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
@@ -115,6 +116,53 @@ type Resolved struct {
 	Project      string
 	ArchivedOnly bool   // loaded from the archive because the source is gone
 	Note         string // something the caller may want to surface
+
+	// memo holds what is worth computing once per parsed session. It is set
+	// for sessions that live in the cache; a one-shot Resolved computes directly.
+	memo *memo
+}
+
+// memo is the work a long-lived process does once per parsed session and then
+// serves from memory: the relations (a pass over every tool input and result)
+// and the encoded session document (megabytes of JSON). Measured on a 166 MB
+// transcript, 2026-11-10: /relations 490 ms → 1 ms, the document 190 ms → 6 ms.
+type memo struct {
+	relOnce sync.Once
+	rel     *transcript.Relations
+	docOnce sync.Once
+	doc     []byte
+	docErr  error
+}
+
+// Relations is the session's relations, derived once per parsed session.
+// Callers must not change what they get back.
+func (r Resolved) Relations() *transcript.Relations {
+	if r.memo == nil {
+		return r.Session.Relations()
+	}
+	r.memo.relOnce.Do(func() { r.memo.rel = r.Session.Relations() })
+	return r.memo.rel
+}
+
+// DocumentJSON is the session document (Document) as compact JSON, encoded
+// once per parsed session.
+func (r Resolved) DocumentJSON() ([]byte, error) {
+	if r.memo == nil {
+		return json.Marshal(Document(r))
+	}
+	r.memo.docOnce.Do(func() { r.memo.doc, r.memo.docErr = json.Marshal(Document(r)) })
+	return r.memo.doc, r.memo.docErr
+}
+
+// warm does the memoised work now, off the request path: called when an
+// ingest has just re-parsed a session a reader has open, so the reader's next
+// request finds the answers ready.
+func (r Resolved) warm() {
+	if r.memo == nil {
+		return
+	}
+	r.Relations()
+	_, _ = r.DocumentJSON()
 }
 
 // NotFoundError says no session matched a query.

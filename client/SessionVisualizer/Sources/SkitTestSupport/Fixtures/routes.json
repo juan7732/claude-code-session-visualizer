@@ -15,7 +15,7 @@
     "PATCH /v0/sessions/{id}/annotations",
     "GET /v0/annotations",
     "GET /v0/claude?root=",
-    "GET /v0/search?q=\u0026limit=\u0026project=\u0026session=\u0026kind=\u0026prefix=",
+    "GET /v0/search?q=\u0026mode=\u0026limit=\u0026project=\u0026session=\u0026kind=\u0026prefix=",
     "POST /v0/archive",
     "GET /v0/archive/verify?id="
   ],

@@ -110,6 +110,52 @@ func TestInstallWaitsForTheProcess(t *testing.T) {
 	}
 }
 
+// TestReinstallWaitsForTheOldAgentToGo: launchd answers bootout at once and
+// tears the agent down afterwards. A bootstrap sent in between fails with
+// "5: Input/output error" and leaves nothing running, which is what a second
+// `skit service install` did on a real Mac.
+func TestReinstallWaitsForTheOldAgentToGo(t *testing.T) {
+	l, calls := fake(t)
+	bin := filepath.Join(t.TempDir(), "skit")
+	os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755)
+	l.wait = func() {}
+	if _, err := l.install(Config{Binary: bin, SkitHome: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+
+	// From here launchd is slow: after a bootout the agent lingers for two
+	// status checks, and the first bootstrap after that is refused.
+	inner, lingering, refused := l.run, 0, 0
+	l.run = func(args ...string) ([]byte, error) {
+		switch args[0] {
+		case "bootout":
+			lingering = 2
+		case "print":
+			if lingering > 0 {
+				lingering--
+				return []byte("state = running\n\tpid = 4242\n"), nil
+			}
+		case "bootstrap":
+			if lingering > 0 {
+				t.Fatal("bootstrap was sent while the old agent was still being torn down")
+			}
+			if refused == 0 {
+				refused++
+				return []byte("Bootstrap failed: 5: Input/output error"), errors.New("exit status 5")
+			}
+		}
+		return inner(args...)
+	}
+	*calls = nil
+	st, err := l.install(Config{Binary: bin, SkitHome: t.TempDir()})
+	if err != nil || !st.Running {
+		t.Fatalf("a second install must leave the agent running: %+v err=%v\ncalls: %s", st, err, strings.Join(*calls, " | "))
+	}
+	if refused != 1 {
+		t.Fatalf("the refused bootstrap should have been retried once, was refused %d times", refused)
+	}
+}
+
 func TestInstallRefusesABadBinary(t *testing.T) {
 	l, calls := fake(t)
 	if _, err := l.install(Config{Binary: "skit", SkitHome: t.TempDir()}); err == nil {

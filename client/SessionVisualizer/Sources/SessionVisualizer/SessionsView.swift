@@ -181,6 +181,12 @@ private struct SessionRow: View {
         .background(hover ? palette.panel : .clear, in: RoundedRectangle(cornerRadius: Metric.radius, style: .continuous))
         .contentShape(Rectangle())
         .onHover { hover = $0 }
+        // Resting on a row is a good sign it is about to be opened: have the session ready.
+        .task(id: hover) {
+            guard hover else { return }
+            try? await Task.sleep(for: .milliseconds(250))
+            if !Task.isCancelled { await store.loadModel(session.id) }
+        }
         .onTapGesture { window.page = .session(session.id) }
         .contextMenu {
             Button("Open") { window.page = .session(session.id) }

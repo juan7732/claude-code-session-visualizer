@@ -13,7 +13,7 @@ let package = Package(
         // the models. No UI, so it is tested without a window.
         .target(name: "SkitKit"),
         // A Unix-socket server that plays `skit serve` in tests.
-        .target(name: "SkitTestSupport"),
+        .target(name: "SkitTestSupport", resources: [.copy("Fixtures")]),
         .executableTarget(
             name: "SessionVisualizer",
             dependencies: ["SkitKit"],
@@ -21,8 +21,7 @@ let package = Package(
         ),
         .testTarget(
             name: "SkitKitTests",
-            dependencies: ["SkitKit", "SkitTestSupport"],
-            resources: [.copy("Fixtures")]
+            dependencies: ["SkitKit", "SkitTestSupport"]
         ),
         // The app's state without its windows: what a click does to the store.
         .testTarget(
