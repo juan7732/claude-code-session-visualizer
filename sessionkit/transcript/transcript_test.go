@@ -486,6 +486,32 @@ func TestRelationsHeuristics(t *testing.T) {
 	}
 }
 
+// TestRelationsCommits: a commit is what git printed, not what was asked for.
+func TestRelationsCommits(t *testing.T) {
+	const in = `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T10:00:00Z","message":{"role":"user","content":"commit it"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T10:00:01Z","message":{"model":"m","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git add -A && git commit -m 'First' && git commit --allow-empty -m 'Second'"}}],"usage":{"output_tokens":5}}}
+{"type":"user","uuid":"res1","parentUuid":"a1","timestamp":"2026-11-08T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"[main (root-commit) 2b4b1ec] First\n 2 files changed, 3 insertions(+)\n[main 93c045c1] Second: with [brackets] in it\n"}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"res1","requestId":"r2","timestamp":"2026-11-08T10:00:03Z","message":{"model":"m","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git commit -m 'Nothing'"}}],"usage":{"output_tokens":5}}}
+{"type":"user","uuid":"res2","parentUuid":"a2","timestamp":"2026-11-08T10:00:04Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"On branch main\nnothing to commit, working tree clean"}]}}
+{"type":"assistant","uuid":"a3","parentUuid":"res2","requestId":"r3","timestamp":"2026-11-08T10:00:05Z","message":{"model":"m","content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"echo '[main abc1234] not a commit'"}}],"usage":{"output_tokens":5}}}
+{"type":"user","uuid":"res3","parentUuid":"a3","timestamp":"2026-11-08T10:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","content":"[main abc1234] not a commit"}]}}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := s.Relations().Commits
+	if len(got) != 2 {
+		t.Fatalf("commits = %+v, want the two git printed", got)
+	}
+	if got[0].SHA != "2b4b1ec" || got[0].Branch != "main" || got[0].Subject != "First" || got[0].Call.ToolID != "t1" {
+		t.Fatalf("first commit = %+v", got[0])
+	}
+	if got[1].SHA != "93c045c1" || got[1].Subject != "Second: with [brackets] in it" {
+		t.Fatalf("second commit = %+v", got[1])
+	}
+}
+
 // TestRewoundBranch: the human rewinds past the second prompt and asks
 // something else. The abandoned prompt and its reply stay on the timeline and
 // in the totals, flagged; the parallel tool result that is off the chain

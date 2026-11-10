@@ -5,8 +5,9 @@ does my history vanish after a month" finds the turn about `cleanupPeriodDays` a
 word with the question. This is M14 in `plan-v0.md`; the decision to use a `llama-server` sidecar is
 `decisions/0005-embedding-worker.md`, and the measurements behind it are in `embedding-spike.md`.
 
-State on 2026-11-10: the engine can embed the archive and rank by meaning in a plain form, and it can measure itself.
-The scorer that fuses meaning with words and can say "nothing found" is not built: it waits for the eval queries.
+State on 2026-11-10: the engine can embed the archive and rank by meaning in a plain form, and it can measure itself on
+an eval of 33 queries. The scorer that fuses meaning with words and can say "nothing found" is not built; the eval it is
+tuned on now exists, and one change (a stopword list for keyword search) has been judged on it.
 
 ## What happens
 
@@ -123,12 +124,41 @@ questions the archive answers, cosine 0.67 to 0.68 and z 3.3 to 3.6 for "a recip
 eviction policy". DigUp's gate of z ≥ 2 would let all of them through, as the spike predicted. That is five queries and
 an impression, not an eval.
 
+## The eval so far
+
+Since 2026-11-10 there is an eval: 33 queries about Juan's sessions, 26 with a known turn and 7 that should find
+nothing. Thirteen are Juan's own; twenty were proposed in other styles (a few keywords, another person's sentence, a
+bare id) and approved by him. The file is kept outside this repository because it quotes real sessions. The session in
+which it was written is excluded: before that, it was the first keyword hit for 12 of 12 queries.
+
+| Mode                            | R@1  | R@5  | R@10 | MRR  | "Nothing" queries answered |
+| ------------------------------- | ---- | ---- | ---- | ---- | -------------------------- |
+| keyword, as first built         | 0.42 | 0.65 | 0.81 | 0.51 | 6 of 7                     |
+| keyword, with the stopword list | 0.58 | 0.69 | 0.81 | 0.64 | 5 of 7                     |
+| meaning (plain cosine)          | 0.65 | 0.77 | 0.81 | 0.71 | 7 of 7                     |
+
+**The stopword list** (first scoring change judged on the eval). A question typed in full used to match every "how" and
+"out" in a tool result. With the common English function words ignored, six queries moved up (four of them to first
+place) and one fell out of the first ten: "What did we decide was the issue for schoolwork and not turning it in
+early?", whose answer shares only one or two of its remaining words and no longer passes the half-of-the-words rule.
+Meaning search has that one in second place.
+
+What the eval shows that the scorer has to deal with:
+
+- Neither mode can say "nothing found". That is the gate.
+- Each mode finds turns the other misses, which is the case for fusing them.
+- A bare version number ("0.5.1") finds nothing by keyword: the dots split it into single characters, which are dropped.
+- Two answers are only in tool output, which has no vectors: the one-line description of a tool in its `--help`, and a
+  definition in a file a session read.
+- The user's name for a thing is often not the transcript's ("my jev assignment" is "the SLT" in the turn that holds the
+  grade).
+
 ## What is not built
 
 - **The scorer.** Fusing meaning with keyword scores, the gate (z, an absolute cosine floor, or both) and a `hybrid`
   mode. It is tuned on the eval, and each change carries its delta.
-- **The eval queries**, in Juan's words, about his sessions. They are being collected outside this repository for now,
-  because they quote real sessions.
+- **Vectors for tool calls.** Tool calls and results have none. First step: embed tool output that reads as prose. Then,
+  issue #4: a small local model writes what a call did, and that summary is embedded with the call.
 - **Embedding without being asked.** Today `skit embed` is run by hand after `skit archive`. The watcher and the
   background agent do not embed. Deferred to issue #3: the agent embeds on its own, periodically.
 - **Vectors held in memory by `skit serve`.** Each meaning query reads and decodes every vector from SQLite, which is

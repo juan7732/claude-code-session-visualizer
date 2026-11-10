@@ -27,6 +27,7 @@ type Relations struct {
 	Retries   []Retry       `json:"retries"`
 	Files     []FileTouched `json:"files"`
 	Outside   []Outside     `json:"outside"`
+	Commits   []Commit      `json:"commits"`
 	Events    []Event       `json:"events"`
 }
 
@@ -104,6 +105,15 @@ type Outside struct {
 	Calls []CallRef `json:"calls"`
 }
 
+// Commit is a git commit the session made: a `git commit` whose output named
+// the new commit. Call is the Bash call that ran it.
+type Commit struct {
+	SHA     string  `json:"sha"` // abbreviated, as git printed it
+	Branch  string  `json:"branch,omitempty"`
+	Subject string  `json:"subject"`
+	Call    CallRef `json:"call"`
+}
+
 // Event is something that happened to the session rather than in it: an API
 // error Claude Code retried, or a message it wrote itself.
 type Event struct {
@@ -121,6 +131,10 @@ var (
 	// are acceptable for "which files did this session work on".
 	pathInCommand = regexp.MustCompile(`(?:~/|\.{0,2}/)?(?:[\w.@-]+/)+[\w.@-]+\.(?:md|py|go|js|mjs|css|html|json|jsonl|toml|swift|sh|txt|yaml|yml|png|sql|ts|tsx|rs|c|h|plist|mod|sum|cfg)\b`)
 	noisePath     = regexp.MustCompile(`/tmp/|/\.claude/|node_modules|/scratchpad/`)
+	// DECISION: a commit is read from what git printed ("[main 2b4b1ec] Subject"),
+	// not from the command: the output is proof the commit exists and carries its
+	// id, where a command can fail, be a dry run, or commit nothing.
+	commitLine = regexp.MustCompile(`(?m)^\[(.+?)(?: \(root-commit\))? ([0-9a-f]{7,40})\] (.*)$`)
 )
 
 type toolInput struct {
@@ -155,7 +169,7 @@ func firstLine(s string, max int) string {
 // Relations derives the session's relations. Subagents must be loaded (Load or
 // the archive) for hand-backs to appear.
 func (s *Session) Relations() *Relations {
-	rel := &Relations{Spans: []ActionSpan{}, Tasks: []Task{}, Handbacks: []Handback{}, Retries: []Retry{}, Files: []FileTouched{}, Outside: []Outside{}, Events: []Event{}}
+	rel := &Relations{Spans: []ActionSpan{}, Tasks: []Task{}, Handbacks: []Handback{}, Retries: []Retry{}, Files: []FileTouched{}, Outside: []Outside{}, Commits: []Commit{}, Events: []Event{}}
 
 	// spans
 	for _, t := range s.Turns {
@@ -332,6 +346,11 @@ func (s *Session) Relations() *Relations {
 					mode = "write"
 				}
 				touch(c, p, mode)
+			}
+			if strings.Contains(in.Command, "git") && strings.Contains(in.Command, "commit") {
+				for _, m := range commitLine.FindAllStringSubmatch(c.ResultText(), -1) {
+					rel.Commits = append(rel.Commits, Commit{SHA: m[2], Branch: m[1], Subject: strings.TrimSpace(m[3]), Call: c.ref()})
+				}
 			}
 		case c.Name == "WebFetch" && in.URL != "":
 			host := in.URL

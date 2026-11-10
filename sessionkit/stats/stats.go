@@ -25,6 +25,9 @@ type Summary struct {
 	FirstAt   time.Time `json:"first_at"`
 	LastAt    time.Time `json:"last_at"`
 	Duration  string    `json:"duration"`
+	// InTurns is the part of Duration the agent spent working: the turns' own
+	// spans added up. The rest was the session waiting for its human.
+	InTurns string `json:"in_turns,omitempty"`
 	Partial   bool      `json:"partial,omitempty"`
 
 	Prompts     int `json:"prompts"`
@@ -113,6 +116,11 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		Subagents: t.Subagents, Branches: s.Branches, Usage: t.Usage, PRLinks: s.PRLinks,
 		Synthetic: t.Synthetic, Injected: t.InjectedBlocks, Attachments: t.Attachments,
 	}
+	var inTurns time.Duration
+	for _, turn := range s.Turns {
+		inTurns += turn.Duration()
+	}
+	sum.InTurns = FormatDuration(inTurns)
 	sum.RewoundTurns, sum.RewoundActions = t.RewoundTurns, t.RewoundActions
 	if t.RewoundActions > 0 {
 		u := t.RewoundUsage

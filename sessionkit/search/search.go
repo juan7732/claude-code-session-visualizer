@@ -58,12 +58,32 @@ type Options struct {
 	PrefixLast bool   // the last word is still being typed
 }
 
-var stopwords = map[string]bool{
-	"a": true, "an": true, "the": true, "of": true, "in": true, "on": true, "at": true, "to": true, "for": true, "with": true,
-	"and": true, "or": true, "my": true, "me": true, "that": true, "this": true, "these": true, "those": true, "from": true,
-	"about": true, "where": true, "what": true, "which": true, "who": true, "when": true, "is": true, "was": true, "are": true,
-	"were": true, "be": true, "it": true, "its": true, "some": true, "any": true, "find": true, "show": true, "did": true,
-	"we": true, "i": true, "you": true, "do": true, "session": true, "sessions": true,
+// stopwords are words a query can hold without being about them. Search takes
+// a question as it is typed ("how did we figure out ..."), and without this
+// list every "how" and "out" in a tool result counts as a match.
+//
+// DECISION: the list is the common English function words (the NLTK set:
+// articles, pronouns, prepositions, auxiliaries, question words), plus four
+// words that in this tool mean "search" and not a subject: find, show,
+// session, sessions. It was not picked by looking at the eval's queries.
+// Measured on the 33-query eval of 2026-11-10, keyword mode: R@1 0.42 → 0.58,
+// MRR 0.51 → 0.64, R@10 unchanged at 0.81 (docs/meaning-search.md).
+var stopwords = wordSet(`
+	a an the and but if or because as until while of at by for with about against between into through during
+	before after above below to from up down in out on off over under again further then once here there when where
+	why how all any both each few more most other some such no nor not only own same so than too very
+	i me my myself we our ours ourselves you your yours yourself yourselves he him his himself she her hers
+	herself it its itself they them their theirs themselves what which who whom this that these those
+	am is are was were be been being have has had having do does did doing can will just don should now
+	ve ll re
+	find show session sessions`)
+
+func wordSet(words string) map[string]bool {
+	set := map[string]bool{}
+	for _, w := range strings.Fields(words) {
+		set[w] = true
+	}
+	return set
 }
 
 // Terms are the content words of a query: lowercased, split on anything that
