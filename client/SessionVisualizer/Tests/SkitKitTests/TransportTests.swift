@@ -42,7 +42,7 @@ import Testing
         let client = SkitClient(socketPath: server.path)
 
         let rows = try await client.sessions(project: "my work", limit: 5)
-        #expect(rows.count == 2)
+        #expect(rows.count == 3)
 
         let patched = try await client.annotate(session: "abc", AnnotationPatch(pinned: true))
         #expect(patched.pinned)

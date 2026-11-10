@@ -116,6 +116,58 @@ func TestStats_HumanAndJSON(t *testing.T) {
 	}
 }
 
+// TestExport_MarkdownOfASessionAndATurn: the conversation leaves the tool as
+// Markdown, to stdout, to a file, or inside a JSON object.
+func TestExport_MarkdownOfASessionAndATurn(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+
+	res := h.Run("export", id[:8])
+	res.AssertOK(t)
+	for _, want := range []string{"# Synthetic basics\n", "Session `" + id + "`", "## Turn 0 · ", "**You**", "**Claude**", "- `Edit` /xxx/y.go", "> Context compacted (auto): 6.4k → 900 tokens", "## Turn 1 · "} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("export lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+	if strings.Contains(res.Stdout, "Thinking") {
+		t.Errorf("thinking is left out unless asked for:\n%s", res.Stdout)
+	}
+
+	out := filepath.Join(t.TempDir(), "turn.md")
+	res = h.Run("export", id, "--turn", "1", "--thinking", "--out", out)
+	res.AssertOK(t)
+	written, err := os.ReadFile(out)
+	if err != nil || !strings.HasPrefix(string(written), "## Turn 1 · ") || strings.Contains(string(written), "Turn 0") || res.Stdout != "" {
+		t.Fatalf("--turn 1 --out writes that turn to the file and nothing to stdout: %v\n%s\nstdout %q", err, written, res.Stdout)
+	}
+
+	res = h.Run("export", id, "--turn", "0", "--json")
+	res.AssertOK(t)
+	var doc struct {
+		Session, Format, Text string
+		Turn                  *int
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &doc); err != nil || doc.Session != id || doc.Format != "markdown" || doc.Turn == nil || *doc.Turn != 0 || !strings.HasPrefix(doc.Text, "## Turn 0") {
+		t.Fatalf("--json wraps the text: %v %+v", err, doc)
+	}
+
+	res = h.Run("export", id, "--turn", "9", "--json")
+	if res.ExitCode == 0 || !strings.Contains(res.Stderr, `"error"`) {
+		t.Fatalf("a turn that is not there is a JSON error, got exit %d stderr %q", res.ExitCode, res.Stderr)
+	}
+
+	// One step of a subagent, in full.
+	res = h.Run("show", id, "--agent", "a1b2c3d4e5f607182", "--action", "0")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "── action 0") || !strings.Contains(res.Stdout, "tool_use Bash") {
+		t.Fatalf("show --agent --action prints the subagent's step:\n%s", res.Stdout)
+	}
+	if res = h.Run("show", id, "--agent", "nobody", "--action", "0"); res.ExitCode == 0 {
+		t.Fatalf("an unknown subagent is an error:\n%s", res.Stdout)
+	}
+}
+
 func TestShow_UnknownSessionIsJSONError(t *testing.T) {
 	t.Parallel()
 	h := harness.New(t)

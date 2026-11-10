@@ -18,6 +18,7 @@ import (
 func newEval() *cobra.Command {
 	var modes []string
 	var misses bool
+	var knobs search.Options
 	cmd := &cobra.Command{
 		Use:   "eval <queries.json>",
 		Short: "Measure search against queries whose answers are known",
@@ -47,8 +48,12 @@ the queries were written there: they quote every query word for word. A query
 may carry a "note" for whoever maintains the file; it is not scored.
 
 Every target must be an archived session, or eval stops before running.
---misses lists the queries whose answer did not come first.`,
-		Example: "  skit eval queries.json\n  skit eval queries.json --mode keyword --misses\n  skit eval queries.json --json | jq '.modes[] | {mode, overall}'",
+--misses lists the queries whose answer did not come first.
+
+The remaining flags are search's own (--no-tools, --kind, --all, --min-cosine,
+--min-z), applied to every query, so two settings can be compared by running
+the same file twice.`,
+		Example: "  skit eval queries.json\n  skit eval queries.json --mode keyword --misses\n  skit eval queries.json --mode meaning --min-cosine 0.75 --min-z 99\n  skit eval queries.json --json | jq '.modes[] | {mode, overall}'",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			for _, m := range modes {
@@ -74,6 +79,8 @@ Every target must be an archived session, or eval stops before running.
 			ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 			defer stop()
 			rep, err := ev.Run(ctx, modes, func(ctx context.Context, q string, opt search.Options) ([]search.Hit, error) {
+				opt.NoTools, opt.Kinds = knobs.NoTools, knobs.Kinds
+				opt.NoGate, opt.MinCosine, opt.MinZ = knobs.NoGate, knobs.MinCosine, knobs.MinZ
 				hits, err := search.Search(ctx, a.Store, e, q, opt)
 				return hits, meaningAdvice(err)
 			})
@@ -131,5 +138,10 @@ Every target must be an archived session, or eval stops before running.
 	}
 	cmd.Flags().StringSliceVar(&modes, "mode", search.Modes, "modes to measure, comma-separated: keyword, meaning")
 	cmd.Flags().BoolVar(&misses, "misses", false, "list the queries whose expected turn did not come first, with what did")
+	cmd.Flags().StringSliceVar(&knobs.Kinds, "kind", nil, "search only these kinds, comma-separated: "+strings.Join(search.Kinds, ", "))
+	cmd.Flags().BoolVar(&knobs.NoTools, "no-tools", false, "search without tool calls and their results")
+	cmd.Flags().BoolVar(&knobs.NoGate, "all", false, "meaning mode without its gate")
+	cmd.Flags().Float64Var(&knobs.MinCosine, "min-cosine", 0, fmt.Sprintf("meaning mode: a passage matches at this cosine (default %.2f)", search.DefaultMinCosine))
+	cmd.Flags().Float64Var(&knobs.MinZ, "min-z", 0, fmt.Sprintf("meaning mode: or at this z (default %.1f)", search.DefaultMinZ))
 	return cmd
 }

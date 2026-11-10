@@ -28,7 +28,7 @@ type Summary struct {
 	// InTurns is the part of Duration the agent spent working: the turns' own
 	// spans added up. The rest was the session waiting for its human.
 	InTurns string `json:"in_turns,omitempty"`
-	Partial   bool      `json:"partial,omitempty"`
+	Partial bool   `json:"partial,omitempty"`
 
 	Prompts     int `json:"prompts"`
 	Turns       int `json:"turns"`        // agent turns answering a prompt

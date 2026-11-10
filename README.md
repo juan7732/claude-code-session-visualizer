@@ -15,6 +15,7 @@ skit list [-p slug] [-n N]     sessions, most recent first, with prompts, reques
 skit show <id> [--turn N]      one session as a timeline grouped by turn; --turn N prints an agent turn with all its
                                actions and tool results, --action N one action, --thinking adds thinking text;
                                --context adds injected prompt blocks and every attachment Claude Code added
+skit export <id> [--turn N]    the session, or one turn, as Markdown: what was asked, what was said, one line per tool call
 skit stats <id> [--context]    tokens once per request (subagents rolled in), models, tools, compactions, context curve
 skit context <id> [--action N] what the model received for an action: system prompt, tool definitions, messages (CLAUDE.md
                                labelled), injected attachments, each with size, next to the reported token counts; --show prints one;
@@ -22,7 +23,8 @@ skit context <id> [--action N] what the model received for an action: system pro
 skit archive [id...]           copy sessions losslessly into ~/.sessionkit/archive (raw JSONL, zstd) and index them for search;
                                --verify checks every copy against the index and changes nothing
 skit search <words> [--kind K] find turns across archived sessions; a query of ids or codes weighs exact words more;
-                               --mode meaning ranks by what the text says, shared words or not (after `skit embed`)
+                               --mode meaning ranks by what the text says, shared words or not (after `skit embed`), and
+                               says so when nothing is close; --session, --project, --kind, --no-tools narrow either mode
 skit embed                     give archived prose vectors for meaning search, with EmbeddingGemma 2 in a local
                                llama-server; the first run downloads the model once (310 MB, checksum verified)
 skit eval <queries.json>       measure search against queries whose answers are known: R@1, R@5, R@10, MRR per mode
@@ -71,13 +73,19 @@ just check              # everything CI runs
 just client-run         # build and launch
 just client-test        # contract, transport and state tests
 just client-contract    # the same, against /v0 recorded from this checkout's engine
+just client-app         # SessionVisualizer.app with this checkout's skit inside, signed (ad hoc unless SIGN_IDENTITY is set)
+just client-app-install # build it and put it in /Applications
 ```
+
+The app in /Applications opens `skit-visualizer://session/<id>?view=transcript&action=60` links (Edit › Copy Link) and,
+on a Mac where nothing is serving yet, installs the background agent for the `skit` inside it
+(`docs/decisions/0011-the-app-bundle-and-its-links.md`).
 
 ## Layout
 
 `cmd/skit` (entry), `internal/cli` (Cobra commands), `sessionkit/` (the engine: catalog, transcript, stats, store,
-archive, search), `test/integration` (hermetic suite), `docs/` (source of truth, start with `docs/tenets.md`). Swift
-client and embedding worker arrive in later milestones.
+archive, search, export, embed, serve, service), `client/SessionVisualizer` (the Swift app), `test/integration`
+(hermetic suite), `docs/` (source of truth, start with `docs/tenets.md`).
 
 ## License
 

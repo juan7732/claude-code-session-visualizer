@@ -6,6 +6,7 @@ struct SettingsView: View {
     var body: some View {
         TabView {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
+            SummarySettings().tabItem { Label("Summary", systemImage: "rectangle.grid.2x2") }
             TranscriptSettings().tabItem { Label("Transcript", systemImage: "text.bubble") }
             EngineSettings().tabItem { Label("Engine", systemImage: "shippingbox") }
         }
@@ -26,6 +27,34 @@ private struct GeneralSettings: View {
             }
             Section("Window") {
                 Toggle("Show the sidebar", isOn: $sidebar)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct SummarySettings: View {
+    @AppStorage(SettingsKey.contextWindow) private var window = 1_000_000
+    @AppStorage(SettingsKey.summaryDigest) private var digest = true
+    @AppStorage(SettingsKey.summaryHours) private var hours = true
+
+    var body: some View {
+        Form {
+            Section("Context") {
+                Picker("Context window", selection: $window) {
+                    Text("1M tokens").tag(1_000_000)
+                    Text("200k tokens").tag(200_000)
+                }
+                Text("What the Context card's gauge measures the peak against. A transcript does not record the window its model ran with, so this is yours to say.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Under the cards") {
+                Toggle("What happened, when", isOn: $digest)
+                Text("One row per turn: what you asked, what the agent said when it stopped, the files it wrote.")
+                    .font(.footnote).foregroundStyle(.secondary)
+                Toggle("When this session was alive", isOn: $hours)
+                Text("The minutes the agent was working, by day and hour.")
+                    .font(.footnote).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

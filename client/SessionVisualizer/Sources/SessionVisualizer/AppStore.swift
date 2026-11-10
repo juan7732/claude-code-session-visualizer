@@ -42,6 +42,10 @@ final class AppStore {
     private var modelOrder: [String] = []
     /// The full results of an action's tool calls, fetched when a row or the drawer shows them.
     private(set) var actionDetails: [String: [Int: Loadable<ActionDetail>]] = [:]
+    /// The same for a subagent's steps, by `stepKey`.
+    private(set) var stepDetails: [String: [String: Loadable<ActionDetail>]] = [:]
+    /// What each compaction did, fetched when the drawer shows one.
+    private(set) var compactionDetails: [String: [Int: Loadable<CompactionDetail>]] = [:]
     /// The last thing that went wrong after the engine was ready (a failed pin, a failed refresh).
     var notice: String?
 
@@ -74,6 +78,29 @@ final class AppStore {
         case .incompatible(let version, let missing): engine = .incompatible(version: version, missing: missing)
         case .failed(let why): engine = .failed(why)
         }
+    }
+
+    /// Reinstalls the background agent for the `skit` this app would start (its
+    /// own helper when it has one) and connects again: what brings an agent
+    /// left over from an older build up to date.
+    func restartAgent() async {
+        guard let binary = locator.findBinary() else {
+            engine = .missing(lookedIn: locator.binaryCandidates)
+            return
+        }
+        engine = .starting(binary: binary)
+        do {
+            _ = try await Task.detached { try SkitCommand(binary: binary).installService() }.value
+        } catch {
+            engine = .failed("skit service install: \(error)")
+            return
+        }
+        // The old process is on its way out; give the new one a moment to listen.
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(300))
+            if let list = try? await client.routes(), SkitClient.missingRoutes(in: list.routes).isEmpty { break }
+        }
+        await connect()
     }
 
     private func load() async throws {
@@ -136,6 +163,8 @@ final class AppStore {
                 let old = modelOrder.removeFirst()
                 models[old] = nil
                 actionDetails[old] = nil
+                stepDetails[old] = nil
+                compactionDetails[old] = nil
             }
         } catch {
             models[id] = .failed("\(error)")
@@ -156,9 +185,54 @@ final class AppStore {
         }
     }
 
+    static func stepKey(agent: String, index: Int) -> String { "\(agent)/\(index)" }
+
+    /// The full results of one step of a subagent.
+    func loadStep(_ id: String, agent: String, index: Int) async {
+        let key = Self.stepKey(agent: agent, index: index)
+        if stepDetails[id]?[key] != nil { return }
+        stepDetails[id, default: [:]][key] = .loading
+        do {
+            stepDetails[id, default: [:]][key] = .loaded(try await client.action(session: id, index, agent: agent))
+        } catch {
+            stepDetails[id, default: [:]][key] = .failed("\(error)")
+        }
+    }
+
+    func loadCompaction(_ id: String, _ index: Int) async {
+        if compactionDetails[id]?[index] != nil { return }
+        compactionDetails[id, default: [:]][index] = .loading
+        do {
+            compactionDetails[id, default: [:]][index] = .loaded(try await client.compaction(session: id, index))
+        } catch {
+            compactionDetails[id, default: [:]][index] = .failed("\(error)")
+        }
+    }
+
     /// Keyword search inside one session: the nodes that match, in reading order.
-    func find(_ query: String, in id: String) async -> [SearchHit] {
-        (try? await client.search(query, session: id, limit: 500)) ?? []
+    func find(_ query: String, in id: String, kind: String? = nil) async -> [SearchHit] {
+        (try? await client.search(query, session: id, kind: kind, limit: 500)) ?? []
+    }
+
+    /// Search across every archived session. A failure is its reason, in words.
+    func search(_ query: String, kind: String? = nil, mode: String? = nil) async -> Result<[SearchHit], SkitError> {
+        do {
+            return .success(try await client.search(query, kind: kind, mode: mode, limit: 400))
+        } catch let error as SkitError {
+            return .failure(error)
+        } catch {
+            return .failure(.unreachable("\(error)"))
+        }
+    }
+
+    /// The session, or one turn of it, as Markdown; nil (and a notice) when the engine cannot write it.
+    func markdown(_ id: String, turn: Int? = nil) async -> String? {
+        do {
+            return try await client.markdown(session: id, turn: turn)
+        } catch {
+            notice = "\(error)"
+            return nil
+        }
     }
 
     // MARK: What the human adds

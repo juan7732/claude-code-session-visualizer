@@ -157,6 +157,16 @@ client-contract:
     SKIT_FIXTURES="$dir" just client-test
     rm -rf "$dir"
 
+# Build SessionVisualizer.app (the client with this checkout's skit inside), signed; SIGN_IDENTITY picks the identity
+client-app:
+    {{client}}/build.sh
+
+# Build the app and put it in /Applications, replacing the one there
+client-app-install: client-app
+    rm -rf /Applications/SessionVisualizer.app
+    cp -R {{client}}/.build/app/SessionVisualizer.app /Applications/SessionVisualizer.app
+    @echo "installed /Applications/SessionVisualizer.app"
+
 # Render one state of the app to a PNG, e.g. just client-snapshot out.png --page sessions --appearance dark
 client-snapshot out *args: client-build
     {{client}}/.build/debug/SessionVisualizer --snapshot {{out}} {{args}}

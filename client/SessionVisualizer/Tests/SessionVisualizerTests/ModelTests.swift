@@ -183,6 +183,9 @@ import Testing
         #expect(SessionModel.duration(0.635) == "635ms")
         #expect(SessionModel.duration(38) == "38.0s")
         #expect(SessionModel.duration(125) == "2m 5s")
+        // Rounded once: never "6m 60s".
+        #expect(SessionModel.duration(419.6) == "7m 0s" && SessionModel.duration(59.97) == "1m 0s")
+        #expect(SessionModel.duration(3 * 3600 + 45 * 60) == "3h 45m" && SessionModel.duration(400 * 3600 + 35 * 60) == "16d 16h")
         #expect(SessionModel.duration(6660) == "1h 51m")
         #expect(SessionModel.originLabel("task_notification") == "Task notification")
         #expect(SessionModel.originLabel("something_new") == "Something new")

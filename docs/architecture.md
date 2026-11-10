@@ -34,6 +34,8 @@ sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no
                   (start on a loopback port with a random key, health, stop, reap one whose owner died), the client
                   for /v1/embeddings, prompt framing, the chunker, float16 vectors
                   (decisions/0005-embedding-worker.md). embed/embedtest stands in for llama-server in tests.
+  export          a session, or one turn, as Markdown for a reader without skit: prompts, what was said, one line per
+                  tool call, compactions marked
   service         the launchd agent that runs `skit serve` from login on: install, uninstall, status
                   (decisions/0009-background-agent.md)
   serve           HTTP on a Unix socket ($SKIT_HOME/skit.sock), routes under /v0/, same JSON as --json; the same engine
@@ -43,7 +45,8 @@ sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no
                   every session at start and hourly for what changed while nothing was running.
 client/SessionVisualizer   (M7 onwards) the native macOS app, a Swift package: SkitKit (HTTP/1.0 over the Unix socket,
                            typed /v0 client, models) and the SwiftUI app. Talks only to `skit serve`
-                           (decisions/0010-client-transport.md; its README has the rest)
+                           (decisions/0010-client-transport.md). build.sh makes the signed bundle with skit in
+                           Contents/Helpers (decisions/0011-the-app-bundle-and-its-links.md; its README has the rest)
 ```
 
 ## Boundaries

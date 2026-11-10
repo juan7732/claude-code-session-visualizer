@@ -17,9 +17,12 @@ struct SessionVisualizerApp: App {
 
     var body: some Scene {
         WindowGroup {
+            // A skit-visualizer:// link goes to a window that is already open, not to a new one.
             Themed { RootView() }.environment(store)
+                .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
         .defaultSize(width: 1280, height: 860)
+        .handlesExternalEvents(matching: ["*"])
         .commands { AppCommands(store: store) }
 
         // Open in New Window: a second window on one session.

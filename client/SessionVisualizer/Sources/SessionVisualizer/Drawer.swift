@@ -23,7 +23,7 @@ struct Drawer: View {
                 Group {
                     switch tab {
                     case .details: DrawerDetails(model: model, key: key)
-                    case .io: DrawerIO(model: model, calls: calls)
+                    case .io: DrawerIO(model: model, calls: calls, step: step)
                     case .note: DrawerNote(sessionID: model.doc.id, key: key).id(key)
                     }
                 }
@@ -42,8 +42,14 @@ struct Drawer: View {
         case .tool(let id): model.toolsByID[id].map { [$0] } ?? []
         case .action(let n): model.action(n).map { model.tools(of: $0) } ?? []
         case .work(let first): model.calls(inRun: first)
+        case .step(let agent, let index): model.tools(ofStep: index, agent: agent)
         default: []
         }
+    }
+
+    /// The subagent step whose calls those are, when the selection is one.
+    private var step: (agent: String, index: Int)? {
+        if case .step(let agent, let index) = key { (agent, index) } else { nil }
     }
 
     private var availableTabs: [InspectorTab] {
@@ -75,6 +81,13 @@ struct Drawer: View {
             Badge(text: key.kindLabel, color: palette.accent)
             crumbs
             Spacer(minLength: 8)
+            if window.sessionView != .transcript, model.itemID(for: key) != nil {
+                Button("Show in Transcript") {
+                    window.sessionView = .transcript
+                    window.select(key, in: model)
+                }
+                .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(palette.accent)
+            }
             actionDots
             Button { step(siblings, position, -1) } label: { Image(systemName: "chevron.left") }
                 .disabled(position.map { $0 <= 0 } ?? true).help("Previous")
@@ -119,6 +132,11 @@ struct Drawer: View {
             guard let call = model.subagent(id)?.toolUseId.flatMap({ model.toolsByID[$0] }) else { return [("Subagent", key)] }
             return [("Turn \(call.turn)", .turn(call.turn)), ("Action \(call.action)", .action(call.action)), ("Subagent", key)]
         case .compaction(let n): return [("Compaction \(n + 1)", key)]
+        case .step(let agent, let index):
+            guard let call = model.subagent(agent)?.toolUseId.flatMap({ model.toolsByID[$0] }) else { return [("Subagent", .subagent(agent)), ("Step \(index)", key)] }
+            return [("Turn \(call.turn)", .turn(call.turn)), ("Action \(call.action)", .action(call.action)), ("Subagent", .subagent(agent)), ("Step \(index)", key)]
+        case .file(let path): return [((path as NSString).lastPathComponent, key)]
+        case .outside(let id): return [(model.outsideByID[id]?.name ?? id, key)]
         case .work(let first):
             guard let turn = model.action(first)?.turn else { return [] }
             let count = model.calls(inRun: first).count
@@ -163,6 +181,9 @@ private struct DrawerDetails: View {
             case .subagent(let id): subagent(id)
             case .compaction(let n): compaction(n)
             case .work(let first): work(first)
+            case .step(let agent, let index): step(agent, index)
+            case .file(let path): file(path)
+            case .outside(let id): outside(id)
             }
         }
         .font(.system(size: 12.5))
@@ -337,7 +358,9 @@ private struct DrawerDetails: View {
             Section_("Steps") {
                 ForEach(model.steps(of: sub), id: \.index) { step in
                     LinkRow(symbol: step.family?.symbol ?? "text.bubble", color: step.family.map(palette.color) ?? palette.warn,
-                            name: "\(step.index)", label: step.title, trailing: SessionModel.duration(step.seconds), action: nil)
+                            name: "\(step.index)", label: step.title, trailing: SessionModel.duration(step.seconds)) {
+                        window.select(.step(agent: id, index: step.index), in: model, scroll: false)
+                    }
                 }
             }
         }
@@ -354,7 +377,156 @@ private struct DrawerDetails: View {
                     ("Dropped so far", Format.tokens(cut.metadata?.cumulativeDroppedTokens ?? 0)),
                 ])
             }
+            switch store.compactionDetails[model.doc.id]?[n] {
+            case .loaded(let detail): compactionDetail(detail)
+            case .failed(let why): Section_("What it did") { Text(why).foregroundStyle(palette.err) }
+            case .loading, nil:
+                Section_("What it did") { Sub("Reading what was kept and what was put back…") }
+                    .task(id: n) { await store.loadCompaction(model.doc.id, n) }
+            }
             Section_("Summary the model continued from") { Full(cut.summary ?? "(not recorded)") }
+        }
+    }
+
+    /// What the engine worked out about one compaction (`skit context --compaction`).
+    @ViewBuilder private func compactionDetail(_ detail: CompactionDetail) -> some View {
+        Section_("What it did") {
+            Facts(rows: [
+                detail.lastActionBefore.flatMap { $0 >= 0 ? ("Last action before", "#\($0)" + (detail.contextBefore.map { " · read \(Format.tokens($0)) tokens" } ?? "")) : nil },
+                detail.firstActionAfter.flatMap { $0 >= 0 ? ("First action after", "#\($0)" + (detail.contextAfter.map { " · read \(Format.tokens($0)) tokens" } ?? "")) : nil },
+                detail.durationMs.map { ("Took", SessionModel.duration(Double($0) / 1000)) },
+                detail.summarisedPrompts.map { ("Prompts summarised", "\($0)") },
+                detail.summary.map { ("Summary", "\(Format.tokens($0.chars)) characters in \($0.sections.count) section\($0.sections.count == 1 ? "" : "s")") },
+                detail.reinjectedChars.map { ("Put back", "\(Format.tokens($0)) characters in \(detail.reinjected.count) piece\(detail.reinjected.count == 1 ? "" : "s")") },
+            ].compactMap { $0 })
+            HStack(spacing: 12) {
+                if let before = detail.lastActionBefore, before >= 0 {
+                    Button("Show the last action before") { window.select(.action(before), in: model) }
+                }
+                if let after = detail.firstActionAfter, after >= 0 {
+                    Button("Show the first action after") { window.select(.action(after), in: model) }
+                }
+            }
+            .buttonStyle(.plain).foregroundStyle(palette.accent)
+        }
+        if let sections = detail.summary?.sections, !sections.isEmpty {
+            Section_("The summary's sections") {
+                ForEach(Array(sections.enumerated()), id: \.offset) { _, section in
+                    LinkRow(symbol: "text.alignleft", color: palette.warn, name: section.title, label: "", trailing: Format.tokens(section.chars) + " chars", action: nil)
+                }
+            }
+        }
+        if !detail.preserved.isEmpty {
+            Section_("Kept word for word (\(detail.preserved.count))") {
+                ForEach(Array(detail.preserved.prefix(30).enumerated()), id: \.offset) { _, piece in
+                    let target: NodeKey? = (piece.action ?? -1) >= 0 ? .action(piece.action ?? 0) : (piece.turn ?? -1) >= 0 ? .turn(piece.turn ?? 0) : nil
+                    LinkRow(symbol: "pin", color: palette.ink2, name: (piece.kind ?? piece.type).replacingOccurrences(of: "_", with: " "),
+                            label: piece.head ?? "", trailing: Format.tokens(piece.chars) + " chars",
+                            action: target.map { key in { window.select(key, in: model) } })
+                }
+                if detail.preserved.count > 30 { Sub("\(detail.preserved.count - 30) more") }
+            }
+        }
+        if !detail.reinjected.isEmpty {
+            Section_("Put back after the cut (\(detail.reinjected.count))") {
+                ForEach(Array(detail.reinjected.prefix(30).enumerated()), id: \.offset) { _, piece in
+                    LinkRow(symbol: "arrow.uturn.down", color: palette.ctx, name: piece.type.replacingOccurrences(of: "_", with: " "),
+                            label: piece.head ?? "", trailing: Format.tokens(piece.chars) + " chars", action: nil)
+                }
+                if detail.reinjected.count > 30 { Sub("\(detail.reinjected.count - 30) more") }
+            }
+        }
+        if !detail.fileRefs.isEmpty {
+            Section_("Files the model was told to read again") {
+                ForEach(detail.fileRefs, id: \.self) { path in
+                    Text(Format.homeRelative(path)).font(.system(size: 11, design: .monospaced)).foregroundStyle(palette.ink2).lineLimit(1).truncationMode(.middle)
+                }
+            }
+        }
+    }
+
+    /// One step of a subagent: what it wrote and what it called.
+    @ViewBuilder private func step(_ agent: String, _ index: Int) -> some View {
+        if let sub = model.subagent(agent), let run = sub.session, run.actions.indices.contains(index) {
+            let action = run.actions[index]
+            let calls = model.tools(ofStep: index, agent: agent)
+            Section_("Step \(index) of \(run.actions.count)") {
+                Sub(offset(action.at) + " · " + action.model.replacingOccurrences(of: "claude-", with: ""))
+                Button("Subagent “\(sub.meta?.description ?? agent)”") { window.select(.subagent(agent), in: model, scroll: false) }
+                    .buttonStyle(.plain).foregroundStyle(palette.accent)
+            }
+            if !action.thinking.isEmpty { Section_("Thought") { Full(action.thinking, italic: true) } }
+            if !action.text.isEmpty { Section_("Wrote") { Full(action.text) } }
+            if !calls.isEmpty {
+                Section_(calls.count > 1 ? "Called in parallel" : "Called") {
+                    ForEach(calls) { call in
+                        LinkRow(symbol: call.family.symbol, color: palette.color(call.family), name: call.displayName, label: call.label,
+                                trailing: call.duration.map(SessionModel.duration), failed: call.isError, action: nil)
+                        HStack(alignment: .firstTextBaseline, spacing: 6) {
+                            Text(call.isError ? "✕" : "→").foregroundStyle(call.isError ? palette.err : palette.muted)
+                            Text(call.resultHead.flatMap { $0.isEmpty ? nil : $0 } ?? (call.paired ? "(empty)" : "(nothing yet)"))
+                                .foregroundStyle(call.isError ? palette.err : palette.ink2).lineLimit(2)
+                        }
+                        .font(.system(size: 11, design: .monospaced))
+                    }
+                    Sub("The whole input and result are under “Input and result”.")
+                }
+            }
+            Section_("Usage") {
+                Facts(rows: [
+                    ("Context", Format.tokens(action.contextTokens) + " tokens"),
+                    ("Output", Format.tokens(action.usage.outputTokens)),
+                    ("Stop", action.stopReason ?? "—"),
+                ])
+            }
+        }
+    }
+
+    /// A file: every call that read or wrote it, in order.
+    @ViewBuilder private func file(_ path: String) -> some View {
+        if let file = model.filesByPath[path] {
+            Section_("File") {
+                Text(Format.homeRelative(path)).font(.system(size: 12, design: .monospaced)).textSelection(.enabled)
+                Facts(rows: [
+                    ("Written", "\(file.writes) time\(file.writes == 1 ? "" : "s")"),
+                    ("Read", "\(file.touches.count - file.writes) time\(file.touches.count - file.writes == 1 ? "" : "s")"),
+                    ("In", "\(file.turns) turn\(file.turns == 1 ? "" : "s")"),
+                ])
+                Sub("Found in tool inputs: the edit tools' paths, and paths named in shell commands.")
+            }
+            Section_("Touched by") {
+                ForEach(Array(file.touches.prefix(60).enumerated()), id: \.offset) { _, touch in
+                    let call = model.toolsByID[touch.toolId]
+                    LinkRow(symbol: touch.mode == "write" ? "pencil" : "eye", color: touch.mode == "write" ? palette.accent : palette.muted,
+                            name: "turn \(touch.turn)", label: touch.tool + (call.map { $0.label.isEmpty ? "" : " · " + $0.label } ?? ""),
+                            trailing: touch.mode, failed: call?.isError ?? false) {
+                        window.select(.tool(touch.toolId), in: model)
+                    }
+                }
+                if file.touches.count > 60 { Sub("\(file.touches.count - 60) more") }
+            }
+        }
+    }
+
+    /// A service beyond the machine: every call that reached it.
+    @ViewBuilder private func outside(_ id: String) -> some View {
+        if let service = model.outsideByID[id] {
+            let what = ["web": "Web host", "search": "Web search", "skill": "Skill", "connector": "Connector"][service.kind] ?? service.kind
+            Section_(what) {
+                Text(service.name).font(.system(size: 13, weight: .semibold)).textSelection(.enabled)
+                Sub("\(service.calls.count) call\(service.calls.count == 1 ? "" : "s") in \(Set(service.calls.map(\.turn)).count) turn\(Set(service.calls.map(\.turn)).count == 1 ? "" : "s")")
+            }
+            Section_("Calls") {
+                ForEach(Array(service.calls.prefix(60).enumerated()), id: \.offset) { _, ref in
+                    let call = model.toolsByID[ref.toolId]
+                    LinkRow(symbol: call?.family.symbol ?? "globe", color: palette.plug, name: "turn \(ref.turn)",
+                            label: call.map { $0.label.isEmpty ? $0.displayName : $0.label } ?? ref.toolId,
+                            trailing: call?.duration.map(SessionModel.duration), failed: call?.isError ?? false) {
+                        window.select(.tool(ref.toolId), in: model)
+                    }
+                }
+                if service.calls.count > 60 { Sub("\(service.calls.count - 60) more") }
+            }
         }
     }
 }
@@ -366,6 +538,8 @@ private struct DrawerIO: View {
     @Environment(\.palette) private var palette
     var model: SessionModel
     var calls: [ToolCall]
+    /// Set when the calls are a subagent step's: their results come from its own transcript.
+    var step: (agent: String, index: Int)?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -381,13 +555,22 @@ private struct DrawerIO: View {
                 }
             }
         }
-        .task(id: calls.map(\.action)) {
-            for action in Set(calls.map(\.action)) { await store.loadAction(model.doc.id, action) }
+        .task(id: calls.map(\.id)) {
+            if let step {
+                await store.loadStep(model.doc.id, agent: step.agent, index: step.index)
+            } else {
+                for action in Set(calls.map(\.action)) { await store.loadAction(model.doc.id, action) }
+            }
         }
     }
 
+    private func detail(for call: ToolCall) -> Loadable<ActionDetail>? {
+        if let step { return store.stepDetails[model.doc.id]?[AppStore.stepKey(agent: step.agent, index: step.index)] }
+        return store.actionDetails[model.doc.id]?[call.action]
+    }
+
     @ViewBuilder private func result(_ call: ToolCall) -> some View {
-        switch store.actionDetails[model.doc.id]?[call.action] {
+        switch detail(for: call) {
         case .loaded(let detail):
             let result = detail.toolCalls.first { $0.id == call.id }
             let spilled = result?.resultSource.map { $0 != "transcript" } ?? false

@@ -1,3 +1,4 @@
+import os
 import SkitKit
 import SwiftUI
 
@@ -14,6 +15,8 @@ struct RootView: View {
     var initialPage: Page?
     var initialView: SessionView?
 
+    private static let links = Logger(subsystem: "dev.sessionkit.SessionVisualizer", category: "links")
+
     var body: some View {
         HStack(spacing: 0) {
             if sidebar { Rail().zIndex(1).transition(.move(edge: .leading)) }
@@ -24,6 +27,18 @@ struct RootView: View {
         .navigationTitle(title)
         .toolbar { toolbar }
         .overlay(alignment: .bottom) { notice }
+        .overlay { if window.paletteShown, store.engine == .ready { PaletteView() } }
+        .animation(.easeOut(duration: 0.1), value: window.paletteShown)
+        // A link from a note or a pull request: skit-visualizer://session/<id>?view=…&action=…
+        .onOpenURL { url in
+            guard let target = SessionLink.parse(url) else {
+                Self.links.error("not a session link: \(url.absoluteString, privacy: .public)")
+                store.notice = "Not a session link: \(url.absoluteString)"
+                return
+            }
+            Self.links.info("opening \(url.absoluteString, privacy: .public)")
+            window.open(session: target.session, at: target.key, select: true, view: target.view ?? .transcript)
+        }
         .task {
             if let initialSession, window.page == .sessions { window.page = .session(initialSession) }
             if let initialPage { window.page = initialPage }
@@ -49,7 +64,7 @@ struct RootView: View {
             switch window.page {
             case .sessions: SessionsView()
             case .session(let id): SessionPage(id: id)
-            case .search: ComingPage(title: "Search", milestone: "M9")
+            case .search: SearchPage()
             case .stats: ComingPage(title: "Stats", milestone: "M13")
             case .claude: ComingPage(title: "Claude", milestone: "M13")
             }
@@ -92,6 +107,8 @@ struct RootView: View {
             }
             if window.sessionView == .transcript {
                 ToolbarItem(placement: .primaryAction) { FindField(sessionID: id) }
+            }
+            if window.sessionView == .transcript || window.sessionView == .summary {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         inspector.toggle()
@@ -167,7 +184,8 @@ struct FindField: View {
         }
         .buttonStyle(.borderless)
         .padding(.horizontal, 8).padding(.vertical, 4)
-        .task(id: state.query) { await search(state.query) }
+        // Again when the session arrives: a hit opened from the Search page asks before it has loaded.
+        .task(id: state.query + (store.model(sessionID) == nil ? "\n…" : "")) { await search(state.query) }
         .onChange(of: state.findRequests) { focused = true }
         .help("Find in this session (⌘F)")
     }
@@ -205,7 +223,9 @@ struct FindField: View {
         // Reading order, whatever is folded: every turn, action and strand has a place in the unfolded order.
         let order = model.focusOrder(folded: [])
         state.hits = order.filter(keys.contains)
-        state.hitIndex = 0
+        // A hit opened from the Summary or the Search page starts on that hit.
+        state.hitIndex = state.startAt.flatMap { state.hits.firstIndex(of: $0) } ?? 0
+        state.startAt = nil
         searched = needle
         show()
     }
@@ -235,16 +255,17 @@ struct FindField: View {
 /// What can be done to a session, shared by the toolbar's More menu and the Session menu.
 struct SessionActions: View {
     @Environment(AppStore.self) private var store
+    @Environment(WindowState.self) private var window
     @Environment(\.openWindow) private var openWindow
     var id: String
 
     var body: some View {
         Button(store.annotation(id).pinned ? "Unpin" : "Pin") { Task { await store.togglePin(id) } }
         Button("Open in New Window") { openWindow(value: id) }
-        Button("Copy Session ID") {
-            NSPasteboard.general.clearContents()
-            NSPasteboard.general.setString(id, forType: .string)
-        }
+        Divider()
+        Button("Copy Link") { AppActions.copyLink(window, store) }
+        Button("Copy Session ID") { Exporter.copy(id) }
+        Button("Export as Markdown…") { if let session = store.session(id) { Exporter.saveSession(session, store: store) } }
         Divider()
         Button("Archive Now") { Task { await store.archiveNow(id) } }
     }

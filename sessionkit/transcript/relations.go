@@ -105,10 +105,11 @@ type Outside struct {
 	Calls []CallRef `json:"calls"`
 }
 
-// Commit is a git commit the session made: a `git commit` whose output named
-// the new commit. Call is the Bash call that ran it.
+// Commit is a git commit the session made: a `git commit` in a Bash call that
+// did not fail. Subject is the message's first line; SHA is the new commit's
+// id when the output named it. Call is the Bash call that ran it.
 type Commit struct {
-	SHA     string  `json:"sha"` // abbreviated, as git printed it
+	SHA     string  `json:"sha,omitempty"` // abbreviated, as git printed it
 	Branch  string  `json:"branch,omitempty"`
 	Subject string  `json:"subject"`
 	Call    CallRef `json:"call"`
@@ -131,10 +132,16 @@ var (
 	// are acceptable for "which files did this session work on".
 	pathInCommand = regexp.MustCompile(`(?:~/|\.{0,2}/)?(?:[\w.@-]+/)+[\w.@-]+\.(?:md|py|go|js|mjs|css|html|json|jsonl|toml|swift|sh|txt|yaml|yml|png|sql|ts|tsx|rs|c|h|plist|mod|sum|cfg)\b`)
 	noisePath     = regexp.MustCompile(`/tmp/|/\.claude/|node_modules|/scratchpad/`)
-	// DECISION: a commit is read from what git printed ("[main 2b4b1ec] Subject"),
-	// not from the command: the output is proof the commit exists and carries its
-	// id, where a command can fail, be a dry run, or commit nothing.
-	commitLine = regexp.MustCompile(`(?m)^\[(.+?)(?: \(root-commit\))? ([0-9a-f]{7,40})\] (.*)$`)
+	// DECISION: a commit is a `git commit` at a command position in a Bash
+	// call that succeeded. Agents commit quietly (`git commit -qm … && git log
+	// --oneline | head -1`), so git's own "[main 2b4b1ec] Subject" line is
+	// often not there to read; when it is, it wins. Like the paths above this
+	// reads the shell without parsing it: a script written through a heredoc
+	// that itself runs `git commit` at the start of a line would count.
+	commitCommand = regexp.MustCompile(`(?m)(?:^|&&|\|\||;|\()\s*git(?:\s+-[cC]\s+\S+)*\s+commit\b`)
+	commitMessage = regexp.MustCompile(`\s-[a-zA-Z]*m\s*(?:"((?:[^"\\]|\\.)*)|'([^']*))`)
+	commitLine    = regexp.MustCompile(`(?m)^\[(.+?)(?: \(root-commit\))? ([0-9a-f]{7,40})\] (.*)$`)
+	logLine       = regexp.MustCompile(`(?m)^([0-9a-f]{7,40}) (.+)$`)
 )
 
 type toolInput struct {
@@ -347,10 +354,8 @@ func (s *Session) Relations() *Relations {
 				}
 				touch(c, p, mode)
 			}
-			if strings.Contains(in.Command, "git") && strings.Contains(in.Command, "commit") {
-				for _, m := range commitLine.FindAllStringSubmatch(c.ResultText(), -1) {
-					rel.Commits = append(rel.Commits, Commit{SHA: m[2], Branch: m[1], Subject: strings.TrimSpace(m[3]), Call: c.ref()})
-				}
+			if !c.IsError && c.Paired {
+				rel.Commits = append(rel.Commits, commitsIn(in.Command, c.ResultText(), c.ref())...)
 			}
 		case c.Name == "WebFetch" && in.URL != "":
 			host := in.URL
@@ -421,6 +426,64 @@ func (s *Session) Relations() *Relations {
 	}
 	sort.SliceStable(rel.Events, func(i, j int) bool { return rel.Events[i].At.Before(rel.Events[j].At) })
 	return rel
+}
+
+// commitsIn finds the commits a successful shell command made: one per `git
+// commit` it ran, with the subject from the message and the id from the output.
+func commitsIn(cmd, output string, call CallRef) []Commit {
+	runs := commitCommand.FindAllStringIndex(cmd, -1)
+	if len(runs) == 0 || strings.Contains(output, "nothing to commit") || strings.Contains(output, "no changes added to commit") {
+		return nil
+	}
+	printed := commitLine.FindAllStringSubmatch(output, -1)
+	logged := logLine.FindAllStringSubmatch(output, -1)
+	var out []Commit
+	for i, run := range runs {
+		// Its arguments: up to the next `git commit`, or the end. A message
+		// may run over several lines (a multi-line -m, a heredoc).
+		args := cmd[run[1]:]
+		if i+1 < len(runs) {
+			args = cmd[run[1]:runs[i+1][0]]
+		}
+		if strings.Contains(args, "--dry-run") {
+			continue
+		}
+		co := Commit{Call: call, Subject: commitSubject(args)}
+		if i < len(printed) {
+			// git's own line: authoritative for all three.
+			co.Branch, co.SHA, co.Subject = printed[i][1], printed[i][2], strings.TrimSpace(printed[i][3])
+		} else if co.Subject != "" {
+			for _, l := range logged {
+				if strings.HasPrefix(co.Subject, strings.TrimSuffix(l[2], "…")) || strings.HasPrefix(l[2], co.Subject) {
+					co.SHA = l[1]
+					break
+				}
+			}
+		}
+		out = append(out, co)
+	}
+	return out
+}
+
+// commitSubject reads the first line of the commit message from a `git
+// commit`'s arguments: a quoted string after -m, or a heredoc inside
+// "$(cat <<'EOF' …)".
+func commitSubject(from string) string {
+	m := commitMessage.FindStringSubmatch(from)
+	if m == nil {
+		return ""
+	}
+	msg := m[1] + m[2]
+	if strings.HasPrefix(msg, "$(cat <<") {
+		// The message is the heredoc's body: skip the line that opens it.
+		if nl := strings.IndexByte(msg, '\n'); nl >= 0 {
+			msg = msg[nl+1:]
+		} else {
+			return ""
+		}
+	}
+	msg = strings.NewReplacer(`\"`, `"`, "\\`", "`", `\$`, `$`).Replace(msg)
+	return firstLine(msg, 200)
 }
 
 func firstNonEmpty(a ...string) string {

@@ -54,7 +54,7 @@ struct TranscriptView: View {
                 keyboard = true
                 if foldByDefault, !state.foldApplied { state.folded = Set(model.doc.turns.filter { $0.toolCalls > 0 }.map(\.index)) }
                 state.foldApplied = true
-                if let key = window.selection, let id = model.itemID(for: key) { proxy.scrollTo(id, anchor: .center) }
+                if let key = window.selection ?? state.focus, let id = model.itemID(for: key) { proxy.scrollTo(id, anchor: .center) }
             }
         }
     }

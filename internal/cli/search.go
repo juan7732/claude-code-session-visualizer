@@ -25,15 +25,24 @@ context and compaction summaries. Results are grouped by session and point at
 the agent turn and action to open with 'skit show <id> --turn N' or '--action N'. A query made of ids or codes
 ("E1234", "toolu_01abc") weighs exact words more heavily.
 
+A version, a date or a numbered name ("0.5.1", "2026-11-10", "issue-3") is
+searched whole. Common words ("how", "did", "the") are ignored, so a question
+can be typed as it comes.
+
 --mode meaning finds text that says what the query says, whether or not it uses
 the same words: write the query as you would ask it. It covers prompts, replies,
 thinking and compaction summaries (run 'skit embed' first), starts a local
 llama-server for the query, and sends nothing off the machine. Each hit shows
 the cosine similarity of its closest passage and z, how far that stands above
-everything else for this query. In this mode the nearest passages are always
-returned, even when nothing in the archive is about the query: a low z (under
-about 3) is the sign of that.`,
-		Example: "  skit search retention sweep\n  skit search ENOTFOUND --kind assistant\n  skit search zstd --project tools --json\n  skit search --mode meaning why does my history disappear after a month",
+everything else for this query. A passage is a match when its cosine or its z
+reaches a threshold; when none does, the answer is that nothing was found, not
+the nearest passages. --all shows them anyway; --min-cosine and --min-z move
+the thresholds.
+
+Narrowing works the same in both modes: --session (an id or a unique prefix),
+--project, --kind (one or several, comma-separated) and --no-tools, which
+leaves out tool calls and their results.`,
+		Example: "  skit search retention sweep\n  skit search ENOTFOUND --kind assistant\n  skit search zstd --project tools --no-tools --json\n  skit search --mode meaning why does my history disappear after a month\n  skit search --mode meaning --session 36086585 --kind prompt,assistant how sessions are stored",
 		Args:    cobra.MinimumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			a, err := archive.Open()
@@ -41,6 +50,21 @@ about 3) is the sign of that.`,
 				return err
 			}
 			defer a.Close()
+			if opt.Session != "" {
+				// Like every other command, a unique prefix of the id is enough.
+				rows, err := a.Store.SessionsByPrefix(opt.Session)
+				if err != nil {
+					return err
+				}
+				switch len(rows) {
+				case 0:
+					return fmt.Errorf("no archived session starts with %q", opt.Session)
+				case 1:
+					opt.Session = rows[0].ID
+				default:
+					return fmt.Errorf("%d archived sessions start with %q; use more of the id", len(rows), opt.Session)
+				}
+			}
 			e := newEmbedder(a.Home, false) // starts nothing unless the mode needs it
 			defer e.Close()
 			// Interruptible, so a sidecar started for the query is stopped on the way out.
@@ -57,6 +81,10 @@ about 3) is the sign of that.`,
 				return writeJSON(cmd.OutOrStdout(), hits)
 			}
 			w := cmd.OutOrStdout()
+			if len(hits) == 0 && opt.Mode == search.ModeMeaning && !opt.NoGate {
+				fmt.Fprintln(w, "nothing in the archive is close to this (--all shows the nearest passages anyway)")
+				return nil
+			}
 			if len(hits) == 0 {
 				fmt.Fprintln(w, "no matches (is the session archived? see `skit archive`)")
 				return nil
@@ -93,8 +121,12 @@ about 3) is the sign of that.`,
 	cmd.Flags().StringVar(&opt.Mode, "mode", search.ModeKeyword, "keyword (the words) or meaning (what it says; needs `skit embed`)")
 	cmd.Flags().IntVarP(&opt.Limit, "limit", "n", 20, "maximum hits")
 	cmd.Flags().StringVarP(&opt.Project, "project", "p", "", "only projects whose slug contains this text")
-	cmd.Flags().StringVar(&opt.Session, "session", "", "only this session id")
-	cmd.Flags().StringVar(&opt.Kind, "kind", "", "only this kind: prompt, assistant, thinking, tool_use, tool_result, context, summary")
+	cmd.Flags().StringVar(&opt.Session, "session", "", "only this session (id or unique prefix)")
+	cmd.Flags().StringSliceVar(&opt.Kinds, "kind", nil, "only these kinds, comma-separated: "+strings.Join(search.Kinds, ", "))
+	cmd.Flags().BoolVar(&opt.NoTools, "no-tools", false, "leave out tool calls and their results")
+	cmd.Flags().BoolVar(&opt.NoGate, "all", false, "meaning mode: return the nearest passages even when none is close enough to be a match")
+	cmd.Flags().Float64Var(&opt.MinCosine, "min-cosine", 0, fmt.Sprintf("meaning mode: a passage matches at this cosine (default %.2f)", search.DefaultMinCosine))
+	cmd.Flags().Float64Var(&opt.MinZ, "min-z", 0, fmt.Sprintf("meaning mode: or at this z (default %.1f)", search.DefaultMinZ))
 	cmd.Flags().BoolVar(&opt.PrefixLast, "prefix", false, "treat the last word as a prefix (while typing)")
 	return cmd
 }

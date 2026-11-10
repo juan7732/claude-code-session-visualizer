@@ -60,16 +60,43 @@ func Search(ctx context.Context, st *store.Store, e QueryEmbedder, query string,
 	}
 }
 
+// The gate: a piece counts as a match when its cosine reaches DefaultMinCosine
+// or its z reaches DefaultMinZ. Below both it is only the nearest thing in an
+// archive that has nothing on the subject, and it is not returned.
+//
+// DECISION: the two values come from the eval of 2026-11-10 (33 queries, 7 of
+// which should find nothing; 1,393 pieces). The nearest piece to a query the
+// archive has nothing on reached cosine 0.649 to 0.724 and z 2.95 to 3.59; the
+// right first hit for a query it does answer had cosine 0.707 to 0.883 and z
+// 3.68 to 9.38. With "cosine ≥ 0.73 or z ≥ 3.6" none of the 7 gets an answer
+// and R@1 (0.65) and R@5 (0.77) are unchanged; R@10 goes from 0.81 to 0.77
+// (one right turn sat in eighth place below the gate). Either test alone
+// costs more: the cosine floor alone leaves 2 answerable queries with no hit,
+// the z gate alone 3.
+//
+// REVIEW: the margins are thin (0.724 against 0.73, 3.59 against 3.6) and
+// seven queries drew the line, so these are provisional: more "nothing"
+// queries should move them before anything else does. And z is not stable as
+// an archive grows: the largest of n unrelated scores rises with n (about
+// √(2 ln n) standard deviations for a bell curve: 3.8 at 1,400 pieces, 5.0 at
+// 225,000), so a fixed MinZ lets more noise through in a larger archive. The
+// cosine floor does not have that problem and is the one to trust long-term.
+const (
+	DefaultMinCosine = 0.73
+	DefaultMinZ      = 3.6
+)
+
 // Meaning ranks segments by the cosine between the query's vector and the
 // vector of their closest piece. Every piece is scored (brute force: at this
 // scale that is milliseconds, and it makes the whole distribution available),
 // so each hit also carries z: how many standard deviations its cosine stands
-// above the mean of all pieces for this query.
+// above the mean of all pieces for this query. The mean and deviation are
+// taken over the whole index even when the search is narrowed to a session or
+// a kind, so z means the same thing however small the part searched. Pieces
+// below the gate are left out unless opt.NoGate is set.
 //
-// REVIEW: this is the plain form. It always returns the nearest pieces, even
-// for a query nothing in the archive is about, and it does not look at words
-// at all. The gate that lets it say "nothing found" and the fusion with
-// keyword scores are tuned on the eval (docs/plan-v0.md, M14), not guessed here.
+// REVIEW: it does not look at words at all. Fusing it with keyword scores is
+// the next step (docs/plan-v0.md, M14).
 func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string, opt Options) ([]Hit, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w in %q", ErrEmptyQuery, query)
@@ -95,26 +122,21 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 		return nil, err
 	}
 
-	where := []string{"1"}
-	var args []any
-	if opt.Session != "" {
-		where = append(where, "g.session = ?")
-		args = append(args, opt.Session)
+	// Every piece is read, so the score distribution is the whole index's;
+	// the narrowing options only decide which pieces may be hits.
+	conds, args, err := opt.filter()
+	if err != nil {
+		return nil, err
 	}
-	if opt.Project != "" {
-		where = append(where, "instr(lower(s.project), lower(?)) > 0")
-		args = append(args, opt.Project)
-	}
-	if opt.Kind != "" {
-		where = append(where, "g.kind = ?")
-		args = append(args, opt.Kind)
+	keep := "1"
+	if len(conds) > 0 {
+		keep = "(" + strings.Join(conds, " AND ") + ")"
 	}
 	// TODO: skit serve should keep the decoded vectors in memory between
 	// queries; reading and decoding them each time is fine for thousands of
 	// pieces and will not be for hundreds of thousands.
-	rows, err := st.DB().QueryContext(ctx, `SELECT c.segment, c.start, c.len, v.vec
-		FROM chunks c JOIN vectors v ON v.hash = c.hash JOIN segments g ON g.id = c.segment JOIN sessions s ON s.id = g.session
-		WHERE `+strings.Join(where, " AND "), args...)
+	rows, err := st.DB().QueryContext(ctx, `SELECT c.segment, c.start, c.len, v.vec, `+keep+`
+		FROM chunks c JOIN vectors v ON v.hash = c.hash JOIN segments g ON g.id = c.segment JOIN sessions s ON s.id = g.session`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -130,7 +152,8 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 	for rows.Next() {
 		var p piece
 		var blob []byte
-		if err := rows.Scan(&p.segment, &p.start, &p.len, &blob); err != nil {
+		var wanted bool
+		if err := rows.Scan(&p.segment, &p.start, &p.len, &blob, &wanted); err != nil {
 			rows.Close()
 			return nil, err
 		}
@@ -142,6 +165,9 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 		n++
 		sum += p.cos
 		sumSq += p.cos * p.cos
+		if !wanted {
+			continue
+		}
 		if b, ok := best[p.segment]; !ok || p.cos > b.cos {
 			best[p.segment] = p
 		}
@@ -156,9 +182,24 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 	mean := sum / float64(n)
 	std := math.Sqrt(math.Max(sumSq/float64(n)-mean*mean, 0))
 
+	minCos, minZ := opt.MinCosine, opt.MinZ
+	if minCos == 0 {
+		minCos = DefaultMinCosine
+	}
+	if minZ == 0 {
+		minZ = DefaultMinZ
+	}
+	zOf := func(cos float64) float64 {
+		if std == 0 {
+			return 0
+		}
+		return (cos - mean) / std
+	}
 	ranked := make([]piece, 0, len(best))
 	for _, p := range best {
-		ranked = append(ranked, p)
+		if opt.NoGate || p.cos >= minCos || zOf(p.cos) >= minZ {
+			ranked = append(ranked, p)
+		}
 	}
 	sort.Slice(ranked, func(i, j int) bool {
 		if ranked[i].cos != ranked[j].cos {
@@ -194,9 +235,7 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 			h.Coverage = coverage(terms, string(text))
 		}
 		h.Cosine = round4(p.cos)
-		if std > 0 {
-			h.Z = round4((p.cos - mean) / std)
-		}
+		h.Z = round4(zOf(p.cos))
 		h.Score = h.Cosine
 		hits = append(hits, h)
 	}

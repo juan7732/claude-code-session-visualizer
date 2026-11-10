@@ -79,6 +79,29 @@ final class TranscriptState {
     var foldApplied = false
     /// Bumped to move the keyboard into the find field (⌘F, /).
     var findRequests = 0
+    /// The match to land on once the query has been searched (a hit opened from elsewhere).
+    var startAt: NodeKey?
+    /// The Summary's "search this session" box.
+    var summaryQuery = ""
+    var summaryKind = ""
+}
+
+/// The Search page of one window: what is asked, what came back, where the cursor is.
+@Observable
+final class SearchState {
+    var query = ""
+    /// "" for everything, else prompt | assistant | thinking | tool_use | tool_result.
+    var kind = ""
+    /// Every hit for the query, and the ones of the chosen kind.
+    var all: [SearchHit] = []
+    var hits: [SearchHit] = []
+    /// The query and kind the hits belong to.
+    var searched = ""
+    var selected = 0
+    var searching = false
+    var failure: String?
+    /// Bumped to move the keyboard into the field.
+    var focusRequests = 0
 }
 
 /// What one window is looking at. Windows share the store and nothing else.
@@ -97,6 +120,60 @@ final class WindowState {
     var selection: NodeKey?
     var inspectorTab = InspectorTab.details
     var transcript = TranscriptState()
+    var search = SearchState()
+    /// The ⌘K palette is open.
+    var paletteShown = false
+    /// A node to select once the session it belongs to has loaded (a link, a search hit).
+    var pending: Pending?
+
+    struct Pending: Equatable {
+        var session: String
+        var key: NodeKey
+        var query: String?
+        /// Select it (the drawer opens), or only bring it into view.
+        var select = false
+    }
+
+    /// Opens a session on a node of its Transcript: the session loads first,
+    /// then `applyPending` lands on the node.
+    func open(session id: String, at key: NodeKey?, query: String? = nil, select: Bool = false, view: SessionView = .transcript) {
+        page = .session(id)
+        sessionView = view
+        if let query { transcript.query = query }
+        pending = key.map { Pending(session: id, key: $0, query: query, select: select) }
+    }
+
+    /// Lands on the pending node, now that its session is there to look in.
+    func applyPending(in model: SessionModel) {
+        guard let pending, pending.session == model.doc.id else { return }
+        self.pending = nil
+        if pending.select {
+            select(pending.key, in: model)
+        } else {
+            reveal(pending.key, in: model, query: pending.query, view: sessionView)
+        }
+    }
+
+    /// Shows a node in the Transcript without selecting it: the keyboard is on
+    /// it and its row is in view, and the drawer stays as it was. With a query,
+    /// find-in-session carries it and starts on this node.
+    func reveal(_ key: NodeKey, in model: SessionModel, query: String? = nil, view: SessionView = .transcript) {
+        sessionView = view
+        if let turn = model.turnIndex(of: key), transcript.folded.contains(turn), model.isHiddenWhenFolded(key) {
+            setFolded(turn, false, in: model)
+        }
+        if let query {
+            transcript.query = query
+            transcript.startAt = key
+        }
+        transcript.focus = key
+        switch key {
+        case .subagent(let id), .step(let id, _):
+            if let tool = model.subagent(id)?.toolUseId { transcript.open.insert(.tool(tool)) }
+        default: break
+        }
+        transcript.scrollTarget = model.itemID(for: key)
+    }
 
     /// Folds or unfolds a turn's tool calls, keeping the keyboard and the
     /// selection on something that is still on screen.
@@ -107,7 +184,7 @@ final class WindowState {
                 let action: Int? = switch key {
                 case .action(let n): n
                 case .tool(let id): model.toolsByID[id]?.action
-                case .subagent(let id): model.subagent(id)?.toolUseId.flatMap { model.toolsByID[$0] }?.action
+                case .subagent(let id), .step(let id, _): model.subagent(id)?.toolUseId.flatMap { model.toolsByID[$0] }?.action
                 default: nil
                 }
                 return action.flatMap { model.runOfAction[$0] }.map { .work($0) } ?? .turn(turn)
@@ -130,7 +207,7 @@ final class WindowState {
         case .tool(let id):
             transcript.open.insert(key)
             return model.toolsByID[id].map { [$0.action] } ?? []
-        case .subagent(let id):
+        case .subagent(let id), .step(let id, _):
             if let tool = model.subagent(id)?.toolUseId { transcript.open.insert(.tool(tool)) }
         case .turn(let turn):
             // The whole turn: its long prompt, and its tool calls shown again.
@@ -142,7 +219,7 @@ final class WindowState {
             let calls = model.action(n).map { model.tools(of: $0) } ?? []
             for call in calls { transcript.open.insert(.tool(call.id)) }
             return calls.isEmpty ? [] : [n]
-        case .compaction:
+        case .compaction, .file, .outside:
             break
         }
         return []
@@ -156,7 +233,7 @@ final class WindowState {
         switch key {
         case .tool:
             closed = transcript.open.remove(key) != nil
-        case .subagent(let id):
+        case .subagent(let id), .step(let id, _):
             if let tool = model.subagent(id)?.toolUseId { closed = transcript.open.remove(.tool(tool)) != nil }
         case .turn:
             closed = transcript.open.remove(key) != nil
@@ -165,7 +242,7 @@ final class WindowState {
             for call in model.action(n).map({ model.tools(of: $0) }) ?? [] {
                 if transcript.open.remove(.tool(call.id)) != nil { closed = true }
             }
-        case .work, .compaction:
+        case .work, .compaction, .file, .outside:
             return
         }
         guard !closed, let turn = model.turnIndex(of: key), !transcript.folded.contains(turn),
@@ -182,7 +259,11 @@ final class WindowState {
             transcript.folded.remove(turn)
         }
         transcript.focus = key
-        if case .subagent(let id) = key, let tool = model.subagent(id)?.toolUseId { transcript.open.insert(.tool(tool)) }
+        switch key {
+        case .subagent(let id), .step(let id, _):
+            if let tool = model.subagent(id)?.toolUseId { transcript.open.insert(.tool(tool)) }
+        default: break
+        }
         if scroll { transcript.scrollTarget = model.itemID(for: key) }
     }
 

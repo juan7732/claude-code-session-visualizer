@@ -11,6 +11,8 @@ just client-test          contract, transport and state tests
 just client-contract      record /v0 from this checkout's engine, then run the tests against that recording
 just client-fixtures      refresh the recorded responses checked in under Sources/SkitTestSupport/Fixtures
 just client-snapshot out.png --page sessions --appearance dark    render one state to a PNG, no window shown
+just client-app           SessionVisualizer.app with this checkout's skit in Contents/Helpers, signed (build.sh)
+just client-app-install   the same, copied into /Applications
 ```
 
 ## Layout
@@ -23,6 +25,12 @@ just client-snapshot out.png --page sessions --appearance dark    render one sta
 | `Tests/SkitKitTests`           | Contract tests over recorded responses, the transport, the connector, formatting.                  |
 | `Tests/SessionVisualizerTests` | The app's state without its windows: the store, the session model, Markdown blocks, selection.     |
 | `Scripts/record-fixtures.sh`   | Serves the `synthetic-basics` fixture from a throwaway home and records the routes the tests read. |
+| `build.sh`                     | Builds and signs the app bundle (ADR 0011). `SIGN_IDENTITY` picks the identity; ad hoc without it. |
+
+The views, by file: `SessionsView` (home), `SummaryView` (the dashboard, search in this session, the digest, the hours
+grid), `TranscriptView` and `TranscriptRows`, `Drawer` (the inspector under both), `SearchPage` (the Finder),
+`PaletteView` (⌘K). `SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the
+palette; `Export` writes Markdown through the engine and builds and reads `skit-visualizer://` links.
 
 ## Rules
 
@@ -34,7 +42,9 @@ just client-snapshot out.png --page sessions --appearance dark    render one sta
   and note keys such as `tool:toolu_01AbC` must arrive as written.
 - **Lists are never optional in a view.** An older engine's `null` or missing list decodes as empty (`@EmptyWhenNull`).
 - **Bento is the one style** (`Theme.swift`): light and dark follow the system, pure black is a setting.
-- **Every command is in the menu bar** (`Commands.swift`), disabled until its view exists.
+- **Every command is in the menu bar** (`Commands.swift`), disabled until its view exists. The ⌘K palette lists the same
+  commands from the same list.
+- **Numbers the transcript does not record are not guessed.** The context window is a setting, and the card says so.
 
 ## Engine at launch
 
@@ -42,13 +52,21 @@ The app attaches to the `skit serve` that answers on `$SKIT_HOME/skit.sock` (def
 answers, it looks for `skit` (`$SKIT_BIN`, the bundle's `Contents/Helpers`, `PATH`, `~/go/bin`, Homebrew), runs
 `skit service install` and waits for the agent. An engine that lacks a route the app calls is reported as too old.
 
+## The bundle and links
+
+`build.sh` puts the release build and `skit` into `SessionVisualizer.app` and signs it. The bundle declares the
+`skit-visualizer` scheme: Edit › Copy Link (⇧⌘C) copies `skit-visualizer://session/<id>?view=…` with the selected node,
+and opening such a link brings the app to that node. Run from the build directory the app can copy links but nothing
+routes them to it. Opened links are logged (`log stream --predicate 'subsystem == "dev.sessionkit.SessionVisualizer"'`).
+
 ## Snapshots
 
 `--snapshot` renders a page offscreen and exits. It only attaches to a running engine and never installs anything.
 Options: `--page sessions|session:<id>|search|stats|claude`, `--view summary|transcript|canvas|timeline|files`,
 `--appearance light|dark|oled`, `--size 1500x940`, `--socket <path>`, `--flyout`, and inside a session
-`--select action:6|turn:0|tool:<id>|subagent:<id>|compaction:0`, `--tab details|io|note`, `--query <text>`,
-`--open-calls`, `--fold`.
+`--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>`,
+`--tab details|io|note`, `--query <text>` (find in the Transcript, the Summary's search box, or the Search page),
+`--open-calls`, `--fold`, `--palette`.
 
 `--measure <session id>` prints how long each step of opening a session takes (fetch, decode, build), twice: once as
 found and once with the session in the engine's memory. One known limit: the toolbar's glass controls draw as white

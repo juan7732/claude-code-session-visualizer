@@ -37,6 +37,8 @@ public struct SkitClient: Sendable {
         "GET /v0/sessions/{id}/stats",
         "GET /v0/sessions/{id}/actions/{n}",
         "GET /v0/sessions/{id}/relations",
+        "GET /v0/sessions/{id}/compactions/{n}",
+        "GET /v0/sessions/{id}/export",
         "GET /v0/search",
         "GET /v0/sessions/{id}/annotations",
         "PATCH /v0/sessions/{id}/annotations",
@@ -69,19 +71,36 @@ public struct SkitClient: Sendable {
         try await get("/v0/sessions/\(Self.escape(id))")
     }
 
-    /// One action with the full text of its tool results.
-    public func action(session id: String, _ index: Int) async throws -> ActionDetail {
-        try await get("/v0/sessions/\(Self.escape(id))/actions/\(index)")
+    /// One action with the full text of its tool results. With `agent`, action
+    /// `index` of that subagent's own transcript.
+    public func action(session id: String, _ index: Int, agent: String? = nil) async throws -> ActionDetail {
+        try await get("/v0/sessions/\(Self.escape(id))/actions/\(index)" + (agent.map { "?agent=" + Self.escape($0) } ?? ""))
+    }
+
+    /// What compaction `index` did: the sizes, the summary's sections, what was kept and put back.
+    public func compaction(session id: String, _ index: Int) async throws -> CompactionDetail {
+        try await get("/v0/sessions/\(Self.escape(id))/compactions/\(index)")
+    }
+
+    /// The session, or one turn of it, as Markdown (`skit export`).
+    public func markdown(session id: String, turn: Int? = nil) async throws -> String {
+        try await call("GET", "/v0/sessions/\(Self.escape(id))/export?format=markdown" + (turn.map { "&turn=\($0)" } ?? "")) {
+            String(decoding: $0, as: UTF8.self)
+        }
     }
 
     public func relations(session id: String) async throws -> Relations {
         try await get("/v0/sessions/\(Self.escape(id))/relations")
     }
 
-    /// Keyword search, across every archived session or inside one.
-    public func search(_ query: String, session: String? = nil, limit: Int = 200) async throws -> [SearchHit] {
+    /// Search across every archived session or inside one. `kind` narrows to
+    /// prompt, assistant, thinking, tool_use or tool_result; `mode` is "keyword"
+    /// (the default) or "meaning".
+    public func search(_ query: String, session: String? = nil, kind: String? = nil, mode: String? = nil, limit: Int = 200) async throws -> [SearchHit] {
         var parts = ["q=" + Self.escape(query), "limit=\(limit)"]
         if let session { parts.append("session=" + Self.escape(session)) }
+        if let kind, !kind.isEmpty { parts.append("kind=" + Self.escape(kind)) }
+        if let mode, !mode.isEmpty { parts.append("mode=" + Self.escape(mode)) }
         return try await get("/v0/search?" + parts.joined(separator: "&"))
     }
 

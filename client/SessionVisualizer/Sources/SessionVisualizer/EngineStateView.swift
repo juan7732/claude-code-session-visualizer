@@ -28,7 +28,14 @@ struct EngineStateView: View {
                 Text("skit is too old for this app").font(.display(20))
                 Text("The running skit (\(version)) does not serve:").foregroundStyle(palette.muted)
                 Text(missing.joined(separator: "\n")).font(.system(size: 11, design: .monospaced)).textSelection(.enabled)
-                Text("Update skit, then run “skit service install” so the background agent restarts with it.").foregroundStyle(palette.muted)
+                if let binary = store.locator.findBinary(), store.managesEngine {
+                    Text("The background agent is still running an older skit. Restarting it with \(Format.homeRelative(binary)) may be all it needs.")
+                        .foregroundStyle(palette.muted)
+                    Button("Restart the Background Agent") { Task { await store.restartAgent() } }
+                        .buttonStyle(.borderedProminent).padding(.top, 6)
+                } else {
+                    Text("Update skit, then run “skit service install” so the background agent restarts with it.").foregroundStyle(palette.muted)
+                }
                 retry
             case .failed(let why):
                 Text("Cannot reach skit").font(.display(20))

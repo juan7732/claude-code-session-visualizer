@@ -9,7 +9,12 @@ public struct SessionDocument: Codable, Sendable, Equatable, Identifiable {
     public var title: String?
     public var cwd: String?
     public var gitBranch: String?
+    /// How the session was started ("cli", "claude-vscode").
     @EmptyWhenNull public var entrypoints: [String]
+    /// The Claude Code versions that wrote the transcript, in order.
+    @EmptyWhenNull public var versions: [String]
+    /// Every directory the session worked in; the first is where it started.
+    @EmptyWhenNull public var cwds: [String]
     public var firstAt: Date
     public var lastAt: Date
     public var project: String?
@@ -26,7 +31,7 @@ public struct SessionDocument: Codable, Sendable, Equatable, Identifiable {
     public var summary: SessionSummary
 
     enum CodingKeys: String, CodingKey {
-        case id, title, cwd, entrypoints, project, partial, branches
+        case id, title, cwd, cwds, entrypoints, versions, project, partial, branches
         case gitBranch = "git_branch"
         case firstAt = "first_at"
         case lastAt = "last_at"
@@ -301,14 +306,66 @@ public struct Relations: Codable, Sendable, Equatable {
     @EmptyWhenNull public var tasks: [BackgroundTask]
     @EmptyWhenNull public var handbacks: [Handback]
     @EmptyWhenNull public var retries: [Retry]
+    @EmptyWhenNull public var files: [FileTouched]
+    @EmptyWhenNull public var outside: [Outside]
+    @EmptyWhenNull public var commits: [Commit]
     @EmptyWhenNull public var events: [Event]
 
-    public init(spans: [Span] = [], tasks: [BackgroundTask] = [], handbacks: [Handback] = [], retries: [Retry] = [], events: [Event] = []) {
+    public init(spans: [Span] = [], tasks: [BackgroundTask] = [], handbacks: [Handback] = [], retries: [Retry] = [],
+                files: [FileTouched] = [], outside: [Outside] = [], commits: [Commit] = [], events: [Event] = []) {
         self.spans = spans
         self.tasks = tasks
         self.handbacks = handbacks
         self.retries = retries
+        self.files = files
+        self.outside = outside
+        self.commits = commits
         self.events = events
+    }
+
+    /// A file the session read or wrote, with every call that touched it, in order.
+    public struct FileTouched: Codable, Sendable, Equatable, Identifiable {
+        public var path: String
+        public var writes: Int
+        /// In how many turns it was touched.
+        public var turns: Int
+        @EmptyWhenNull public var touches: [Touch]
+
+        public var id: String { path }
+
+        public struct Touch: Codable, Sendable, Equatable {
+            public var toolId: String
+            public var action: Int
+            public var turn: Int
+            public var at: Date
+            /// "read" or "write"
+            public var mode: String
+            public var tool: String
+
+            enum CodingKeys: String, CodingKey {
+                case action, turn, at, mode, tool
+                case toolId = "tool_id"
+            }
+        }
+    }
+
+    /// A service beyond the machine: a web host, the web search, a skill, a connector.
+    public struct Outside: Codable, Sendable, Equatable, Identifiable {
+        /// "web", "search", "skill", "connector"
+        public var kind: String
+        public var name: String
+        @EmptyWhenNull public var calls: [CallRef]
+
+        public var id: String { kind + ":" + name }
+    }
+
+    /// A git commit the session made: a `git commit` that did not fail. The id
+    /// is there when the output named it (agents often commit quietly).
+    public struct Commit: Codable, Sendable, Equatable {
+        public var sha: String?
+        public var branch: String?
+        public var subject: String
+        public var call: CallRef
     }
 
     /// When an action's model stopped writing, when its tools finished, when the next began.
@@ -382,9 +439,71 @@ public struct Relations: Codable, Sendable, Equatable {
     }
 }
 
+/// `GET /v0/sessions/{id}/compactions/{n}`: what a compaction did to the context.
+public struct CompactionDetail: Codable, Sendable, Equatable {
+    public var index: Int
+    public var turn: Int
+    public var at: Date
+    public var trigger: String?
+    public var durationMs: Int?
+    public var preTokens: Int
+    public var postTokens: Int
+    public var cumulativeDropped: Int?
+    /// The last action before the cut and the context it read; -1 when there was none.
+    public var lastActionBefore: Int?
+    public var contextBefore: Int?
+    public var firstActionAfter: Int?
+    public var contextAfter: Int?
+    public var reinjectedChars: Int?
+    public var summarisedPrompts: Int?
+    public var summary: Summary?
+    /// Messages kept word for word across the cut.
+    @EmptyWhenNull public var preserved: [Piece]
+    /// What Claude Code put back after the cut: instructions, files, reminders.
+    @EmptyWhenNull public var reinjected: [Piece]
+    /// Files the model was told to read again.
+    @EmptyWhenNull public var fileRefs: [String]
+
+    public struct Summary: Codable, Sendable, Equatable {
+        public var chars: Int
+        @EmptyWhenNull public var sections: [Section]
+
+        public struct Section: Codable, Sendable, Equatable {
+            public var title: String
+            public var chars: Int
+        }
+    }
+
+    public struct Piece: Codable, Sendable, Equatable {
+        public var type: String
+        public var role: String?
+        public var kind: String?
+        public var turn: Int?
+        public var action: Int?
+        public var chars: Int
+        public var head: String?
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case index, turn, at, trigger, summary, preserved, reinjected
+        case durationMs = "duration_ms"
+        case preTokens = "pre_tokens"
+        case postTokens = "post_tokens"
+        case cumulativeDropped = "cumulative_dropped"
+        case lastActionBefore = "last_action_before"
+        case contextBefore = "context_before"
+        case firstActionAfter = "first_action_after"
+        case contextAfter = "context_after"
+        case reinjectedChars = "reinjected_chars"
+        case summarisedPrompts = "summarised_prompts"
+        case fileRefs = "file_refs"
+    }
+}
+
 /// One hit of `GET /v0/search`.
 public struct SearchHit: Codable, Sendable, Equatable {
     public var session: String
+    public var project: String?
     public var title: String?
     public var agent: String?
     /// The agent turn; -1 for session-level pieces.
@@ -397,4 +516,21 @@ public struct SearchHit: Codable, Sendable, Equatable {
     public var at: Date?
     /// The matching text with the words between « and ».
     public var snippet: String
+    /// Why it is here: "keyword" (it has the words) or "meaning".
+    public var match: String?
+
+    public init(session: String, project: String? = nil, title: String? = nil, agent: String? = nil, turn: Int, action: Int,
+                kind: String, tool: String? = nil, at: Date? = nil, snippet: String, match: String? = nil) {
+        self.session = session
+        self.project = project
+        self.title = title
+        self.agent = agent
+        self.turn = turn
+        self.action = action
+        self.kind = kind
+        self.tool = tool
+        self.at = at
+        self.snippet = snippet
+        self.match = match
+    }
 }

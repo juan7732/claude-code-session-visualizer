@@ -21,6 +21,7 @@ func newShow() *cobra.Command {
 	var turn, action int
 	var width int
 	var showContext, showThinking bool
+	var agent string
 	cmd := &cobra.Command{
 		Use:   "show <session>",
 		Short: "Show one session as a timeline",
@@ -30,8 +31,8 @@ their tool calls, durations, compactions, API errors and subagent launches.
 <session> is a session id, a unique id prefix, or the path to a .jsonl transcript.
 
 --turn N prints agent turn N in full: every action's thinking, text, tool inputs
-and results. --action N prints one action. --thinking adds thinking text to the
-timeline. --json emits the whole parsed session (image bytes replaced by size).`,
+and results. --action N prints one action; with --agent <id> it is action N of
+that subagent's own transcript. --thinking adds thinking text to the timeline. --json emits the whole parsed session (image bytes replaced by size).`,
 		Example: "  skit show 36086585\n  skit show 36086585 --turn 4\n  skit show 36086585 --action 12\n  skit show ~/.claude/projects/-Users-me-app/<id>.jsonl --json",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -43,6 +44,16 @@ timeline. --json emits the whole parsed session (image bytes replaced by size).`
 			w := cmd.OutOrStdout()
 			if jsonWanted(cmd) {
 				return writeJSON(w, archive.Document(r))
+			}
+			if agent != "" {
+				sub := s.SubagentSession(agent)
+				if sub == nil {
+					return fmt.Errorf("no subagent %q in session %s", agent, s.ID)
+				}
+				if !cmd.Flags().Changed("action") {
+					return fmt.Errorf("--agent needs --action N: the step of the subagent to print")
+				}
+				return printAction(w, sub, action, width)
 			}
 			if cmd.Flags().Changed("action") {
 				return printAction(w, s, action, width)
@@ -59,6 +70,7 @@ timeline. --json emits the whole parsed session (image bytes replaced by size).`
 	}
 	cmd.Flags().IntVarP(&turn, "turn", "t", 0, "print agent turn N in full: all its actions and tool results")
 	cmd.Flags().IntVarP(&action, "action", "a", 0, "print action N in full (one API request)")
+	cmd.Flags().StringVar(&agent, "agent", "", "with --action: the subagent whose action N to print (its agent id)")
 	cmd.Flags().BoolVar(&showThinking, "thinking", false, "include thinking text under each action in the timeline")
 	cmd.Flags().IntVar(&width, "width", 100, "column width for text snippets")
 	cmd.Flags().BoolVar(&showContext, "context", false, "also show what shaped the context: blocks injected into prompts and every attachment Claude Code added")

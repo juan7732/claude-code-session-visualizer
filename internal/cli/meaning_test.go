@@ -135,12 +135,44 @@ func TestMeaningSearchFromNothing(t *testing.T) {
 		t.Fatalf("second embed = %+v, downloads %d", res, downloads.Load())
 	}
 
+	// The stand-in's cosines are word overlaps, under the gate a real model is
+	// held to, so by default the answer is that nothing is close enough.
 	var hits []search.Hit
 	runJSON(t, &hits, "search", "--mode", "meaning", "a retention sweep deletes the session files")
+	if len(hits) != 0 {
+		t.Fatalf("gated meaning search = %+v", hits)
+	}
+	if out, err := run(t, "search", "--mode", "meaning", "a retention sweep deletes the session files"); err != nil || !strings.Contains(out, "nothing in the archive is close") || !strings.Contains(out, "--all") {
+		t.Fatalf("gated meaning search for people: %q %v", out, err)
+	}
+	runJSON(t, &hits, "search", "--mode", "meaning", "--all", "a retention sweep deletes the session files")
 	if len(hits) == 0 || hits[0].Turn != 0 || hits[0].Match != "meaning" || hits[0].Cosine <= 0 {
 		t.Fatalf("meaning search = %+v", hits)
 	}
-	out, err := run(t, "search", "--mode", "meaning", "-n", "2", "a retention sweep deletes the session files")
+	// Narrowed to a session by a prefix of its id, to two kinds, with a gate
+	// low enough for the stand-in.
+	runJSON(t, &hits, "search", "--mode", "meaning", "--session", "bbbbbbbb", "--kind", "prompt,thinking", "--min-cosine", "0.01", "a retention sweep deletes the session files")
+	if len(hits) == 0 {
+		t.Fatal("narrowed meaning search found nothing")
+	}
+	for _, h := range hits {
+		if h.Kind != "prompt" && h.Kind != "thinking" {
+			t.Fatalf("--kind prompt,thinking returned a %s", h.Kind)
+		}
+	}
+	if _, err := run(t, "search", "--session", "cccccccc", "retention"); err == nil || !strings.Contains(err.Error(), "no archived session starts with") {
+		t.Fatalf("--session with an unknown prefix: %v", err)
+	}
+	runJSON(t, &hits, "search", "--no-tools", "Zstandard", "version")
+	for _, h := range hits {
+		if h.Kind == "tool_use" || h.Kind == "tool_result" {
+			t.Fatalf("--no-tools returned a %s", h.Kind)
+		}
+	}
+	if len(hits) == 0 {
+		t.Fatal("--no-tools should still find the reply about Zstandard")
+	}
+	out, err := run(t, "search", "--mode", "meaning", "--all", "-n", "2", "a retention sweep deletes the session files")
 	if err != nil || !strings.Contains(out, "turn 0") || !strings.Contains(out, "cos 0.") || strings.Count(out, "\n  turn") != 2 {
 		t.Fatalf("meaning search for people:\n%s\n%v", out, err)
 	}
@@ -155,7 +187,7 @@ func TestMeaningSearchFromNothing(t *testing.T) {
 	  {"q": "Zstandard", "expect": ["bbbbbbbb@4"], "tag": "wrong-on-purpose"},
 	  {"q": "quantum chromodynamics lattice", "expect": []}]}`), 0o644)
 	var rep search.EvalReport
-	runJSON(t, &rep, "eval", evalFile)
+	runJSON(t, &rep, "eval", evalFile, "--all")
 	if len(rep.Modes) != 2 || rep.Modes[0].Overall.N != 2 || rep.Modes[0].Overall.R1 != 0.5 || rep.Modes[1].Outcomes[0].Rank != 1 || rep.Modes[1].Nothing.Answered != 1 {
 		t.Fatalf("eval = %+v", rep)
 	}

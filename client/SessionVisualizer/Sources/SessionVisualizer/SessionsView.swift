@@ -107,7 +107,7 @@ struct SessionsView: View {
     }
 }
 
-private struct Chip: View {
+struct Chip: View {
     @Environment(\.palette) private var palette
     var title: String
     var on: Bool

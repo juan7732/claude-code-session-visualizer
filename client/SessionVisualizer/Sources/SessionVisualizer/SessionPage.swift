@@ -2,7 +2,7 @@ import SkitKit
 import SwiftUI
 
 /// One session: its views over one selection, and the drawer under them.
-/// The Summary's head and the Transcript are built; the other views name the
+/// The Summary and the Transcript are built; the other views name the
 /// milestone that brings them.
 struct SessionPage: View {
     @Environment(AppStore.self) private var store
@@ -25,13 +25,20 @@ struct SessionPage: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if inspector, window.sessionView == .transcript, let key = window.selection, let model = store.model(id) {
+            if inspector, window.sessionView == .transcript || window.sessionView == .summary, let key = window.selection, let model = store.model(id) {
                 Drawer(model: model, key: key).transition(.move(edge: .bottom))
             }
         }
         .animation(.easeOut(duration: 0.15), value: window.selection == nil)
         .task(id: id) { await store.loadStats(id) }
-        .task(id: id) { await store.loadModel(id) }
+        .task(id: id) {
+            await store.loadModel(id)
+            if let model = store.model(id) { window.applyPending(in: model) }
+        }
+        .onChange(of: window.pending) {
+            // A link to a node of the session that is already open.
+            if let model = store.model(id) { window.applyPending(in: model) }
+        }
     }
 
     @ViewBuilder private var transcript: some View {
@@ -51,173 +58,6 @@ struct SessionPage: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity).background(palette.bg)
         }
-    }
-}
-
-struct SummaryView: View {
-    @Environment(AppStore.self) private var store
-    @Environment(\.palette) private var palette
-    var session: SessionSummary
-    @State private var newTag = ""
-
-    var body: some View {
-        let note = store.annotation(session.id)
-        ScrollView {
-            VStack(alignment: .leading, spacing: 0) {
-                Text(session.title).font(.display(30)).tracking(-0.3).textSelection(.enabled)
-                when.padding(.top, 6)
-                tagRow(note).padding(.top, 10)
-                Grid(horizontalSpacing: 12, verticalSpacing: 12) {
-                    GridRow {
-                        sizeCard
-                        contextCard
-                    }
-                }
-                .padding(.top, 18)
-                SessionNote(sessionID: session.id).padding(.top, 12)
-                Text("What it is about, where it ended, outcome, problems and parallel work arrive with the full Summary (M9).")
-                    .font(.system(size: 11.5)).foregroundStyle(palette.muted).padding(.top, 14)
-            }
-            .frame(maxWidth: Metric.wideColumn, alignment: .leading)
-            .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 60)
-            .frame(maxWidth: .infinity)
-        }
-        .background(palette.bg)
-    }
-
-    private var when: some View {
-        HStack(spacing: 8) {
-            if store.isLive(session.id) {
-                Circle().fill(palette.ok).frame(width: 7, height: 7)
-                Text("Live")
-            } else {
-                Text(session.archivedOnly == true ? "Archived; source gone" : "Archived")
-            }
-            Text("·")
-            Text("\(Format.dateTime(session.firstAt)) → \(Format.dateTime(session.lastAt))")
-            Text("·")
-            Text(session.duration)
-            if let cwd = session.cwd {
-                Text("·")
-                Text(Format.middleEllipsis(Format.homeRelative(cwd), max: 40)).help(cwd)
-            }
-            if let cwds = session.cwds, cwds.count > 1 {
-                Text("·")
-                Text("\(cwds.count) directories").help(cwds.joined(separator: "\n"))
-            }
-        }
-        .font(.label(12)).foregroundStyle(palette.muted).lineLimit(1)
-    }
-
-    private func tagRow(_ note: Annotation) -> some View {
-        HStack(spacing: 8) {
-            Button {
-                Task { await store.togglePin(session.id) }
-            } label: {
-                Label(note.pinned ? "Pinned" : "Pin", systemImage: note.pinned ? "star.fill" : "star")
-                    .font(.system(size: 12)).foregroundStyle(note.pinned ? palette.warn : palette.muted)
-            }
-            .buttonStyle(.plain)
-            ForEach(note.tags, id: \.self) { tag in
-                HStack(spacing: 4) {
-                    Text("#" + tag)
-                    Button {
-                        Task { await store.removeTag(session.id, tag) }
-                    } label: {
-                        Image(systemName: "xmark").font(.system(size: 8, weight: .bold))
-                    }
-                    .buttonStyle(.plain).help("Remove tag")
-                }
-                .font(.system(size: 11.5)).foregroundStyle(palette.ink2)
-                .padding(.horizontal, 8).padding(.vertical, 2).background(palette.line, in: Capsule())
-            }
-            TextField("add a tag", text: $newTag)
-                .textFieldStyle(.plain).font(.system(size: 12)).frame(width: 90)
-                .overlay(alignment: .bottom) { Rectangle().fill(palette.line2).frame(height: 1).offset(y: 3) }
-                .onSubmit {
-                    let tag = newTag
-                    newTag = ""
-                    Task { await store.addTag(session.id, tag) }
-                }
-            Spacer()
-        }
-    }
-
-    private var sizeCard: some View {
-        Card(title: "Size") {
-            Text("\(session.prompts) prompt\(session.prompts == 1 ? "" : "s")").font(.display(24)).tracking(-0.2)
-            Facts(rows: [
-                ("Turns", "\(session.turns)" + (session.systemTurns > 0 ? " · \(session.systemTurns) by the system" : "")),
-                ("Actions", "\(session.requests)"),
-                ("Tool calls", "\(session.toolCalls)" + (session.toolErrors > 0 ? " · \(session.toolErrors) failed" : "")),
-                ("Output", Format.tokens(session.usage.outputTokens) + " tokens"),
-                ("Wall", session.duration),
-                ("Cost", session.claudeCodeCostUsd.map { Format.money($0) + " · Claude Code's figure" } ?? "not recorded"),
-            ] + rewound)
-        }
-    }
-
-    private var rewound: [(String, String)] {
-        guard let actions = session.rewoundActions, actions > 0 else { return [] }
-        return [("Rewound", "\(session.rewoundTurns ?? 0) turns · \(actions) actions, included above")]
-    }
-
-    private var contextCard: some View {
-        Card(title: "Context") {
-            switch store.stats[session.id] {
-            case .loaded(let stats):
-                let peak = (stats.context ?? []).map(\.tokens).max() ?? 0
-                Text("\(Format.tokens(peak)) peak").font(.display(24)).tracking(-0.2)
-                Facts(rows: [
-                    ("Compactions", compactions(stats)),
-                    ("Cache hit", "\(Int((stats.cacheHitRatio * 100).rounded()))%"),
-                    ("Models", stats.models.map { $0.name.replacingOccurrences(of: "claude-", with: "") }.joined(separator: ", ")),
-                ] + (stats.images > 0 ? [("Images", "\(stats.images)")] : []))
-            case .failed(let why):
-                Text("Could not load").font(.display(24))
-                Text(why).font(.system(size: 12)).foregroundStyle(palette.err).textSelection(.enabled)
-            case .loading, nil:
-                Text("…").font(.display(24)).foregroundStyle(palette.muted)
-                Text("Reading the session").font(.system(size: 12)).foregroundStyle(palette.muted)
-            }
-        }
-    }
-
-    private func compactions(_ stats: SessionSummary) -> String {
-        let list = stats.compactionList ?? []
-        guard !list.isEmpty else { return "none" }
-        return list.map { "\(Format.tokens($0.preTokens)) → \(Format.tokens($0.postTokens))" }.joined(separator: ", ")
-    }
-}
-
-/// A note on the session as a whole, kept by the engine.
-private struct SessionNote: View {
-    @Environment(AppStore.self) private var store
-    @Environment(\.palette) private var palette
-    var sessionID: String
-    @State private var text = ""
-    @State private var saved = ""
-
-    var body: some View {
-        Card(title: "Note") {
-            TextField("Add a note on this session", text: $text, axis: .vertical)
-                .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...8)
-                .onSubmit { save() }
-            if text != saved {
-                Button("Save") { save() }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(palette.accent)
-            }
-        }
-        .onAppear {
-            saved = store.annotation(sessionID).notes["session"] ?? ""
-            text = saved
-        }
-        .onDisappear { if text != saved { save() } }
-    }
-
-    private func save() {
-        let (id, value) = (sessionID, text)
-        saved = value
-        Task { await store.setNote(id, key: "session", value) }
     }
 }
 

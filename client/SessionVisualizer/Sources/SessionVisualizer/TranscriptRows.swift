@@ -408,6 +408,8 @@ private struct StrandView: View {
             }
             if open {
                 ForEach(steps, id: \.index) { step in
+                    // A step is a node of its own: a click inspects it.
+                    let stepKey = NodeKey.step(agent: sub.agentId, index: step.index)
                     HStack(spacing: 8) {
                         Text("\(step.index)").font(.system(size: 10, design: .monospaced)).foregroundStyle(palette.muted).frame(width: 18, alignment: .trailing)
                         Image(systemName: step.family?.symbol ?? "text.bubble").font(.system(size: 10)).foregroundStyle(step.family.map(palette.color) ?? palette.muted).frame(width: 14)
@@ -415,7 +417,11 @@ private struct StrandView: View {
                         Spacer(minLength: 6)
                         Text(SessionModel.duration(step.seconds)).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(palette.muted)
                     }
-                    .padding(.vertical, 2)
+                    .padding(.vertical, 2).padding(.horizontal, 4)
+                    .background(window.selection == stepKey ? palette.accentSoft : .clear, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
+                    .contentShape(Rectangle())
+                    .onTapGesture { window.select(stepKey, in: model, scroll: false) }
+                    .accessibilityAddTraits(.isButton)
                 }
             } else {
                 Label(SessionModel.firstLine(handback?.message ?? (sub.meta?.finished == false ? "working…" : "done"), max: 150), systemImage: "arrow.uturn.backward")
@@ -633,6 +639,13 @@ private struct NodeMenu: ViewModifier {
             if let turn = model.turnIndex(of: key), (model.turn(turn)?.toolCalls ?? 0) > 0 {
                 let folded = window.transcript.folded.contains(turn)
                 Button(folded ? "Show This Turn's Tool Calls" : "Fold This Turn's Tool Calls") { window.setFolded(turn, !folded, in: model) }
+            }
+            Divider()
+            if let turn = model.turnIndex(of: key) {
+                Button("Copy Turn as Markdown") { Exporter.copyTurn(turn, of: model.doc.id, store: store) }
+            }
+            Button("Copy Link") {
+                if let url = SessionLink.url(session: model.doc.id, view: .transcript, key: key) { copy(url.absoluteString) }
             }
             if case .tool(let id) = key, let call = model.toolsByID[id] {
                 Divider()

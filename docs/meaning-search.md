@@ -5,9 +5,9 @@ does my history vanish after a month" finds the turn about `cleanupPeriodDays` a
 word with the question. This is M14 in `plan-v0.md`; the decision to use a `llama-server` sidecar is
 `decisions/0005-embedding-worker.md`, and the measurements behind it are in `embedding-spike.md`.
 
-State on 2026-11-10: the engine can embed the archive and rank by meaning in a plain form, and it can measure itself on
-an eval of 33 queries. The scorer that fuses meaning with words and can say "nothing found" is not built; the eval it is
-tuned on now exists, and one change (a stopword list for keyword search) has been judged on it.
+State on 2026-11-10: the engine can embed the archive, rank by meaning, say that nothing in the archive is close enough,
+and measure itself on an eval of 33 queries. Three scoring changes have been judged on the eval. Fusing meaning with
+words into one `hybrid` mode is not built.
 
 ## What happens
 
@@ -70,11 +70,26 @@ there says to run `skit embed`.
 ```
 skit embed                      cut, embed, report; downloads the model the first time
 skit embed --status             llama-server, the model file, how many texts have vectors; changes nothing
-skit search --mode meaning …    rank by meaning; each hit has cosine and z
+skit search --mode meaning …    rank by meaning; each hit has cosine and z; nothing is returned when nothing is close
+                                enough (--all returns the nearest anyway; --min-cosine, --min-z move the gate)
+skit search … --session ID --project P --kind K1,K2 --no-tools
+                                narrow either mode: one session (id or prefix), a project, some kinds, no tool calls
 skit eval queries.json          R@1, R@5, R@10, MRR per mode and tag; --misses lists what did not come first
 skit doctor                     has a "Meaning search" section (the same report as embed --status)
-GET /v0/search?mode=meaning&q=  the same hits; 409 until `skit embed` has run, 503 if the sidecar cannot start
+GET /v0/search?mode=meaning&q=  the same hits; 409 until `skit embed` has run, 503 if the sidecar cannot start;
+                                session=, project=, kind=a,b, tools=0, all=1, min_cosine=, min_z= as on the CLI
 ```
+
+**What a hit is.** One segment: a prompt, a piece of reply text, a thinking block, a tool call, a tool result, an
+injected context block or a compaction summary. It carries its session, its agent turn and its action, so a face can
+open the exact place. In meaning mode a segment is represented by its closest piece, and tool calls, tool results and
+context have no vectors, so they never appear. Keyword mode searches every kind; `--no-tools` leaves tool calls and
+their results out.
+
+**The gate.** A piece is a match when its cosine reaches 0.73 or its z reaches 3.6. Below both it is only the nearest
+thing in an archive that has nothing on the subject, and it is not returned: the answer is an empty list. z is taken
+over every piece in the index even when the search is narrowed to a session or a kind, so it means the same thing
+however small the part searched. The two values are provisional (see "The eval so far").
 
 A hit says why it is there: `match` is `keyword` or `meaning`. A meaning hit carries `cosine` (similarity of its closest
 piece) and `z` (how many standard deviations that stands above the mean over every piece scored for the query).
@@ -135,7 +150,10 @@ which it was written is excluded: before that, it was the first keyword hit for 
 | ------------------------------- | ---- | ---- | ---- | ---- | -------------------------- |
 | keyword, as first built         | 0.42 | 0.65 | 0.81 | 0.51 | 6 of 7                     |
 | keyword, with the stopword list | 0.58 | 0.69 | 0.81 | 0.64 | 5 of 7                     |
+| keyword, versions kept whole    | 0.62 | 0.73 | 0.85 | 0.68 | 5 of 7                     |
+| keyword, without tool calls     | 0.65 | 0.69 | 0.69 | 0.67 | 4 of 7                     |
 | meaning (plain cosine)          | 0.65 | 0.77 | 0.81 | 0.71 | 7 of 7                     |
+| meaning, with the gate          | 0.65 | 0.77 | 0.77 | 0.70 | 0 of 7                     |
 
 **The stopword list** (first scoring change judged on the eval). A question typed in full used to match every "how" and
 "out" in a tool result. With the common English function words ignored, six queries moved up (four of them to first
@@ -143,11 +161,41 @@ place) and one fell out of the first ten: "What did we decide was the issue for 
 early?", whose answer shares only one or two of its remaining words and no longer passes the half-of-the-words rule.
 Meaning search has that one in second place.
 
-What the eval shows that the scorer has to deal with:
+**Versions kept whole.** "0.5.1" found nothing by keyword: the dots split it into single characters, which were dropped.
+A version, a date or a numbered name ("0.5.1", "2026-11-10", "issue-3") is now one term, searched as a phrase. One query
+moved from not found to first; nothing else moved.
 
-- Neither mode can say "nothing found". That is the gate.
+**The gate.** Without it, the nearest piece to a query the archive has nothing on had cosine 0.649 to 0.724 and z 2.95
+to 3.59; the right first hit for a query it does answer had cosine 0.707 to 0.883 and z 3.68 to 9.38. "Cosine ≥ 0.73 or
+z ≥ 3.6" gives none of the seven an answer and leaves R@1 and R@5 where they were. R@10 loses one query whose right turn
+sat in eighth place below the gate. An answerable query now shows 5 hits at the median instead of every piece in the
+index. Either test alone costs more:
+
+| Gate                     | R@1  | R@5  | R@10 | "Nothing" answered | Answerable queries left with no hit |
+| ------------------------ | ---- | ---- | ---- | ------------------ | ----------------------------------- |
+| none                     | 0.65 | 0.77 | 0.81 | 7 of 7             | 0                                   |
+| cosine ≥ 0.70            | 0.65 | 0.77 | 0.77 | 3 of 7             | 0                                   |
+| cosine ≥ 0.73            | 0.62 | 0.73 | 0.73 | 0 of 7             | 2                                   |
+| cosine ≥ 0.75            | 0.58 | 0.58 | 0.58 | 0 of 7             | 8                                   |
+| z ≥ 2.0 (DigUp's)        | 0.65 | 0.77 | 0.81 | 7 of 7             | 0                                   |
+| z ≥ 3.3                  | 0.65 | 0.73 | 0.73 | 2 of 7             | 1                                   |
+| z ≥ 3.6                  | 0.65 | 0.73 | 0.73 | 0 of 7             | 3                                   |
+| cosine ≥ 0.73 or z ≥ 3.6 | 0.65 | 0.77 | 0.77 | 0 of 7             | 0                                   |
+
+Two cautions. The margins are thin (0.724 against 0.73, 3.59 against 3.6) and seven queries drew the line: more queries
+that should find nothing are the first thing that should move these values. And z does not hold still as an archive
+grows: the largest of n unrelated scores rises with n (about √(2 ln n) standard deviations for a bell curve, 3.8 at
+1,400 pieces and 5.0 at 225,000), so a fixed z gate lets more noise through in a larger archive. The cosine floor does
+not drift that way.
+
+**Without tool calls.** Keyword search answers most "nothing" queries from tool output, where every common word turns
+up. Leaving tool calls out puts one more right turn first and loses four that were found lower down through what a tool
+printed. It is a filter for the user (`--no-tools`), not the default.
+
+What the eval shows that the scorer still has to deal with:
+
+- Keyword mode cannot say "nothing found": 5 of 7 get an answer, from tool output.
 - Each mode finds turns the other misses, which is the case for fusing them.
-- A bare version number ("0.5.1") finds nothing by keyword: the dots split it into single characters, which are dropped.
 - Two answers are only in tool output, which has no vectors: the one-line description of a tool in its `--help`, and a
   definition in a file a session read.
 - The user's name for a thing is often not the transcript's ("my jev assignment" is "the SLT" in the turn that holds the
@@ -155,8 +203,8 @@ What the eval shows that the scorer has to deal with:
 
 ## What is not built
 
-- **The scorer.** Fusing meaning with keyword scores, the gate (z, an absolute cosine floor, or both) and a `hybrid`
-  mode. It is tuned on the eval, and each change carries its delta.
+- **`hybrid` mode.** Keyword stays a mode of its own and the default; hybrid is the alternative that fuses meaning with
+  keyword scores (decided 2026-11-10). It is tuned on the eval, and each change carries its delta.
 - **Vectors for tool calls.** Tool calls and results have none. First step: embed tool output that reads as prose. Then,
   issue #4: a small local model writes what a call did, and that summary is embedded with the call.
 - **Embedding without being asked.** Today `skit embed` is run by hand after `skit archive`. The watcher and the

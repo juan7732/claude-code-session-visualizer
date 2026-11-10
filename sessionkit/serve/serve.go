@@ -9,20 +9,24 @@
 //	GET  /v0/sessions/{id}            session document (archive.SessionDoc)
 //	GET  /v0/sessions/{id}/stats      stats.Summary with the context curve
 //	GET  /v0/sessions/{id}/turns/{n}  one agent turn: its actions, each with tool calls and results
-//	GET  /v0/sessions/{id}/actions/{n} one action with its tool calls and results
+//	GET  /v0/sessions/{id}/actions/{n} one action with its tool calls and results (?agent=<id>: of that subagent)
 //	GET  /v0/sessions/{id}/actions/{n}/context  what the model received: system prompt, tools, messages, attachments (?full=1 for texts)
 //	GET  /v0/sessions/{id}/compactions/{n}      before/after a compaction: summary sections, preserved messages, re-injected context
-//	GET  /v0/sessions/{id}/relations            action spans, background tasks, hand-backs, retries, files, outside services, events
+//	GET  /v0/sessions/{id}/relations            action spans, background tasks, hand-backs, retries, files, outside services, commits, events
+//	GET  /v0/sessions/{id}/export?format=markdown&turn=&thinking=   the session or one turn as Markdown (text/markdown)
 //	GET  /v0/sessions/{id}/images               the session's images (no bytes); /images/{n} returns one image
 //	GET  /v0/sessions/{id}/annotations          pin, tags and notes; PATCH the same path to change them
 //	GET  /v0/annotations                        every annotated session
 //	GET  /v0/claude?root=                       how Claude Code is configured: settings layers, experiments, flags (redacted)
-//	GET  /v0/search?q=&mode=&limit=&project=&session=&kind=&prefix=   mode: keyword (default) | meaning
+//	GET  /v0/search?q=&mode=&limit=&project=&session=&kind=&tools=&prefix=&all=&min_cosine=&min_z=
+//	                                  mode: keyword (default) | meaning; kind: one or several, comma-separated;
+//	                                  tools=0 leaves out tool calls and results; all=1 turns the meaning gate off
 //	POST /v0/archive                  {"ids": [...], "project": "", "strip_requests": false} → archive results
 //	GET  /v0/archive/verify?id=       every archived copy (or those ids) checked against the index
 package serve
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -42,6 +46,7 @@ import (
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/claudeconfig"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/export"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/search"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
@@ -88,6 +93,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}/context", s.actionContext)
 	mux.HandleFunc("GET /v0/sessions/{id}/compactions/{n}", s.compaction)
 	mux.HandleFunc("GET /v0/sessions/{id}/relations", s.relations)
+	mux.HandleFunc("GET /v0/sessions/{id}/export", s.export)
 	mux.HandleFunc("GET /v0/sessions/{id}/images", s.images)
 	mux.HandleFunc("GET /v0/sessions/{id}/images/{n}", s.image)
 	mux.HandleFunc("GET /v0/sessions/{id}/annotations", s.annotation)
@@ -131,10 +137,10 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 		"version": s.Version,
 		"routes": []string{
 			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
-			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
-			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
+			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}?agent=", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
+			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/export?format=markdown&turn=&thinking=", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
 			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=",
-			"GET /v0/search?q=&mode=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive", "GET /v0/archive/verify?id=",
+			"GET /v0/search?q=&mode=&limit=&project=&session=&kind=&tools=&prefix=&all=&min_cosine=&min_z=", "POST /v0/archive", "GET /v0/archive/verify?id=",
 		},
 	})
 }
@@ -277,12 +283,49 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
+	// ?agent=<id>: action n of that subagent's own transcript.
+	sess := res.Session
+	if agent := r.URL.Query().Get("agent"); agent != "" {
+		if sess = res.Session.SubagentSession(agent); sess == nil {
+			writeError(w, http.StatusNotFound, fmt.Sprintf("no subagent %q in this session", agent))
+			return
+		}
+	}
 	n, err := strconv.Atoi(r.PathValue("n"))
-	if err != nil || n < 0 || n >= len(res.Session.Actions) {
-		writeError(w, http.StatusNotFound, fmt.Sprintf("action %q out of range (session has %d actions)", r.PathValue("n"), len(res.Session.Actions)))
+	if err != nil || n < 0 || n >= len(sess.Actions) {
+		writeError(w, http.StatusNotFound, fmt.Sprintf("action %q out of range (%d actions)", r.PathValue("n"), len(sess.Actions)))
 		return
 	}
-	writeJSON(w, http.StatusOK, actionDoc(res.Session, res.Session.Actions[n]))
+	writeJSON(w, http.StatusOK, actionDoc(sess, sess.Actions[n]))
+}
+
+// export writes the session, or one turn of it, as Markdown: `skit export`.
+func (s *Server) export(w http.ResponseWriter, r *http.Request) {
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	q := r.URL.Query()
+	if f := q.Get("format"); f != "" && f != "markdown" {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("unknown format %q: markdown is the one there is", f))
+		return
+	}
+	opt := export.Options{Thinking: q.Get("thinking") == "1" || q.Get("thinking") == "true"}
+	if t := q.Get("turn"); t != "" {
+		n, err := strconv.Atoi(t)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "turn must be a number")
+			return
+		}
+		opt.Turn = &n
+	}
+	var text bytes.Buffer
+	if err := export.Markdown(&text, res.Session, opt); err != nil {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	_, _ = w.Write(text.Bytes())
 }
 
 func (s *Server) actionContext(w http.ResponseWriter, r *http.Request) {
@@ -425,15 +468,22 @@ func (s *Server) claude(w http.ResponseWriter, r *http.Request) {
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
-	hits, err := search.Search(r.Context(), s.Archive.Store, s.Embedder, q.Get("q"), search.Options{Mode: q.Get("mode"), Limit: limit,
-		Project: q.Get("project"), Session: q.Get("session"), Kind: q.Get("kind"), PrefixLast: q.Get("prefix") == "1" || q.Get("prefix") == "true"})
+	on := func(name string) bool { return q.Get(name) == "1" || q.Get(name) == "true" }
+	opt := search.Options{Mode: q.Get("mode"), Limit: limit, Project: q.Get("project"), Session: q.Get("session"),
+		PrefixLast: on("prefix"), NoGate: on("all"), NoTools: q.Get("tools") == "0" || q.Get("tools") == "false"}
+	if k := q.Get("kind"); k != "" {
+		opt.Kinds = strings.Split(k, ",")
+	}
+	opt.MinCosine, _ = strconv.ParseFloat(q.Get("min_cosine"), 64)
+	opt.MinZ, _ = strconv.ParseFloat(q.Get("min_z"), 64)
+	hits, err := search.Search(r.Context(), s.Archive.Store, s.Embedder, q.Get("q"), opt)
 	switch {
 	case err == nil:
 	case errors.Is(err, search.ErrNoEmbedder), errors.Is(err, search.ErrNoVectors), errors.Is(err, search.ErrStaleVectors):
 		// The request is fine; the index is not ready for it. `skit embed` is.
 		writeError(w, http.StatusConflict, err.Error()+": run `skit embed`")
 		return
-	case errors.Is(err, search.ErrEmptyQuery), errors.Is(err, search.ErrUnknownMode):
+	case errors.Is(err, search.ErrEmptyQuery), errors.Is(err, search.ErrUnknownMode), errors.Is(err, search.ErrUnknownKind):
 		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	default:

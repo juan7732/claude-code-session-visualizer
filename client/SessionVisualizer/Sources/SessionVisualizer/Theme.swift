@@ -156,4 +156,10 @@ enum SettingsKey {
     static let scrollMap = "transcript.scrollMap"
     static let keyHint = "transcript.keyHint"
     static let foldByDefault = "transcript.foldByDefault"
+    static let summaryDigest = "summary.digest"
+    static let summaryHours = "summary.hours"
+    /// The context window the Summary's gauge measures against, in tokens.
+    static let contextWindow = "summary.contextWindow"
+    /// Recent searches, one per line, newest first.
+    static let recentSearches = "search.recent"
 }

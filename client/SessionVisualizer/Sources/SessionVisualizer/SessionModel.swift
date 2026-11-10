@@ -11,6 +11,12 @@ nonisolated enum NodeKey: Hashable, Sendable {
     case compaction(Int)
     /// A folded run of tool calls, named by the first action in it.
     case work(Int)
+    /// One step of a subagent: an action of its own transcript.
+    case step(agent: String, index: Int)
+    /// A file the session touched, by its path as the engine reports it.
+    case file(String)
+    /// A service beyond the machine, by the engine's kind and name ("web:github.com").
+    case outside(String)
 
     /// The key a note about this node is stored under (opaque to the engine).
     var noteKey: String {
@@ -21,6 +27,9 @@ nonisolated enum NodeKey: Hashable, Sendable {
         case .subagent(let id): "subagent:\(id)"
         case .compaction(let n): "compaction:\(n)"
         case .work(let n): "work:\(n)"
+        case .step(let agent, let index): "step:\(agent):\(index)"
+        case .file(let path): "file:\(path)"
+        case .outside(let id): "outside:\(id)"
         }
     }
 
@@ -32,6 +41,9 @@ nonisolated enum NodeKey: Hashable, Sendable {
         case .subagent: "subagent"
         case .compaction: "compaction"
         case .work: "tool calls"
+        case .step: "subagent step"
+        case .file: "file"
+        case .outside: "outside"
         }
     }
 }
@@ -175,6 +187,10 @@ nonisolated struct SessionModel: Sendable, Equatable {
     let runs: [Int: [Int]]
     /// The run an action's tool calls fold into.
     let runOfAction: [Int: Int]
+    /// The files each turn wrote, in the order it first wrote them.
+    let writtenByTurn: [Int: [String]]
+    let filesByPath: [String: Relations.FileTouched]
+    let outsideByID: [String: Relations.Outside]
 
     init(doc: SessionDocument, relations: Relations) {
         self.doc = doc
@@ -254,6 +270,17 @@ nonisolated struct SessionModel: Sendable, Equatable {
         close()
         self.runs = runs
         self.runOfAction = runOfAction
+
+        filesByPath = Dictionary(relations.files.map { ($0.path, $0) }, uniquingKeysWith: { a, _ in a })
+        outsideByID = Dictionary(relations.outside.map { ($0.id, $0) }, uniquingKeysWith: { a, _ in a })
+        var written: [Int: [(Date, String)]] = [:]
+        for file in relations.files where file.writes > 0 {
+            var seen = Set<Int>()
+            for touch in file.touches where touch.mode == "write" && seen.insert(touch.turn).inserted {
+                written[touch.turn, default: []].append((touch.at, file.path))
+            }
+        }
+        writtenByTurn = written.mapValues { $0.sorted { $0.0 < $1.0 }.map(\.1) }
     }
 
     /// The action wrote something for the human to read.
@@ -313,9 +340,9 @@ nonisolated struct SessionModel: Sendable, Equatable {
     func isHiddenWhenFolded(_ key: NodeKey) -> Bool {
         switch key {
         case .tool(let id): toolsByID[id].map { runOfAction[$0.action] != nil } ?? false
-        case .subagent: true
+        case .subagent, .step: true
         case .action(let n): runOfAction[n] != nil && !(action(n).map(Self.hasProse) ?? true)
-        case .turn, .compaction, .work: false
+        case .turn, .compaction, .work, .file, .outside: false
         }
     }
 
@@ -338,7 +365,8 @@ nonisolated struct SessionModel: Sendable, Equatable {
         case .compaction(let n): "c\(n)"
         case .work(let n): "w\(n)"
         case .tool(let id): toolsByID[id].map { "a\($0.action)" }
-        case .subagent(let id): subagent(id)?.toolUseId.flatMap { toolsByID[$0] }.map { "a\($0.action)" }
+        case .subagent(let id), .step(let id, _): subagent(id)?.toolUseId.flatMap { toolsByID[$0] }.map { "a\($0.action)" }
+        case .file, .outside: nil
         }
     }
 
@@ -348,9 +376,9 @@ nonisolated struct SessionModel: Sendable, Equatable {
         case .turn(let n): n
         case .action(let n): action(n)?.turn
         case .tool(let id): toolsByID[id]?.turn
-        case .subagent(let id): subagent(id)?.toolUseId.flatMap { toolsByID[$0] }?.turn
+        case .subagent(let id), .step(let id, _): subagent(id)?.toolUseId.flatMap { toolsByID[$0] }?.turn
         case .work(let n): action(n)?.turn
-        case .compaction: nil
+        case .compaction, .file, .outside: nil
         }
     }
 
@@ -370,7 +398,55 @@ nonisolated struct SessionModel: Sendable, Equatable {
         case .work(let n):
             let turn = action(n)?.turn
             return runs.keys.sorted().filter { action($0)?.turn == turn }.map { .work($0) }
+        case .step(let agent, _):
+            return (subagent(agent)?.session?.actions.indices).map { $0.map { .step(agent: agent, index: $0) } } ?? []
+        case .file(let path):
+            // Beside a written file, the other written files; else every file.
+            let written = (filesByPath[path]?.writes ?? 0) > 0
+            return relations.files.filter { !written || $0.writes > 0 }.map { .file($0.path) }
+        case .outside:
+            return relations.outside.map { .outside($0.id) }
         }
+    }
+
+    /// The node a search hit is in: a subagent's text belongs to its strand, a
+    /// prompt to its turn, everything else to its action.
+    static func key(for hit: SearchHit) -> NodeKey? {
+        if let agent = hit.agent, !agent.isEmpty { return .subagent(agent) }
+        if hit.action >= 0 { return .action(hit.action) }
+        if hit.turn >= 0 { return .turn(hit.turn) }
+        return nil
+    }
+
+    // MARK: What the Summary reads
+
+    /// The first prompt a human wrote: what the session is about.
+    var firstPrompt: Prompt? {
+        doc.turns.first { $0.isHuman && $0.promptIndex != nil }.flatMap { prompt(ofTurn: $0.index) }
+    }
+
+    /// What the agent said when a turn stopped: the text it ended on, else the
+    /// last text it wrote in the turn.
+    func lastSaid(inTurn index: Int) -> Action? {
+        guard let actions = turn(index)?.actionIndexes.compactMap({ action($0) }) else { return nil }
+        return actions.last { said.contains($0.index) } ?? actions.last { $0.synthetic != true && Self.hasProse($0) }
+    }
+
+    /// The last thing the agent said in the session, and the turn it said it in.
+    var ending: Action? {
+        for turn in doc.turns.reversed() {
+            if let action = lastSaid(inTurn: turn.index) { return action }
+        }
+        return nil
+    }
+
+    var failedCalls: [ToolCall] { doc.toolCalls.filter(\.isError) }
+
+    /// The tool calls of a subagent's step.
+    func tools(ofStep index: Int, agent: String) -> [ToolCall] {
+        guard let run = subagent(agent)?.session, run.actions.indices.contains(index) else { return [] }
+        let ids = Set(run.actions[index].toolUseIDs)
+        return run.toolCalls.filter { ids.contains($0.id) }
     }
 
     func steps(of sub: Subagent) -> [SubagentStep] {
@@ -445,12 +521,15 @@ nonisolated struct SessionModel: Sendable, Equatable {
         return ""
     }
 
-    /// 420ms, 38.0s, 2m 5s, 1h 51m.
+    /// 420ms, 38.0s, 2m 5s, 1h 51m, 16d 16h.
     static func duration(_ seconds: TimeInterval) -> String {
         if seconds == 0 { return "0s" }
         if seconds < 1 { return "\(Int((seconds * 1000).rounded()))ms" }
-        if seconds < 60 { return String(format: "%.1fs", seconds) }
-        if seconds < 3600 { return "\(Int(seconds) / 60)m \(Int(seconds.truncatingRemainder(dividingBy: 60).rounded()))s" }
-        return "\(Int(seconds) / 3600)h \(Int(seconds) % 3600 / 60)m"
+        if seconds < 59.95 { return String(format: "%.1fs", seconds) }
+        // Whole seconds from here on, rounded once, so 419.6 s is 7m 0s and not 6m 60s.
+        let whole = Int(seconds.rounded())
+        if whole < 3600 { return "\(whole / 60)m \(whole % 60)s" }
+        if whole < 48 * 3600 { return "\(whole / 3600)h \(whole % 3600 / 60)m" }
+        return "\(whole / 86_400)d \(whole % 86_400 / 3600)h"
     }
 }

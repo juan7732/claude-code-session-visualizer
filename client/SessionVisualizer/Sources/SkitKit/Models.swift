@@ -99,6 +99,8 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var firstAt: Date
     public var lastAt: Date
     public var duration: String
+    /// The part of `duration` spent inside turns; the rest waited for the human.
+    public var inTurns: String?
     public var partial: Bool?
 
     public var prompts: Int
@@ -115,6 +117,9 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var apiErrors: Int
     public var subagents: Int
     public var branches: Int
+    /// Blocks the IDE or Claude Code injected into prompts; attachments it added.
+    public var injectedBlocks: Int?
+    public var attachments: Int?
 
     public var usage: Usage
     public var cacheHitRatio: Double
@@ -145,6 +150,7 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
         case firstAt = "first_at"
         case lastAt = "last_at"
         case duration
+        case inTurns = "in_turns"
         case partial
         case prompts
         case turns
@@ -159,6 +165,8 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
         case apiErrors = "api_errors"
         case subagents
         case branches
+        case injectedBlocks = "injected_blocks"
+        case attachments
         case usage
         case cacheHitRatio = "cache_hit_ratio"
         case models
@@ -177,6 +185,13 @@ public struct Usage: Codable, Sendable, Equatable {
     public var outputTokens: Int
     public var cacheCreationInputTokens: Int
     public var cacheReadInputTokens: Int
+
+    public init(inputTokens: Int = 0, outputTokens: Int = 0, cacheCreationInputTokens: Int = 0, cacheReadInputTokens: Int = 0) {
+        self.inputTokens = inputTokens
+        self.outputTokens = outputTokens
+        self.cacheCreationInputTokens = cacheCreationInputTokens
+        self.cacheReadInputTokens = cacheReadInputTokens
+    }
 
     enum CodingKeys: String, CodingKey {
         case inputTokens = "input_tokens"

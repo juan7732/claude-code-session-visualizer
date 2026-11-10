@@ -80,7 +80,9 @@ func TestMeaningRanksTheClosestPiece(t *testing.T) {
 	a, e := embedded(t)
 	ctx := context.Background()
 
-	hits, err := Meaning(ctx, a.Store, e, "a retention sweep deletes the session files", Options{})
+	// The stand-in's cosines are word overlaps, far below a real model's, so
+	// the ranking is looked at without the gate; the gate has its own test.
+	hits, err := Meaning(ctx, a.Store, e, "a retention sweep deletes the session files", Options{NoGate: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +114,7 @@ func TestMeaningRanksTheClosestPiece(t *testing.T) {
 
 	// A subject buried in the last paragraph of a long reply about something
 	// else is found, and the snippet is that paragraph, not the reply's start.
-	hits, err = Meaning(ctx, a.Store, e, "payments test retry with exponential backoff", Options{Limit: 3})
+	hits, err = Meaning(ctx, a.Store, e, "payments test retry with exponential backoff", Options{Limit: 3, NoGate: true})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -121,7 +123,7 @@ func TestMeaningRanksTheClosestPiece(t *testing.T) {
 	}
 
 	// Filters narrow what is scored.
-	hits, err = Meaning(ctx, a.Store, e, "a retention sweep deletes the session files", Options{Kind: "prompt"})
+	hits, err = Meaning(ctx, a.Store, e, "a retention sweep deletes the session files", Options{Kind: "prompt", NoGate: true})
 	if err != nil || len(hits) != 4 {
 		t.Fatalf("kind filter: %d hits %v, want the four prompts with vectors", len(hits), err)
 	}
@@ -130,11 +132,26 @@ func TestMeaningRanksTheClosestPiece(t *testing.T) {
 			t.Fatalf("kind filter let through %+v", h)
 		}
 	}
-	if hits, _ := Meaning(ctx, a.Store, e, "retention", Options{Session: "another-session"}); len(hits) != 0 {
+	// Narrowing the search does not change what z means: the first prompt has
+	// the z it had among everything.
+	everything, _ := Meaning(ctx, a.Store, e, "a retention sweep deletes the session files", Options{NoGate: true})
+	for _, h := range everything {
+		if h.Kind == "prompt" && h.Turn == hits[0].Turn && h.Z != hits[0].Z {
+			t.Fatalf("z of the same prompt: %g among everything, %g among prompts", h.Z, hits[0].Z)
+		}
+	}
+	hits, err = Meaning(ctx, a.Store, e, "a retention sweep deletes the session files", Options{Kinds: []string{"prompt", "thinking"}, NoGate: true})
+	if err != nil || len(hits) != 5 {
+		t.Fatalf("two kinds: %d hits %v, want four prompts and the thinking block", len(hits), err)
+	}
+	if hits, _ := Meaning(ctx, a.Store, e, "retention", Options{Session: "another-session", NoGate: true}); len(hits) != 0 {
 		t.Fatalf("session filter: %d hits", len(hits))
 	}
-	if hits, _ := Meaning(ctx, a.Store, e, "retention", Options{Project: "xxxx-WORK"}); len(hits) == 0 {
+	if hits, _ := Meaning(ctx, a.Store, e, "retention", Options{Project: "xxxx-WORK", NoGate: true}); len(hits) == 0 {
 		t.Fatal("project filter should match a part of the slug, whatever its case")
+	}
+	if _, err := Meaning(ctx, a.Store, e, "retention", Options{Kind: "tool"}); !errors.Is(err, ErrUnknownKind) {
+		t.Fatalf("unknown kind: %v", err)
 	}
 }
 
@@ -175,6 +192,7 @@ func TestEvalScoresWhereTheAnswerLands(t *testing.T) {
 	a, e := embedded(t)
 	ctx := context.Background()
 	run := func(ctx context.Context, q string, opt Options) ([]Hit, error) {
+		opt.NoGate = true // the stand-in's cosines are not a real model's
 		return Search(ctx, a.Store, e, q, opt)
 	}
 	file := `{"queries": [
@@ -310,6 +328,7 @@ func equalInts(a, b []int) bool {
 func TestEvalLeavesOutExcludedSessions(t *testing.T) {
 	a, e := embedded(t)
 	run := func(ctx context.Context, q string, opt Options) ([]Hit, error) {
+		opt.NoGate = true // the stand-in's cosines are not a real model's
 		return Search(ctx, a.Store, e, q, opt)
 	}
 	const queries = `"queries": [{"q": "retention sweep deletes session files", "expect": [], "tag": "nothing", "note": "answered only by the excluded session"}]`
@@ -345,5 +364,78 @@ func TestEvalLeavesOutExcludedSessions(t *testing.T) {
 	}
 	if _, err := LoadEval(a.Store, []byte(`{"exclude": [""], `+queries+`}`)); err == nil || !strings.Contains(err.Error(), "every session") {
 		t.Fatalf("empty exclude entry: %v", err)
+	}
+}
+
+// TestMeaningGate: a piece is a match when its cosine or its z reaches the
+// gate; otherwise it is only the nearest thing there is, and is not returned.
+func TestMeaningGate(t *testing.T) {
+	a, e := embedded(t)
+	ctx := context.Background()
+	const q = "a retention sweep deletes the session files"
+	all, err := Meaning(ctx, a.Store, e, q, Options{NoGate: true})
+	if err != nil || len(all) < 3 || all[0].Cosine <= all[1].Cosine || all[0].Z <= all[1].Z {
+		t.Fatalf("need a clear first hit to test with: %v %+v", err, all)
+	}
+	// A cosine floor between the first and the second hit keeps only the
+	// first; so does a z gate between them. The test not in use is set out of reach.
+	between := func(x, y float64) float64 { return (x + y) / 2 }
+	hits, err := Meaning(ctx, a.Store, e, q, Options{MinCosine: between(all[0].Cosine, all[1].Cosine), MinZ: 99})
+	if err != nil || len(hits) != 1 || hits[0].Turn != all[0].Turn {
+		t.Fatalf("cosine floor: %d hits %v", len(hits), err)
+	}
+	hits, err = Meaning(ctx, a.Store, e, q, Options{MinCosine: 2, MinZ: between(all[0].Z, all[1].Z)})
+	if err != nil || len(hits) != 1 || hits[0].Turn != all[0].Turn {
+		t.Fatalf("z gate: %d hits %v", len(hits), err)
+	}
+	// Either test passing is enough.
+	hits, _ = Meaning(ctx, a.Store, e, q, Options{MinCosine: between(all[1].Cosine, all[2].Cosine), MinZ: 99})
+	both, _ := Meaning(ctx, a.Store, e, q, Options{MinCosine: between(all[1].Cosine, all[2].Cosine), MinZ: between(all[0].Z, all[1].Z)})
+	if len(hits) != 2 || len(both) != 2 {
+		t.Fatalf("cosine floor under the second hit: %d hits alone, %d with a stricter z gate beside it; want 2 and 2", len(hits), len(both))
+	}
+	// By default the gate is on, and a query about nothing in the archive
+	// gets no answer instead of its nearest neighbours.
+	hits, err = Meaning(ctx, a.Store, e, "quantum chromodynamics on a lattice", Options{})
+	if err != nil || len(hits) != 0 {
+		t.Fatalf("a query nothing is about: %d hits %v", len(hits), err)
+	}
+	if n, _ := Meaning(ctx, a.Store, e, "quantum chromodynamics on a lattice", Options{NoGate: true}); len(n) == 0 {
+		t.Fatal("without the gate the nearest pieces come back, whatever they are")
+	}
+}
+
+func TestKindFiltersInKeywordSearch(t *testing.T) {
+	a := proseArchive(t)
+	kinds := func(opt Options) map[string]int {
+		t.Helper()
+		hits, err := Run(a.Store, "Zstandard version", opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		out := map[string]int{}
+		for _, h := range hits {
+			out[h.Kind]++
+		}
+		return out
+	}
+	everything := kinds(Options{})
+	if everything["tool_use"] == 0 || everything["tool_result"] == 0 || everything["assistant"] == 0 {
+		t.Fatalf("the fixture's zstd turn has a reply, a call and a result: %v", everything)
+	}
+	if got := kinds(Options{NoTools: true}); got["tool_use"]+got["tool_result"] != 0 || got["assistant"] != everything["assistant"] {
+		t.Fatalf("without tools: %v (everything: %v)", got, everything)
+	}
+	if got := kinds(Options{Kinds: []string{"tool_use", "tool_result"}}); got["assistant"] != 0 || got["tool_result"] != everything["tool_result"] {
+		t.Fatalf("only tools: %v", got)
+	}
+	if got := kinds(Options{Kinds: []string{"tool_result"}, Kind: "assistant"}); len(got) != 2 {
+		t.Fatalf("Kind adds to Kinds: %v", got)
+	}
+	if got := kinds(Options{Kinds: []string{"tool_result"}, NoTools: true}); len(got) != 0 {
+		t.Fatalf("asking for tools and for no tools finds nothing: %v", got)
+	}
+	if _, err := Run(a.Store, "Zstandard", Options{Kinds: []string{"assistant", "tools"}}); !errors.Is(err, ErrUnknownKind) {
+		t.Fatalf("unknown kind: %v", err)
 	}
 }

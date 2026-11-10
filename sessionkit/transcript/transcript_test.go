@@ -486,29 +486,51 @@ func TestRelationsHeuristics(t *testing.T) {
 	}
 }
 
-// TestRelationsCommits: a commit is what git printed, not what was asked for.
+// TestRelationsCommits: a commit is a `git commit` that did not fail. Its id
+// comes from the output when the output names it.
 func TestRelationsCommits(t *testing.T) {
+	ref := CallRef{ToolID: "t1"}
+	cases := []struct {
+		name, cmd, out string
+		want           []Commit
+	}{
+		{"git's own lines win", "git add -A && git commit -m 'First' && git commit --allow-empty -m 'Second'",
+			"[main (root-commit) 2b4b1ec] First\n 2 files changed\n[main 93c045c1] Second: with [brackets] in it\n",
+			[]Commit{{SHA: "2b4b1ec", Branch: "main", Subject: "First", Call: ref}, {SHA: "93c045c1", Branch: "main", Subject: "Second: with [brackets] in it", Call: ref}}},
+		{"quiet, then the log line", `cd agent && git add -A && git commit -q -m "Session log: M9 \"started\"" && git log --oneline | head -1`,
+			`666d121 Session log: M9 "started"`, []Commit{{SHA: "666d121", Subject: `Session log: M9 "started"`, Call: ref}}},
+		{"quiet, nothing printed", `git -C ../agent commit -qam "Notes"`, "", []Commit{{Subject: "Notes", Call: ref}}},
+		{"a heredoc message", "git commit -q -m \"$(cat <<'EOF'\nThe subject\n\nThe body.\nEOF\n)\"", "", []Commit{{Subject: "The subject", Call: ref}}},
+		{"nothing to commit", "git commit -m 'Nothing'; echo done", "On branch main\nnothing to commit, working tree clean\ndone", nil},
+		{"a dry run", "git commit --dry-run -m 'Later'", "", nil},
+		{"words, not a command", "echo 'then run git commit -m x' && grep -n 'git commit' docs/a.md", "", nil},
+		{"another git command", "git log --oneline | head -3", "2b4b1ec A commit\n93c045c Another", nil},
+	}
+	for _, c := range cases {
+		got := commitsIn(c.cmd, c.out, ref)
+		if len(got) != len(c.want) {
+			t.Fatalf("%s: commits = %+v, want %+v", c.name, got, c.want)
+		}
+		for i := range got {
+			if got[i] != c.want[i] {
+				t.Fatalf("%s: commit %d = %+v, want %+v", c.name, i, got[i], c.want[i])
+			}
+		}
+	}
+
+	// Through a session: a commit whose call failed is not one.
 	const in = `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T10:00:00Z","message":{"role":"user","content":"commit it"}}
-{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T10:00:01Z","message":{"model":"m","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git add -A && git commit -m 'First' && git commit --allow-empty -m 'Second'"}}],"usage":{"output_tokens":5}}}
-{"type":"user","uuid":"res1","parentUuid":"a1","timestamp":"2026-11-08T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"[main (root-commit) 2b4b1ec] First\n 2 files changed, 3 insertions(+)\n[main 93c045c1] Second: with [brackets] in it\n"}]}}
-{"type":"assistant","uuid":"a2","parentUuid":"res1","requestId":"r2","timestamp":"2026-11-08T10:00:03Z","message":{"model":"m","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git commit -m 'Nothing'"}}],"usage":{"output_tokens":5}}}
-{"type":"user","uuid":"res2","parentUuid":"a2","timestamp":"2026-11-08T10:00:04Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"On branch main\nnothing to commit, working tree clean"}]}}
-{"type":"assistant","uuid":"a3","parentUuid":"res2","requestId":"r3","timestamp":"2026-11-08T10:00:05Z","message":{"model":"m","content":[{"type":"tool_use","id":"t3","name":"Bash","input":{"command":"echo '[main abc1234] not a commit'"}}],"usage":{"output_tokens":5}}}
-{"type":"user","uuid":"res3","parentUuid":"a3","timestamp":"2026-11-08T10:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t3","content":"[main abc1234] not a commit"}]}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T10:00:01Z","message":{"model":"m","content":[{"type":"tool_use","id":"t1","name":"Bash","input":{"command":"git commit -qm 'Kept'"}}],"usage":{"output_tokens":5}}}
+{"type":"user","uuid":"res1","parentUuid":"a1","timestamp":"2026-11-08T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":""}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"res1","requestId":"r2","timestamp":"2026-11-08T10:00:03Z","message":{"model":"m","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"git commit -qm 'Denied'"}}],"usage":{"output_tokens":5}}}
+{"type":"user","uuid":"res2","parentUuid":"a2","timestamp":"2026-11-08T10:00:04Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","is_error":true,"content":"Permission for this action was denied"}]}}
 `
 	s, err := Parse(strings.NewReader(in))
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := s.Relations().Commits
-	if len(got) != 2 {
-		t.Fatalf("commits = %+v, want the two git printed", got)
-	}
-	if got[0].SHA != "2b4b1ec" || got[0].Branch != "main" || got[0].Subject != "First" || got[0].Call.ToolID != "t1" {
-		t.Fatalf("first commit = %+v", got[0])
-	}
-	if got[1].SHA != "93c045c1" || got[1].Subject != "Second: with [brackets] in it" {
-		t.Fatalf("second commit = %+v", got[1])
+	if got := s.Relations().Commits; len(got) != 1 || got[0].Subject != "Kept" || got[0].Call.ToolID != "t1" {
+		t.Fatalf("commits = %+v, want the one that did not fail", got)
 	}
 }
 

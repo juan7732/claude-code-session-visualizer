@@ -89,6 +89,14 @@ func TestRoutes(t *testing.T) {
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/actions/0", &act); code != 200 || act.Thinking != "xxxx" {
 		t.Fatalf("action 0 should expose its thinking text: %d %q", code, act.Thinking)
 	}
+	var step ActionDoc
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/actions/0?agent=a1b2c3d4e5f607182", &step); code != 200 || step.RequestID == act.RequestID {
+		t.Fatalf("a subagent's action: %d %+v", code, step)
+	}
+	var none map[string]string
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/actions/0?agent=nobody", &none); code != 404 || none["error"] == "" {
+		t.Fatalf("an unknown subagent: %d %v", code, none)
+	}
 	var cb map[string]any
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/actions/0/context", &cb); code != 200 || cb["available"] != true {
 		t.Fatalf("context route: %d %v", code, cb["reason"])
@@ -100,6 +108,26 @@ func TestRoutes(t *testing.T) {
 	var rel map[string]any
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/relations", &rel); code != 200 || len(rel["spans"].([]any)) != 6 || rel["files"] == nil {
 		t.Fatalf("relations route: %d %v", code, rel)
+	}
+	if rel["commits"] == nil {
+		t.Fatalf("relations lists commits, empty when there are none: %v", rel["commits"])
+	}
+	md := httptest.NewRecorder()
+	h.ServeHTTP(md, httptest.NewRequest("GET", "/v0/sessions/"+fixtureID+"/export?turn=0", nil))
+	if md.Code != 200 || !strings.HasPrefix(md.Header().Get("Content-Type"), "text/markdown") || !strings.HasPrefix(md.Body.String(), "## Turn 0 · ") || !strings.Contains(md.Body.String(), "- `Edit`") {
+		t.Fatalf("export route: %d %q\n%s", md.Code, md.Header().Get("Content-Type"), md.Body.String())
+	}
+	whole := httptest.NewRecorder()
+	h.ServeHTTP(whole, httptest.NewRequest("GET", "/v0/sessions/"+fixtureID+"/export", nil))
+	if whole.Code != 200 || !strings.HasPrefix(whole.Body.String(), "# ") || !strings.Contains(whole.Body.String(), "> Context compacted") {
+		t.Fatalf("export of the whole session: %d\n%s", whole.Code, whole.Body.String())
+	}
+	var bad map[string]string
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/export?turn=99", &bad); code != 404 || bad["error"] == "" {
+		t.Fatalf("export of a turn that is not there: %d %v", code, bad)
+	}
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/export?format=html", &bad); code != 400 {
+		t.Fatalf("export in a format that is not there: %d %v", code, bad)
 	}
 	var imgs []map[string]any
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/images", &imgs); code != 200 || imgs == nil {
@@ -290,8 +318,14 @@ func TestSearchByMeaning(t *testing.T) {
 	if _, err := s.Archive.Embed(context.Background(), emb, nil); err != nil {
 		t.Fatal(err)
 	}
+	// The stand-in's cosines are word overlaps, well under the gate a real
+	// model is held to: by default the honest answer is "nothing close enough",
+	// an empty list and not an error. all=1 returns the nearest anyway.
 	var hits []map[string]any
-	if code := get(t, h, q, &hits); code != 200 || len(hits) == 0 {
+	if code := get(t, h, q, &hits); code != 200 || len(hits) != 0 {
+		t.Fatalf("gated: %d %v", code, hits)
+	}
+	if code := get(t, h, q+"&all=1", &hits); code != 200 || len(hits) == 0 {
 		t.Fatalf("after embedding: %d %v", code, hits)
 	}
 	// The fixture is redacted to x's; its one passage in sentences is the compaction summary.
@@ -304,6 +338,25 @@ func TestSearchByMeaning(t *testing.T) {
 	}
 	if code := get(t, h, "/v0/search?mode=telepathy&q=x", &e); code != 400 || !strings.Contains(e["error"], "keyword, meaning") {
 		t.Fatalf("unknown mode: %d %v", code, e)
+	}
+	// Narrowing: tools=0 leaves tool calls out, kind takes a list, and a kind
+	// that does not exist is the caller's mistake.
+	if code := get(t, h, "/v0/search?q=Bash&tools=0", &hits); code != 200 {
+		t.Fatalf("tools=0: %d", code)
+	}
+	for _, hit := range hits {
+		if k := hit["kind"]; k == "tool_use" || k == "tool_result" {
+			t.Fatalf("tools=0 returned a %v", k)
+		}
+	}
+	if code := get(t, h, "/v0/search?q=Bash&kind=tool_use,tool_result", &hits); code != 200 || len(hits) == 0 {
+		t.Fatalf("kind list: %d %v", code, hits)
+	}
+	if code := get(t, h, "/v0/search?q=Bash&kind=tools", &e); code != 400 || !strings.Contains(e["error"], "unknown kind") {
+		t.Fatalf("unknown kind: %d %v", code, e)
+	}
+	if code := get(t, h, q+"&min_cosine=0.01&min_z=99", &hits); code != 200 || len(hits) == 0 {
+		t.Fatalf("a low cosine floor lets the stand-in's hits through: %d %v", code, hits)
 	}
 	// The embedding server going away is not a bad request.
 	fake.Close()

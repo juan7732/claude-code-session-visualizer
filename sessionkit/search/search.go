@@ -16,6 +16,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -52,10 +53,56 @@ type Hit struct {
 type Options struct {
 	Mode       string // keyword (default) | meaning; see Search
 	Limit      int
-	Project    string // substring of the project slug
-	Session    string // exact session id
-	Kind       string // prompt | assistant | thinking | tool_use | tool_result | context | summary
-	PrefixLast bool   // the last word is still being typed
+	Project    string   // substring of the project slug
+	Session    string   // exact session id
+	Kinds      []string // only these kinds (see Kinds); empty means every kind
+	Kind       string   // one more kind for Kinds; kept for callers that pass a single one
+	NoTools    bool     // leave out tool calls and their results
+	PrefixLast bool     // the last word is still being typed
+
+	// The gate of meaning search (see Meaning). Zero means the default.
+	MinCosine float64
+	MinZ      float64
+	// NoGate returns the nearest pieces however far they are.
+	NoGate bool
+}
+
+// Kinds are the kinds of segment a search can be narrowed to.
+var Kinds = []string{"prompt", "assistant", "thinking", "tool_use", "tool_result", "context", "summary"}
+
+// ErrUnknownKind: a kind filter names no kind.
+var ErrUnknownKind = errors.New("unknown kind")
+
+// filter renders the narrowing options as SQL conditions over segments g and
+// sessions s. It is the same for both modes.
+func (opt Options) filter() (conds []string, args []any, err error) {
+	if opt.Session != "" {
+		conds = append(conds, "g.session = ?")
+		args = append(args, opt.Session)
+	}
+	if opt.Project != "" {
+		conds = append(conds, "instr(lower(s.project), lower(?)) > 0")
+		args = append(args, opt.Project)
+	}
+	kinds := opt.Kinds
+	if opt.Kind != "" {
+		kinds = append(append([]string{}, kinds...), opt.Kind)
+	}
+	for _, k := range kinds {
+		if !slices.Contains(Kinds, k) {
+			return nil, nil, fmt.Errorf("%w %q (one of: %s)", ErrUnknownKind, k, strings.Join(Kinds, ", "))
+		}
+	}
+	if len(kinds) > 0 {
+		conds = append(conds, "g.kind IN (?"+strings.Repeat(",?", len(kinds)-1)+")")
+		for _, k := range kinds {
+			args = append(args, k)
+		}
+	}
+	if opt.NoTools {
+		conds = append(conds, "g.kind NOT IN ('tool_use', 'tool_result')")
+	}
+	return conds, args, nil
 }
 
 // stopwords are words a query can hold without being about them. Search takes
@@ -86,19 +133,61 @@ func wordSet(words string) map[string]bool {
 	return set
 }
 
-// Terms are the content words of a query: lowercased, split on anything that
-// is not a letter or digit, stopwords and single characters dropped.
+// Terms are what a query is searched for: its content words, lowercased, with
+// stopwords and single characters dropped. A word split on anything that is
+// not a letter or digit gives several terms ("retention-sweep" is two), with
+// one exception: a version, a date or a numbered name ("0.5.1", "2026-11-10",
+// "issue-3") stays one term, its parts separated by spaces, and is searched
+// as a phrase. Split, its digits would be dropped as single characters or
+// matched one by one wherever a 5 or a 2026 appears.
 func Terms(q string) []string {
 	seen := map[string]bool{}
 	var out []string
-	for _, w := range strings.FieldsFunc(strings.ToLower(q), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }) {
-		if len([]rune(w)) < 2 || stopwords[w] || seen[w] {
+	add := func(t string) {
+		if !seen[t] {
+			seen[t] = true
+			out = append(out, t)
+		}
+	}
+	for _, raw := range strings.Fields(strings.ToLower(q)) {
+		parts := strings.FieldsFunc(raw, notWordRune)
+		if isNumbered(parts) {
+			add(strings.Join(parts, " "))
 			continue
 		}
-		seen[w] = true
-		out = append(out, w)
+		for _, w := range parts {
+			if len([]rune(w)) < 2 || stopwords[w] {
+				continue
+			}
+			add(w)
+		}
 	}
 	return out
+}
+
+func notWordRune(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) }
+
+// isNumbered reports whether the parts of one written word belong together:
+// there are several, and at least one is a number or a single character next
+// to a number ("0.5.1", "v0.6.0", "gemma-embedding-2", "3.5"). Parts that are
+// all words ("co-authored-by") and ids with a letter in every part
+// ("toolu_01abc") are left to be searched part by part.
+func isNumbered(parts []string) bool {
+	if len(parts) < 2 {
+		return false
+	}
+	anyDigit, joins := false, false
+	for _, p := range parts {
+		digits := 0
+		for _, r := range p {
+			if unicode.IsDigit(r) {
+				digits++
+			}
+		}
+		anyDigit = anyDigit || digits > 0
+		joins = joins || digits == len([]rune(p)) || len([]rune(p)) == 1
+	}
+	return anyDigit && joins
 }
 
 // IsLookup is true when every term looks like an identifier (has a digit and
@@ -121,7 +210,8 @@ func IsLookup(terms []string) bool {
 }
 
 // FTSQuery renders terms as an FTS5 OR query of quoted words, the last one as a
-// prefix when prefixLast is set.
+// prefix when prefixLast is set. A term with spaces in it (see Terms) is an
+// FTS5 phrase: its parts must follow one another.
 func FTSQuery(terms []string, prefixLast bool) string {
 	parts := make([]string, len(terms))
 	for i, t := range terms {
@@ -146,20 +236,12 @@ func Run(st *store.Store, query string, opt Options) ([]Hit, error) {
 	if opt.Limit <= 0 {
 		opt.Limit = 20
 	}
-	where := []string{"fts MATCH ?"}
-	args := []any{FTSQuery(terms, opt.PrefixLast)}
-	if opt.Session != "" {
-		where = append(where, "g.session = ?")
-		args = append(args, opt.Session)
+	conds, condArgs, err := opt.filter()
+	if err != nil {
+		return nil, err
 	}
-	if opt.Project != "" {
-		where = append(where, "instr(lower(s.project), lower(?)) > 0")
-		args = append(args, opt.Project)
-	}
-	if opt.Kind != "" {
-		where = append(where, "g.kind = ?")
-		args = append(args, opt.Kind)
-	}
+	where := append([]string{"fts MATCH ?"}, conds...)
+	args := append([]any{FTSQuery(terms, opt.PrefixLast)}, condArgs...)
 	q := `SELECT g.session, s.project, s.title, g.agent, g.turn, g.action, g.kind, g.tool, g.at, g.text,
 	             snippet(fts, 0, '«', '»', '…', 14), bm25(fts)
 	      FROM fts JOIN segments g ON g.id = fts.rowid JOIN sessions s ON s.id = g.session
@@ -217,11 +299,18 @@ func Run(st *store.Store, query string, opt Options) ([]Hit, error) {
 }
 
 // coverage is the share of terms found in text (prefix match on word starts,
-// so "grok" counts for "grokking" as the porter stemmer would).
+// so "grok" counts for "grokking" as the porter stemmer would). A term of
+// several parts counts when the parts follow one another.
 func coverage(terms []string, text string) float64 {
-	words := strings.FieldsFunc(strings.ToLower(text), func(r rune) bool { return !unicode.IsLetter(r) && !unicode.IsDigit(r) })
+	words := strings.FieldsFunc(strings.ToLower(text), notWordRune)
 	found := 0
 	for _, t := range terms {
+		if strings.Contains(t, " ") {
+			if hasPhrase(words, strings.Fields(t)) {
+				found++
+			}
+			continue
+		}
 		for _, w := range words {
 			if w == t || strings.HasPrefix(w, t) {
 				found++
@@ -230,4 +319,20 @@ func coverage(terms []string, text string) float64 {
 		}
 	}
 	return float64(found) / float64(len(terms))
+}
+
+func hasPhrase(words, parts []string) bool {
+	for i := 0; i+len(parts) <= len(words); i++ {
+		match := true
+		for k, p := range parts {
+			if words[i+k] != p {
+				match = false
+				break
+			}
+		}
+		if match {
+			return true
+		}
+	}
+	return false
 }

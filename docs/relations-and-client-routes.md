@@ -29,6 +29,16 @@ Added with M8 (2026-11-10), for the Transcript:
 - Lists in the session document and in stats are always lists, never `null`: a session with no prompts has an empty list
   of prompts.
 
+Added with M9 (2026-11-10), for the Summary, Search and export:
+
+- `commits` in the relations: the commits the session made (below).
+- `in_turns` in stats: the part of `duration` spent inside turns. The rest is the session waiting for its human.
+- `skit export <session> [--turn N] [--thinking] [--out file]` and `GET /v0/sessions/{id}/export?format=markdown&turn=`:
+  the session, or one turn, as Markdown. The route answers `text/markdown`, the one text route besides images. The app's
+  "Export Session as Markdown" and "Copy Turn as Markdown" are this text, so the CLI and the app write the same thing.
+- `skit show <session> --agent <id> --action N` and `GET /v0/sessions/{id}/actions/{n}?agent=<id>`: one step of a
+  subagent with the full text of its results, in the shape of a parent action.
+
 Opening a session, made fast (2026-11-10, issue #2). Measured on the largest session on the development machine (166 MB
 transcript, 255 actions), through the background agent:
 
@@ -64,6 +74,11 @@ transcript, 255 actions), through the background agent:
 - **files**: paths read or written, from `Read`/`Write`/`Edit` inputs and from paths in shell commands (found by file
   extension; a redirect, `tee`, `sed -i`, `cp`, `mv` or `touch` counts as a write).
 - **outside**: web hosts fetched, web searches, skills and MCP connectors.
+- **commits**: each `git commit` at a command position in a Bash call that did not fail, with the call that ran it. The
+  subject is the first line of the message (`-m "…"`, or a heredoc inside `"$(cat <<'EOF' …)"`). The id (`sha`) is there
+  only when the output named the commit: git's own `[main 2b4b1ec] Subject` line, or a `git log --oneline` line that
+  starts with the subject. Agents usually commit with `-q`, so the command is the evidence and the id is often absent.
+  "nothing to commit" in the output and `--dry-run` are not commits.
 - **events**: API errors (system records) and messages Claude Code wrote itself, each with its time and turn.
 
 Relations are heuristics over tool inputs and results. They are derived from the parsed session and never written to the

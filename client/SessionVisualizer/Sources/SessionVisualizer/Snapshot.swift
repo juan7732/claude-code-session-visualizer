@@ -4,7 +4,8 @@ import SwiftUI
 
 /// `SessionVisualizer --snapshot out.png [--page sessions|session:<id>|search|stats|claude]
 /// [--view summary|…] [--appearance light|dark|oled] [--size 1500x940] [--socket path] [--flyout]
-/// [--select action:6|turn:0|tool:<id>|subagent:<id>|compaction:0|work:1] [--tab details|io|note] [--query text]
+/// [--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>]
+/// [--tab details|io|note] [--query text] [--palette]
 /// [--open-calls] [--fold]`
 ///
 /// Renders one state of the app to a PNG and exits, without showing a window:
@@ -26,6 +27,8 @@ struct SnapshotRequest {
     var openCalls = false
     /// Folds every turn's tool calls.
     var fold = false
+    /// Opens the ⌘K palette, with `query` typed into it.
+    var palette = false
 
     init?(arguments: [String]) {
         guard let at = arguments.firstIndex(of: "--snapshot"), at + 1 < arguments.count else { return nil }
@@ -59,6 +62,11 @@ struct SnapshotRequest {
             case "work": self.select = Int(id).map { .work($0) }
             case "tool": self.select = .tool(id)
             case "subagent": self.select = .subagent(id)
+            case "file": self.select = .file(id)
+            case "outside": self.select = .outside(id)
+            case "step":
+                // step:<agent id>:<n>
+                if let cut = id.lastIndex(of: ":"), let n = Int(id[id.index(after: cut)...]) { self.select = .step(agent: String(id[..<cut]), index: n) }
             default: break
             }
         }
@@ -66,6 +74,7 @@ struct SnapshotRequest {
         query = value("--query")
         openCalls = arguments.contains("--open-calls")
         fold = arguments.contains("--fold")
+        palette = arguments.contains("--palette")
     }
 }
 
@@ -134,12 +143,14 @@ enum Snapshot {
                 // Wait for what the page asks for: the numbers, and for the Transcript the document.
                 for _ in 0..<300 {
                     let statsReady: Bool = if case .loading = store.stats[id] ?? .loading { false } else { true }
-                    let modelReady: Bool = if case .loading = store.models[id] ?? .loading { request.view == .summary } else { true }
+                    let modelReady: Bool = if case .loading = store.models[id] ?? .loading { false } else { true }
                     if statsReady && modelReady { break }
                     try? await Task.sleep(for: .milliseconds(100))
                 }
                 if let model = store.model(id) {
-                    if let query = request.query { state.transcript.query = query }
+                    if let query = request.query {
+                        if request.view == .summary { state.transcript.summaryQuery = query } else { state.transcript.query = query }
+                    }
                     if request.fold { for turn in model.doc.turns where turn.toolCalls > 0 { state.setFolded(turn.index, true, in: model) } }
                     if let key = request.select {
                         if let tab = request.tab { state.inspectorTab = tab }
@@ -152,6 +163,16 @@ enum Snapshot {
                     }
                     try? await Task.sleep(for: .milliseconds(900)) // scrolling, the drawer, the results
                 }
+            }
+            if request.page == .search, let query = request.query {
+                state.search.query = query
+                // The search, then the preview's session.
+                for _ in 0..<80 where state.search.searched.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
+                try? await Task.sleep(for: .milliseconds(2500))
+            }
+            if request.palette {
+                state.paletteShown = true
+                try? await Task.sleep(for: .milliseconds(1200))
             }
             try? await Task.sleep(for: .milliseconds(600))
             let ok = write(window, to: request.output)

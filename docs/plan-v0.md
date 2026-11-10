@@ -36,6 +36,7 @@ sessionkit/                     the engine, importable. No I/O opinions.
   stats/                        usage summation, pricing table, cost reconciliation against cost-state
   store/                        SQLite archive + index (modernc.org/sqlite, pure Go, FTS5 on). Schema versioned.
   search/                       keyword now; hybrid scorer (DigUp's z-scaled meaning + coverage) when vectors arrive
+  export/                       a session or one turn as Markdown
   embed/                        (M14) client for the llama-server sidecar, process management, model download
   service/                      the launchd agent that keeps `skit serve` running
   serve/                        HTTP handlers over a Unix socket, thin wrappers over the packages above
@@ -170,21 +171,33 @@ and the encoded document kept per parsed session; the agent as an interactive pr
 Carried to M9: Copy Link (needs the app's URL scheme, so the bundle), the drawer on the Summary, selecting a single
 subagent step, the `/compactions/{n}` detail in the drawer, a ⚙ popover per view (the options are a Settings tab).
 
-**M9 Summary, Search and the bundled app (v0).** Mock: `?view=summary` (Dashboard), `#/search` (Finder), ⌘K.
+**M9 Summary, Search and the bundled app (v0).** Mock: `?view=summary` (Dashboard), `#/search` (Finder), ⌘K. Built on
+2026-11-10; waiting for Juan's pass in the live app before it is marked done.
 
-- Summary dashboard: about, ended, size, outcome, problems, context with the budget gauge, parallel work, outside, how
-  it ran, where it worked; the digest and the hours grid beneath. The Arcs map waits for M10.
-- Search: the simplified Finder (hits grouped by session with a strip of where they fall, the matching text beside them,
-  Open in Transcript or Summary), kinds as a scope bar, live as you type, recent searches.
-- ⌘K palette: sessions, mentions, commands.
-- Export Session as Markdown, Copy Turn as Markdown.
-- `build.sh` for a signed `.app` with `skit` in `Contents/Helpers/`, and the app's URL scheme, so Copy Link works.
-- From M8: the drawer on the Summary, a single subagent step selectable, the compaction detail in the drawer.
+- Summary dashboard: about, ended, size, outcome (files written, commits, lines), problems, context with the gauge,
+  parallel work, outside, where it worked, how it ran; a search box for this session that answers yes or no and offers
+  every session when the answer is no; the digest (one row per turn) and the hours grid beneath. The Arcs map waits for
+  M10.
+- **The context gauge** measures the peak against a window the human sets (Settings › Summary: 1M by default, or 200k).
+  A transcript does not record the window, and the card says the number is the setting (decided 2026-11-10).
+- Every row that names a node selects it, and the drawer is under the Summary too. New nodes: a file, an outside
+  service, one step of a subagent. The drawer on a compaction shows what the cut did: the actions on both sides, the
+  summary's sections, what was kept word for word, what was put back.
+- Search: the simplified Finder (hits grouped by session with a strip of where they fall, the text of the selected hit
+  beside them, Open in Transcript or Session Summary), kinds with their counts as a scope bar, live after a pause,
+  recent searches. A hit opens its session with find-in-session already on that hit.
+- ⌘K palette: sessions, mentions (the engine's search), commands; ⌘O opens it too.
+- Export Session as Markdown (⇧⌘E), Copy Turn as Markdown. The text is the engine's (`skit export`).
+- `client/SessionVisualizer/build.sh` (`just client-app`, `just client-app-install`): a signed `.app` with `skit` in
+  `Contents/Helpers/`, ad hoc unless `SIGN_IDENTITY` is set. The app registers `skit-visualizer://`; Copy Link (⇧⌘C)
+  writes a link to the selected node and the app opens such links (`decisions/0011-the-app-bundle-and-its-links.md`).
 
-Engine: `/stats`, `/search`, `/relations` (files, outside, events). Missing: the model's context-window limit; fork
-parent and child ids ("How it ran" shows what exists until then). Done when: for any session, what it was about, what
-happened when, and whether X was discussed can be answered from the app in /Applications. This closes v0's definition of
-done, item 6.
+Engine, for it: `commits` in `/relations`, `in_turns` in stats, `skit export` and `/export`, `/actions/{n}?agent=`
+(`relations-and-client-routes.md`). Still missing: the model's context-window limit (a setting stands in), fork parent
+and child ids ("How it ran" shows the number of branch points). Open after M9: an app icon; a Developer ID, without
+which the app runs only on the Mac that built it; a ⚙ popover per view (the options are Settings tabs); the Meaning
+scope in the Finder (M14's client half). Done when: for any session, what it was about, what happened when, and whether
+X was discussed can be answered from the app in /Applications. This closes v0's definition of done, item 6.
 
 **M10 Canvas: Braid.** Mock: `?view=canvas`, layout Braid; lab in `ux-mocks/canvas/`.
 
@@ -243,9 +256,11 @@ Done when: a question that shares no words with the transcript finds the turn, h
 nothing leaves the machine but the one model download.
 
 State, 2026-11-10 (`meaning-search.md`): the `embed` package, index schema 5 (chunks and vectors keyed by a hash of the
-text, where ADR 0005 said "on the segment row"), `skit embed`, `skit eval`, and meaning search in a plain form
-(`skit search --mode meaning`, `/v0/search?mode=meaning`: cosine rank, no gate) are built. Open: the eval queries, the
-scorer and `hybrid` mode tuned on them, embedding at ingest, vectors held in memory by `serve`.
+text, where ADR 0005 said "on the segment row"), `skit embed`, `skit eval` and an eval of 33 queries, meaning search
+with a gate that lets it say nothing was found (`skit search --mode meaning`, `/v0/search?mode=meaning`), and narrowing
+by session, project, kinds and "no tool calls" in both modes are built. Open: `hybrid` mode (keyword stays its own mode
+and the default), vectors for tool output (issue #4), embedding without being asked (issue #3), vectors held in memory
+by `serve`.
 
 **Not scheduled.** Continue from here (embedded terminal, fork at a turn; needs the feasibility probe in `NOTES.md`).
 Plugins (ergo, git) through the extension points. Image tiers B and C, the hooks installer, HTML export. The pricing

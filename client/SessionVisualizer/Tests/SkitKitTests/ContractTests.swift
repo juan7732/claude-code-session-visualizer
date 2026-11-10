@@ -16,7 +16,7 @@ import Testing
 
     @Test func status() throws {
         let status = try decode(EngineStatus.self, "status.json")
-        #expect(status.sessionsOnDisk == 2)
+        #expect(status.sessionsOnDisk == 3)
         #expect(status.skitHome.hasSuffix(".sessionkit"))
         #expect(status.live.first?.sessionId == id)
         #expect(status.cachedSessions != nil)
@@ -25,7 +25,7 @@ import Testing
     @Test func sessionRows() throws {
         let rows = try decode([SessionSummary].self, "sessions.json")
         let row = try #require(rows.first { $0.id == id })
-        #expect(rows.count == 2)
+        #expect(rows.count == 3)
         #expect(row.requests == 7)
         #expect(row.turns == 2)
         #expect(row.usage.outputTokens > 0)
@@ -60,6 +60,9 @@ import Testing
         #expect(stats.compactions == 1)
         #expect(stats.compactionList?.first?.preTokens == 6400)
         #expect(stats.rewoundActions == 0)
+        // What the Summary's cards read beyond the counts.
+        #expect(stats.inTurns == "13s")
+        #expect(stats.injectedBlocks == 1 && stats.attachments != nil)
     }
 
     @Test func annotationsKeepTheirKeysAsWritten() throws {
@@ -152,6 +155,61 @@ import Testing
         #expect(relations.spans.allSatisfy { $0.end >= $0.at })
         let handback = try #require(relations.handbacks.first)
         #expect(handback.spawn.toolId == "toolu_03")
+        // Files, most written first, each with its touches.
+        let file = try #require(relations.files.first)
+        #expect(file.path == "/xxx/y.go" && file.writes == 1 && file.turns == 1)
+        #expect(file.touches.first?.mode == "write" && file.touches.first?.tool == "Edit" && file.touches.first?.toolId == "toolu_04")
+        #expect(relations.outside.isEmpty && relations.commits.isEmpty)
+    }
+
+    /// A session that fetched a page, used a connector and committed.
+    @Test func relationsOutsideAndCommits() throws {
+        let relations = try decode(Relations.self, "relations-outside.json")
+        #expect(relations.outside.map(\.id) == ["connector:notes", "web:docs.example.com"])
+        #expect(relations.outside[1].calls.first?.toolId == "toolu_w1")
+        let commit = try #require(relations.commits.first)
+        #expect(commit.sha == "2b4b1ec" && commit.branch == "main" && commit.subject == "Add the guide")
+        #expect(commit.call.toolId == "toolu_c1" && commit.call.action == 1)
+        #expect(relations.spans.last?.said == true)
+        // A quiet commit has no id to read.
+        let quiet = try JSONDecoder.skit().decode(Relations.Commit.self, from: Data(#"{"subject":"Notes","call":{"tool_id":"t","action":1,"turn":0,"at":"2026-11-08T11:00:04Z"}}"#.utf8))
+        #expect(quiet.sha == nil && quiet.subject == "Notes")
+    }
+
+    @Test func compactionDetail() throws {
+        let cut = try decode(CompactionDetail.self, "compaction.json")
+        #expect(cut.index == 0 && cut.trigger == "auto")
+        #expect(cut.preTokens == 6400 && cut.postTokens == 900 && cut.cumulativeDropped == 5500)
+        #expect(cut.lastActionBefore == 3 && cut.firstActionAfter == 4)
+        #expect(cut.summary?.sections.map(\.title) == ["Primary Request and Intent", "Key Technical Concepts", "Pending Tasks"])
+        #expect(cut.preserved.count == 2 && cut.preserved[0].kind == "tool_use" && cut.preserved[0].action == 3)
+        #expect(cut.reinjected.map(\.type) == ["instructions", "compact_file_reference"])
+        #expect(cut.fileRefs == ["/Xxxxx/xxxx/xxxx/notes.md"])
+    }
+
+    @Test func subagentStepCarriesItsResults() throws {
+        let step = try decode(ActionDetail.self, "subagent-action.json")
+        #expect(step.index == 0)
+        #expect(step.toolCalls.first?.result != nil)
+    }
+
+    @Test func documentSaysHowItRan() throws {
+        let doc = try decode(SessionDocument.self, "document.json")
+        #expect(doc.versions == ["2.1.319"] && doc.entrypoints == ["cli"])
+        #expect(doc.cwds.count == 2 && doc.cwds.first == doc.cwd)
+    }
+
+    @Test func exportIsMarkdownText() throws {
+        let text = String(decoding: try fixture("export-turn.md"), as: UTF8.self)
+        #expect(text.hasPrefix("## Turn 0 · 2026-11-08 10:00\n\n**You**\n"))
+        #expect(text.contains("- `Edit` /xxx/y.go"))
+    }
+
+    @Test func searchAcrossSessionsNamesTheSession() throws {
+        let hits = try decode([SearchHit].self, "search-prompts.json")
+        let hit = try #require(hits.first)
+        #expect(hit.session == id && hit.title == "Synthetic basics" && hit.project == "-Users-me-work")
+        #expect(hit.kind == "prompt" && hit.action == -1 && hit.turn == 0 && hit.match == "keyword")
     }
 
     @Test func searchHitsSayWhereTheyAre() throws {
