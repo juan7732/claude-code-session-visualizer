@@ -9,9 +9,11 @@ internal/cli      Cobra commands. Parse flags → call sessionkit → print. --j
 sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no flags, no env reads.
   catalog         find Claude Code's data: dir, projects, session files, subagents, live sessions, retention
   home            skit's own directory: $SKIT_HOME, else ~/.sessionkit
-  transcript      JSONL → records → uuid tree → turns (one per request), tool call pairs, compactions, subagents
+  transcript      JSONL → records → uuid tree → turns and their actions (one per request), tool call pairs,
+                  compactions, subagents, relations; prompts and actions on rewound branches flagged
   stats           per-session summary: usage once per request with subagents rolled in, models, tools, compactions,
-                  context-window curve, Claude Code's cost figure (pricing table: M3)
+                  context-window curve, rewound turns and actions, Claude Code's cost figure (a pricing table is
+                  decided but not built: decisions/0003, issue #1)
   store           the index: ~/.sessionkit/skit.sqlite (pure-Go SQLite). sessions (summary JSON + source fingerprint +
                   archive state), segments (one per content block), fts (FTS5, porter). Schema versioned. Also the
                   summary cache: list reads a session's summary from here while its source fingerprint matches.
@@ -23,14 +25,16 @@ sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no
                   parsed sessions in a cache for long-lived processes; cached sessions are read-only.
   search          FTS5 + bm25 candidates, coverage of the query's words, lookup queries weigh words more; v0.5 adds
                   vectors with DigUp's z-scaled fusion
-  embed           (v0.5) client for the llama-server sidecar (OpenAI /v1/embeddings), process management, model
+  embed           (M14) client for the llama-server sidecar (OpenAI /v1/embeddings), process management, model
                   download into ~/.sessionkit/models/ (decisions/0005-embedding-worker.md)
+  service         the launchd agent that runs `skit serve` from login on: install, uninstall, status
+                  (decisions/0009-background-agent.md)
   serve           HTTP on a Unix socket ($SKIT_HOME/skit.sock), routes under /v0/, same JSON as --json; the same engine
                   functions the CLI calls (archive.List/Resolve/Document, stats, search, Ingest). Requests run
                   concurrently over cached sessions (256 MiB of transcripts, dropped after ten idle minutes). Watches
-                  ~/.claude/projects with fsnotify and archives a session once its transcript settles.
-client/SessionVisualizer   (M6) Swift app; talks only to `skit serve`
-runtime/LlamaRuntime       (v0.5) Swift embedding worker over llama.cpp
+                  ~/.claude/projects with fsnotify and archives a session once its transcript settles; sweeps
+                  every session at start and hourly for what changed while nothing was running.
+client/SessionVisualizer   (M7 onwards) Swift app; talks only to `skit serve`
 ```
 
 ## Boundaries
@@ -39,7 +43,10 @@ runtime/LlamaRuntime       (v0.5) Swift embedding worker over llama.cpp
 - **The engine is a process.** The Swift client and any future web renderer talk to `skit serve` over a Unix socket. The
   process boundary is the future network boundary; the sync service reuses the same operations.
 - **The archive lives in `~/.sessionkit/`.** Never under `~/Library`.
-- **The embedding model runs in a sidecar worker** speaking JSON lines (DigUp's protocol), never linked into the engine.
+- **The embedding model runs in a sidecar**, `llama-server` over its OpenAI-style HTTP API (ADR 0005), never linked into
+  the engine.
+- **One file outside skit's home:** the launchd agent's plist in `~/Library/LaunchAgents`, written only by
+  `skit service install`.
 
 ## Data flow (v0)
 

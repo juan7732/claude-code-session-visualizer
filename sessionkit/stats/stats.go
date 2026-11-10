@@ -30,18 +30,23 @@ type Summary struct {
 	Prompts     int `json:"prompts"`
 	Turns       int `json:"turns"`        // agent turns answering a prompt
 	SystemTurns int `json:"system_turns"` // agent turns started by notifications etc.
-	Requests    int `json:"requests"`     // API requests = actions (subagents included)
-	ToolCalls   int `json:"tool_calls"`
-	ToolErrors  int `json:"tool_errors"`
-	Unpaired    int `json:"unpaired_tool_calls"`
-	Images      int `json:"images"`
-	Compactions int `json:"compactions"`
-	APIErrors   int `json:"api_errors"`
-	Subagents   int `json:"subagents"`
-	Branches    int `json:"branches"`
-	Synthetic   int `json:"synthetic_messages"`
-	Injected    int `json:"injected_blocks"`
-	Attachments int `json:"attachments"`
+	// Rewound turns and actions sit on branches the conversation left (/rewind).
+	// Every other count and Usage include them; RewoundUsage is their share.
+	RewoundTurns   int               `json:"rewound_turns"`
+	RewoundActions int               `json:"rewound_actions"`
+	RewoundUsage   *transcript.Usage `json:"rewound_usage,omitempty"`
+	Requests       int               `json:"requests"` // API requests = actions (subagents included)
+	ToolCalls      int               `json:"tool_calls"`
+	ToolErrors     int               `json:"tool_errors"`
+	Unpaired       int               `json:"unpaired_tool_calls"`
+	Images         int               `json:"images"`
+	Compactions    int               `json:"compactions"`
+	APIErrors      int               `json:"api_errors"`
+	Subagents      int               `json:"subagents"`
+	Branches       int               `json:"branches"`
+	Synthetic      int               `json:"synthetic_messages"`
+	Injected       int               `json:"injected_blocks"`
+	Attachments    int               `json:"attachments"`
 
 	Usage          transcript.Usage    `json:"usage"`           // parent + subagents, once per request
 	CacheHitRatio  float64             `json:"cache_hit_ratio"` // cache reads / all input
@@ -107,6 +112,11 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		Unpaired: t.UnpairedToolUses, Images: t.Images, Compactions: t.Compactions, APIErrors: t.APIErrors,
 		Subagents: t.Subagents, Branches: s.Branches, Usage: t.Usage, PRLinks: s.PRLinks,
 		Synthetic: t.Synthetic, Injected: t.InjectedBlocks, Attachments: t.Attachments,
+	}
+	sum.RewoundTurns, sum.RewoundActions = t.RewoundTurns, t.RewoundActions
+	if t.RewoundActions > 0 {
+		u := t.RewoundUsage
+		sum.RewoundUsage = &u
 	}
 	models := map[string]int{}
 	for m, n := range t.Models {

@@ -4,11 +4,12 @@ Browse, archive and search your Claude Code sessions. Claude Code keeps transcri
 deletes them after 30 days by default; skit reads them, keeps a durable lossless copy in `~/.sessionkit/`, shows a
 session as a timeline with its stats, and searches across all of them. Agents can use every command with `--json`.
 
-Status: M5. Read path, durable archive, keyword search and the service mode work end to end on real sessions; the
-embedding spike is done (`docs/embedding-spike.md`), the Swift client (M6) is next. See `docs/plan-v0.md`.
+Status: M6. Read path, durable archive, keyword search and the service mode work end to end on real sessions, and the
+archive is hardened against losing lines. The native Swift client (M7 onwards) is next. See `docs/plan-v0.md`.
 
 ```
-skit doctor                    where Claude Code keeps sessions, retention setting, live sessions, disk use, index size
+skit doctor                    where Claude Code keeps sessions, retention setting, live sessions, disk use, index size,
+                               whether the background agent runs and how many sessions still wait to be archived
 skit projects                  projects (start directories) that have sessions
 skit list [-p slug] [-n N]     sessions, most recent first, with prompts, requests, tool calls, tokens, cost, title
 skit show <id> [--turn N]      one session as a timeline grouped by turn; --turn N prints an agent turn with all its
@@ -22,6 +23,8 @@ skit archive [id...]           copy sessions losslessly into ~/.sessionkit/archi
                                --verify checks every copy against the index and changes nothing
 skit search <words> [--kind K] find turns across archived sessions; a query of ids or codes weighs exact words more
 skit serve [--socket P]        the same operations over HTTP on a Unix socket (/v0/…); watches ~/.claude and archives
+skit service install           keep `skit serve` running from login on (a launchd agent), so sessions are archived
+                               without being asked; `service status`, `service uninstall`
 skit describe                  machine-readable manifest of every command and flag (for agents)
 ```
 

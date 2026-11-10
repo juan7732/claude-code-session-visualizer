@@ -57,6 +57,9 @@ type Server struct {
 	// Inspect finds Claude Code's data; defaults to catalog.Inspect.
 	Inspect func() (*catalog.Report, error)
 	Logf    func(format string, args ...any)
+	// LogRequests logs one line per request. Off for the launchd agent, whose
+	// log would otherwise grow with every click in the client.
+	LogRequests bool
 
 	annMu   sync.Mutex
 	started time.Time
@@ -65,7 +68,7 @@ type Server struct {
 // New makes a server over an open archive.
 func New(version string, a *archive.Archive) *Server {
 	a.EnableCache(archive.DefaultCacheBytes)
-	return &Server{Version: version, Archive: a, Inspect: catalog.Inspect, Logf: func(string, ...any) {}, started: time.Now()}
+	return &Server{Version: version, Archive: a, Inspect: catalog.Inspect, Logf: func(string, ...any) {}, LogRequests: true, started: time.Now()}
 }
 
 // Handler returns the HTTP handler (for a socket listener or for tests).
@@ -94,6 +97,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("no route %s %s (see GET /v0)", r.Method, r.URL.Path))
 	})
+	if !s.LogRequests {
+		return mux
+	}
 	return logging(s.Logf, mux)
 }
 
@@ -497,13 +503,65 @@ func (s *Server) IngestPath(path string) (archive.Result, error) {
 	if err != nil {
 		return archive.Result{}, err
 	}
-	// The watcher keeps the choice the copy was made with: a session archived
-	// with --strip-requests is not turned lossless behind the user's back.
+	return s.ingestKeepingMode(l)
+}
+
+// ingestKeepingMode archives a session the way its copy was made: one archived
+// with --strip-requests is not turned lossless behind the user's back.
+func (s *Server) ingestKeepingMode(l catalog.Located) (archive.Result, error) {
 	opt := archive.Options{}
 	if row, err := s.Archive.Store.Session(l.File.ID); err == nil && row != nil && row.Archived() {
 		opt.StripRequests = !row.KeepsRequests
 	}
 	return s.Archive.Ingest(l, opt)
+}
+
+// Sweep archives every session on disk whose copy is missing or behind. The
+// watcher only hears about changes made while it runs; the sweep catches what
+// changed while no skit was running, and anything a file event missed. Cheap
+// when nothing changed: one stat and one index row per session.
+func (s *Server) Sweep() (changed, failed int) {
+	rep, err := s.Inspect()
+	if err != nil {
+		s.Logf("sweep: %v", err)
+		return 0, 1
+	}
+	for _, l := range rep.Sessions() {
+		if l.File.Kind != "main" {
+			continue
+		}
+		res, err := s.ingestKeepingMode(l)
+		switch {
+		case err != nil:
+			failed++
+			s.Logf("sweep: %s: %v", l.File.ID, err)
+		case res.Action != "unchanged":
+			changed++
+			s.Logf("sweep: %s %s (%d records)", res.Action, short(res.ID), res.Records)
+		}
+	}
+	return changed, failed
+}
+
+func short(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
+// SweepEvery runs Sweep now and then at every interval until ctx is done.
+func (s *Server) SweepEvery(ctx context.Context, interval time.Duration) {
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+	for {
+		s.Sweep()
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
 }
 
 // cacheIdle is how long a parsed session stays in memory with nobody asking for it.
@@ -513,27 +571,42 @@ const cacheIdle = 10 * time.Minute
 // is 104 bytes on macOS, 108 on Linux; the NUL terminator takes one).
 const maxSocketPath = 103
 
-// ListenAndServe serves on a Unix socket until ctx is done, then removes the
-// socket file. A stale socket file from a crashed server is replaced.
-func (s *Server) ListenAndServe(ctx context.Context, socket string) error {
+// Listen binds the Unix socket. A stale socket file from a crashed server is
+// replaced; a live one is an error, so a second skit never starts watching or
+// archiving beside the first.
+func Listen(socket string) (net.Listener, error) {
 	if len(socket) > maxSocketPath {
-		return fmt.Errorf("socket path is %d bytes; Unix sockets allow at most %d on this platform. Use a shorter --socket path", len(socket), maxSocketPath)
+		return nil, fmt.Errorf("socket path is %d bytes; Unix sockets allow at most %d on this platform. Use a shorter --socket path", len(socket), maxSocketPath)
 	}
 	if err := os.MkdirAll(filepath.Dir(socket), 0o700); err != nil {
-		return err
+		return nil, err
 	}
 	if _, err := os.Stat(socket); err == nil {
 		if conn, err := net.DialTimeout("unix", socket, 200*time.Millisecond); err == nil {
 			conn.Close()
-			return fmt.Errorf("another skit is already serving on %s", socket)
+			return nil, fmt.Errorf("another skit is already serving on %s", socket)
 		}
 		os.Remove(socket)
 	}
 	ln, err := net.Listen("unix", socket)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	os.Chmod(socket, 0o600)
+	return ln, nil
+}
+
+// ListenAndServe is Listen followed by Serve.
+func (s *Server) ListenAndServe(ctx context.Context, socket string) error {
+	ln, err := Listen(socket)
+	if err != nil {
+		return err
+	}
+	return s.Serve(ctx, ln, socket)
+}
+
+// Serve answers requests on ln until ctx is done, then removes the socket file.
+func (s *Server) Serve(ctx context.Context, ln net.Listener, socket string) error {
 	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()

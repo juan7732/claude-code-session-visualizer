@@ -98,8 +98,11 @@ understood).
 `parentUuid` makes a tree, not a list. In the largest session: 1,221 uuid records, 2 roots, 0 branch points. Roots are
 the first prompt and the `compact_boundary` record (its `parentUuid` is null; `logicalParentUuid` points at the
 pre-compaction leaf). Branches appear with `/rewind` and `--fork-session`; `last-prompt.leafUuid` names the live tip.
-Render the main chain as the timeline; keep other branches reachable. Subagents are separate files under
-`<session>/subagents/`, in the same format; older versions used `isSidechain: true` in the main file. Handle both.
+The timeline shows every record in file order; prompts and actions under a branch point's child that the main chain did
+not take are flagged `rewound`. "Off the chain" alone is not the test: results of parallel tool calls, a final reply
+that is a sibling of the tip, and everything written after a stale `last-prompt` are off the chain without being
+abandoned. Subagents are separate files under `<session>/subagents/`, in the same format; older versions used
+`isSidechain: true` in the main file. Handle both.
 
 ## `user` flavours (largest session)
 

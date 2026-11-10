@@ -62,6 +62,10 @@ func printStats(w io.Writer, sum stats.Summary, context bool) {
 
 	fmt.Fprintf(w, "\nCounts    turns %d (+%d system-started) · actions %d · tool calls %d (errors %d, unpaired %d) · images %d · api errors %d · subagents %d · branches %d\n",
 		sum.Turns, sum.SystemTurns, sum.Requests, sum.ToolCalls, sum.ToolErrors, sum.Unpaired, sum.Images, sum.APIErrors, sum.Subagents, sum.Branches)
+	if sum.RewoundActions > 0 {
+		fmt.Fprintf(w, "Rewound   %d turns · %d actions · out %s on branches the conversation left (included in the counts and the tokens above)\n",
+			sum.RewoundTurns, sum.RewoundActions, stats.FormatTokens(sum.RewoundUsage.OutputTokens))
+	}
 	fmt.Fprintf(w, "Context   %d injected blocks in prompts · %d attachments · %d synthetic messages\n", sum.Injected, sum.Attachments, sum.Synthetic)
 
 	fmt.Fprintln(w, "\nModels")

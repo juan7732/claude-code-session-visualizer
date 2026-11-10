@@ -62,6 +62,8 @@ Added 2026-11-07, extended after Juan's review.
 ## Live and integration
 
 - **Live view** from `~/.claude/sessions/<pid>.json`, tailing the transcript.
+- **Background agent** (done, M6): `skit service install` keeps `skit serve` running under launchd; the watcher and an
+  hourly sweep keep the archive current. The hooks below would make it immediate instead of a few seconds late.
 - **Hooks installer** in the UI: writes `SessionStart`/`Stop`/`PostCompact`/`SessionEnd` hooks that hand the
   `transcript_path` to the engine. The hook must be deterministic and near-zero cost: a tiny binary or shell line that
   writes one line to a socket or spool file and exits in milliseconds, never blocking Claude Code, with a timeout.

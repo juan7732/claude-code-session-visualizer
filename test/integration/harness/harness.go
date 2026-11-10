@@ -106,6 +106,25 @@ func (h *Harness) SeedFixture(fixture, slug string) string {
 	return id
 }
 
+// Shim puts an executable named name, with the given shell script as its body,
+// at the front of the sandbox's PATH: the way to stand in for an external tool
+// (launchctl) without touching the real one.
+func (h *Harness) Shim(name, script string) {
+	h.t.Helper()
+	dir := filepath.Join(h.Home, "shims")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		h.t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, name), []byte("#!/bin/sh\n"+script+"\n"), 0o755); err != nil {
+		h.t.Fatal(err)
+	}
+	for i, e := range h.Env {
+		if strings.HasPrefix(e, "PATH=") && !strings.HasPrefix(e, "PATH="+dir+":") {
+			h.Env[i] = "PATH=" + dir + ":" + strings.TrimPrefix(e, "PATH=")
+		}
+	}
+}
+
 // WriteFile writes a file relative to ~/.claude.
 func (h *Harness) WriteFile(rel, content string) {
 	h.t.Helper()

@@ -7,10 +7,53 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/home"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/service"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/store"
 )
+
+// doctorReport is what `skit doctor --json` prints: the catalog report plus
+// whether anything keeps the archive current.
+type doctorReport struct {
+	*catalog.Report
+	Archiver archiverReport `json:"archiver"`
+}
+
+type archiverReport struct {
+	// Service is the background agent that archives without being asked.
+	Service service.Status `json:"service"`
+	// Pending counts sessions on disk the archive does not fully hold.
+	Pending archive.Pending `json:"pending"`
+}
+
+// inspectArchiver reads the agent's state and compares the sessions on disk
+// with the index. Without an index, every session is missing.
+func inspectArchiver(rep *catalog.Report) archiverReport {
+	ar := archiverReport{Service: service.Inspect()}
+	for _, l := range rep.Sessions() {
+		if l.File.Kind == "main" {
+			ar.Pending.Missing++
+		}
+	}
+	dir, err := home.Dir()
+	if err != nil {
+		return ar
+	}
+	if _, err := os.Stat(home.DBPath(dir)); err != nil {
+		return ar
+	}
+	a, err := archive.OpenAt(dir)
+	if err != nil {
+		return ar
+	}
+	defer a.Close()
+	if p, err := a.Pending(rep); err == nil {
+		ar.Pending = p
+	}
+	return ar
+}
 
 func newDoctor() *cobra.Command {
 	return &cobra.Command{
@@ -18,7 +61,9 @@ func newDoctor() *cobra.Command {
 		Short: "Report where Claude Code keeps sessions and what skit can see",
 		Long: `doctor inspects the Claude Code data directory ($CLAUDE_CONFIG_DIR or ~/.claude):
 projects, session files, subagents, live sessions, disk use, and the retention
-setting that decides when Claude Code deletes transcripts.`,
+setting that decides when Claude Code deletes transcripts. It also says whether
+anything keeps the archive current: the background agent ('skit service') and how
+many sessions on disk are not archived yet or changed since they were.`,
 		Example: "  skit doctor\n  skit doctor --json | jq .retention",
 		Args:    cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, _ []string) error {
@@ -26,10 +71,14 @@ setting that decides when Claude Code deletes transcripts.`,
 			if err != nil {
 				return err
 			}
+			ar := inspectArchiver(rep)
 			if jsonWanted(cmd) {
-				return writeJSON(cmd.OutOrStdout(), rep)
+				return writeJSON(cmd.OutOrStdout(), doctorReport{Report: rep, Archiver: ar})
 			}
 			printDoctor(cmd.OutOrStdout(), rep)
+			if rep.Exists {
+				printArchiver(cmd.OutOrStdout(), ar)
+			}
 			return nil
 		},
 	}
@@ -75,6 +124,20 @@ func printDoctor(w io.Writer, r *catalog.Report) {
 	}
 	for _, warn := range r.Warnings {
 		fmt.Fprintln(w, "warning:", warn)
+	}
+}
+
+func printArchiver(w io.Writer, ar archiverReport) {
+	waiting := "every session on disk is archived"
+	if n := ar.Pending.Missing + ar.Pending.Behind; n > 0 {
+		waiting = fmt.Sprintf("%d session(s) waiting: %d never archived, %d changed since", n, ar.Pending.Missing, ar.Pending.Behind)
+	}
+	fmt.Fprintf(w, "Archiver           %s · %s\n", serviceLine(ar.Service), waiting)
+	switch {
+	case ar.Service.Supported && !ar.Service.Installed:
+		fmt.Fprintln(w, "                   run `skit service install` once and sessions are archived without being asked")
+	case ar.Service.Installed && !ar.Service.Running && ar.Service.Detail != "":
+		fmt.Fprintf(w, "                   %s\n", ar.Service.Detail)
 	}
 }
 

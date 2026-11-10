@@ -76,6 +76,39 @@ func (a *Archive) List(rep *catalog.Report, project string, useIndex bool, limit
 	return rows, nil
 }
 
+// Pending counts the sessions on disk the archive does not fully hold.
+type Pending struct {
+	Missing int `json:"missing"` // never archived
+	Behind  int `json:"behind"`  // changed since their copy was made
+}
+
+// Pending compares the sessions on disk with the index. It reads nothing but
+// the index: a session counts as behind when its fingerprint is not the one
+// its copy was made from.
+func (a *Archive) Pending(rep *catalog.Report) (Pending, error) {
+	rows, err := a.Store.Sessions()
+	if err != nil {
+		return Pending{}, err
+	}
+	byID := make(map[string]store.SessionRow, len(rows))
+	for _, r := range rows {
+		byID[r.ID] = r
+	}
+	var p Pending
+	for _, l := range rep.Sessions() {
+		if l.File.Kind != "main" {
+			continue
+		}
+		switch r, ok := byID[l.File.ID]; {
+		case !ok || !r.Archived():
+			p.Missing++
+		case r.ArchivedFP != sourceFingerprint(l):
+			p.Behind++
+		}
+	}
+	return p, nil
+}
+
 // Resolved is a session found on disk or in the archive.
 type Resolved struct {
 	Session      *transcript.Session

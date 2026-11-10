@@ -12,6 +12,15 @@ route that returns the same document.
 | Claude Code's own configuration | `skit claude [--root dir] [--flags]`                          | `GET /v0/claude?root=`                                                 |
 | Working directory per action    | `cwd` on every action in `skit show --json`                   | same field on `/v0/sessions/{id}`                                      |
 
+Added with M6 (2026-11-10), for the client as well:
+
+- `rewound` on prompts, actions and turns in the session document, and `rewound_turns`, `rewound_actions`,
+  `rewound_usage` in stats: work on a branch the conversation left (`stats-and-cost.md`).
+- `GET /v0/archive/verify` (`skit archive --verify`): every archived copy checked against the index.
+- `cached_sessions` on `/v0/status`. A session is parsed once and kept while it is being read, so `/turns/{n}` and
+  `/actions/{n}` answer in about a millisecond after the first request.
+- `skit service status --json`: whether the background agent that runs `serve` is installed and running.
+
 ## Relations
 
 `Session.Relations()` derives, on read:

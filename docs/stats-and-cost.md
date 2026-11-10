@@ -35,9 +35,17 @@ A subagent transcript has no `cost-state`; its `usage` is summed from its own as
 **Subagent usage and cost roll into the parent session's totals** (decided 2026-11-08): they are work done for that
 session. The breakdown by agent stays available for the subagent lane.
 
+## Rewound work
+
+A `/rewind` leaves the abandoned prompts and replies in the transcript. skit flags them (`rewound` on a prompt, an
+action and a turn) and reports `rewound_turns`, `rewound_actions` and `rewound_usage`. Every other count and the token
+totals include them: the work was done and paid for. Detection is structural (a branch point's child the main chain did
+not take, `record-anatomy.md`) and has only been checked on synthetic transcripts so far.
+
 ## Pricing
 
-Prices are not hard-coded. The user imports or configures a pricing table (model id → price per million input, output,
+Not built yet (issue #1): today cost is Claude Code's own figure, or unknown. The decision stands as follows. Prices are
+not hard-coded. The user imports or configures a pricing table (model id → price per million input, output,
 cache-creation and cache-read tokens); skit ships a starter table the user can edit, and a session's cost is computed
 from it. When Claude Code's own `cost-state` exists, both numbers are shown. A pulled price source can come with the
 sync service later. See `decisions/0003-pricing-table.md`.

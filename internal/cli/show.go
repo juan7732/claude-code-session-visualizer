@@ -100,7 +100,8 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 		fmt.Fprintln(w, "Note     transcript ends mid-line: the session is still being written")
 	}
 	if s.Branches > 0 {
-		fmt.Fprintf(w, "Note     %d branch point(s): the timeline shows every record, the main chain is %d records long\n", s.Branches, len(s.Chain))
+		fmt.Fprintf(w, "Note     %d branch point(s): the timeline shows every record; %d turn(s) and %d action(s) are on rewound branches, marked ↩ and included in the counts\n",
+			s.Branches, s.Totals.RewoundTurns, s.Totals.RewoundActions)
 	}
 	fmt.Fprintln(w)
 
@@ -122,6 +123,9 @@ func printTimeline(w io.Writer, s *transcript.Session, project string, width int
 			img = fmt.Sprintf(" [%d image(s)]", p.Images)
 		}
 		text := truncate(p.Text, width) + img
+		if p.Rewound {
+			text = "↩ rewound · " + text
+		}
 		if showContext {
 			for _, b := range p.Context {
 				text += fmt.Sprintf("\n%25s ctx %-16s %s", "", transcript.InjectedKind(b.Text), truncate(b.Text, width-20))
@@ -220,6 +224,9 @@ func printTurn(w io.Writer, s *transcript.Session, n, width int) error {
 	}
 	t := s.Turns[n]
 	fmt.Fprintf(w, "Turn %d  %s  origin %s  %d actions · %d tool calls · %s · out %s\n", t.Index, localClock(t.StartAt), t.Origin, len(t.Actions), t.ToolCalls, shortDuration(t.Duration()), stats.FormatTokens(t.Usage.OutputTokens))
+	if t.Rewound {
+		fmt.Fprintln(w, "↩ rewound: this turn is on a branch the conversation left")
+	}
 	if t.Prompt != nil {
 		fmt.Fprintf(w, "\n══ human ══\n%s\n", t.Prompt.Text)
 		for _, b := range t.Prompt.Context {

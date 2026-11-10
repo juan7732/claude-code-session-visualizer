@@ -12,7 +12,7 @@ eval is what keeps these notes honest.
 | `tenets.md`                | Tenets: beliefs that break ties when we decide, Amazon style                  |
 | `design-principles.md`     | How skit is built: the design and engineering principles                      |
 | `architecture.md`          | Packages, boundaries, data flow, testing, conventions                         |
-| `plan-v0.md`               | Milestones M0–M6 and confirmed choices                                        |
+| `plan-v0.md`               | The plan: milestones M0 to M14 (v0 ends at M9) and confirmed choices          |
 | `roadmap.md`               | Ideas grounded in what the session files contain                              |
 | `decisions/`               | Architecture decision records                                                 |
 | `where-sessions-live.md`   | `~/.claude` layout, what a "project" is, retention, purge                     |

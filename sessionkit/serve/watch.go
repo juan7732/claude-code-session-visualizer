@@ -59,7 +59,7 @@ func (s *Server) Watch(ctx context.Context, projectsDir string, settle time.Dura
 				s.Logf("watch: %s: %v", filepath.Base(path), err)
 				return
 			}
-			s.Logf("watch: %s %s (%d records)", res.Action, res.ID[:8], res.Records)
+			s.Logf("watch: %s %s (%d records)", res.Action, short(res.ID), res.Records)
 		})
 	}
 	for {

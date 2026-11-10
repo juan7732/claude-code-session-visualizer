@@ -19,7 +19,7 @@ import (
 )
 
 // SchemaVersion is bumped with every migration.
-const SchemaVersion = 3
+const SchemaVersion = 4
 
 // Store is an open index.
 type Store struct {
@@ -97,6 +97,12 @@ func (s *Store) migrate() error {
 			return err
 		}
 		version = 3
+	}
+	if version == 3 {
+		// v4: no new columns. Summaries gained the rewound counts, and a row's
+		// `schema` says which version wrote its summary, so rows from v3 are
+		// re-indexed by the next `archive` or `list` instead of reporting zeros.
+		version = 4
 	}
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion)); err != nil {
 		return err

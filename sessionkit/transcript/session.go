@@ -70,6 +70,9 @@ type Prompt struct {
 	// prompt (<ide_opened_file>, <ide_selection>, <system-reminder>…). They are
 	// not the human's words, but they shaped what the model saw.
 	Context []Block `json:"context,omitempty"`
+	// Rewound is true when the prompt sits on a branch the conversation left
+	// (a /rewind): it happened, but what came later does not follow from it.
+	Rewound bool    `json:"rewound,omitempty"`
 	Record  *Record `json:"-"`
 }
 
@@ -90,12 +93,15 @@ type Action struct {
 	// shown on the timeline, not counted as requests. SyntheticKind says which:
 	// "api_error" (the API could not be reached), "no_response" (a prompt that
 	// needed no model reply), or "other".
-	Synthetic     bool        `json:"synthetic,omitempty"`
-	SyntheticKind string      `json:"synthetic_kind,omitempty"`
-	Usage         Usage       `json:"usage"`
-	Blocks        []Block     `json:"blocks"`
-	Records       []*Record   `json:"-"`
-	ToolCalls     []*ToolCall `json:"-"`
+	Synthetic     bool   `json:"synthetic,omitempty"`
+	SyntheticKind string `json:"synthetic_kind,omitempty"`
+	// Rewound is true when the action sits on a branch the conversation left.
+	// Its usage was still spent and is still counted.
+	Rewound   bool        `json:"rewound,omitempty"`
+	Usage     Usage       `json:"usage"`
+	Blocks    []Block     `json:"blocks"`
+	Records   []*Record   `json:"-"`
+	ToolCalls []*ToolCall `json:"-"`
 }
 
 // Text returns the action's visible text blocks joined.
@@ -141,6 +147,9 @@ type Turn struct {
 	Usage       Usage         `json:"usage"`
 	Compactions []*Compaction `json:"compactions,omitempty"`
 	APIErrors   int           `json:"api_errors,omitempty"`
+	// Rewound is true when the whole turn sits on a branch the conversation
+	// left: its prompt was rewound, or (with no prompt) every action was.
+	Rewound bool `json:"rewound,omitempty"`
 }
 
 // Duration is the agent turn's wall time: from the prompt to the last action or tool result.
@@ -222,31 +231,36 @@ type SubagentMeta struct {
 
 // Totals are the exact counts the parser eval pins.
 type Totals struct {
-	Records          int            `json:"records"`
-	Malformed        int            `json:"malformed"`
-	Prompts          int            `json:"prompts"`
-	Requests         int            `json:"requests"`
-	AssistantRecords int            `json:"assistant_records"`
-	UserRecords      int            `json:"user_records"`
-	Attachments      int            `json:"attachments"`
-	ToolCalls        int            `json:"tool_calls"`
-	ToolResults      int            `json:"tool_results"`
-	UnpairedToolUses int            `json:"unpaired_tool_uses"`
-	ToolErrors       int            `json:"tool_errors"`
-	Images           int            `json:"images"`
-	Compactions      int            `json:"compactions"`
-	APIErrors        int            `json:"api_errors"`
-	Turns            int            `json:"turns"`        // agent turns answering a human prompt
-	SystemTurns      int            `json:"system_turns"` // agent turns started by something else (task notifications…)
-	Synthetic        int            `json:"synthetic_messages"`
-	SyntheticErrors  int            `json:"synthetic_api_errors"`
-	InjectedBlocks   int            `json:"injected_blocks"`
-	APIRequests      int            `json:"api_request_records"`
-	Subagents        int            `json:"subagents"`
-	Usage            Usage          `json:"usage"`
-	Models           map[string]int `json:"models"`
-	Tools            map[string]int `json:"tools"`
-	Types            map[string]int `json:"types"`
+	Records          int `json:"records"`
+	Malformed        int `json:"malformed"`
+	Prompts          int `json:"prompts"`
+	Requests         int `json:"requests"`
+	AssistantRecords int `json:"assistant_records"`
+	UserRecords      int `json:"user_records"`
+	Attachments      int `json:"attachments"`
+	ToolCalls        int `json:"tool_calls"`
+	ToolResults      int `json:"tool_results"`
+	UnpairedToolUses int `json:"unpaired_tool_uses"`
+	ToolErrors       int `json:"tool_errors"`
+	Images           int `json:"images"`
+	Compactions      int `json:"compactions"`
+	APIErrors        int `json:"api_errors"`
+	Turns            int `json:"turns"`        // agent turns answering a human prompt
+	SystemTurns      int `json:"system_turns"` // agent turns started by something else (task notifications…)
+	// Rewound turns and actions sit on branches the conversation left. Every
+	// other count and Usage include them: the work was done and paid for.
+	RewoundTurns    int            `json:"rewound_turns"`
+	RewoundActions  int            `json:"rewound_actions"`
+	RewoundUsage    Usage          `json:"rewound_usage"`
+	Synthetic       int            `json:"synthetic_messages"`
+	SyntheticErrors int            `json:"synthetic_api_errors"`
+	InjectedBlocks  int            `json:"injected_blocks"`
+	APIRequests     int            `json:"api_request_records"`
+	Subagents       int            `json:"subagents"`
+	Usage           Usage          `json:"usage"`
+	Models          map[string]int `json:"models"`
+	Tools           map[string]int `json:"tools"`
+	Types           map[string]int `json:"types"`
 }
 
 // Parse reads a transcript stream and builds the session. Subagents are not
@@ -465,6 +479,7 @@ func Build(recs []*Record) *Session {
 	s.Versions = sortedKeys(versions)
 	s.Entrypoints = sortedKeys(entrypoints)
 	s.buildChain(leaf)
+	s.markRewound()
 	s.groupTurns(actionsByReq)
 	return s
 }
@@ -551,6 +566,20 @@ func (s *Session) groupTurns(actionsByReq map[string]*Action) {
 					}
 				}
 			}
+		}
+	}
+	for _, t := range s.Turns {
+		switch {
+		case t.Prompt != nil:
+			t.Rewound = t.Prompt.Rewound
+		case len(t.Actions) > 0:
+			t.Rewound = true
+			for _, a := range t.Actions {
+				t.Rewound = t.Rewound && a.Rewound
+			}
+		}
+		if t.Rewound {
+			s.Totals.RewoundTurns++
 		}
 	}
 	// Tool results can land after the action that asked for them; extend turn ends.
@@ -701,6 +730,80 @@ func (s *Session) buildChain(leaf string) {
 		chain[i], chain[j] = chain[j], chain[i]
 	}
 	s.Chain = chain
+}
+
+// markRewound flags the prompts and actions on branches the conversation left.
+//
+// DECISION: "not on the main chain" is not the test. Plenty of records are off
+// the chain without being rewound: the results of parallel tool calls, a final
+// reply that is a sibling of the tip, everything written after a stale
+// last-prompt. A record is rewound only when it sits under a branch point's
+// child that the chain did not take, where a branch point is what Branches
+// counts: one parent, several continuations. When none of a branch point's
+// children is on the chain, the live line cannot be told apart and nothing
+// under it is flagged: a missed rewind is better than history mislabelled.
+//
+// REVIEW: verified on synthetic transcripts only. No session on the machine
+// this was written on contains a rewind (Branches is 0 for all of them).
+func (s *Session) markRewound() {
+	if s.Branches == 0 {
+		return
+	}
+	on := make(map[string]bool, len(s.Chain))
+	for _, id := range s.Chain {
+		on[id] = true
+	}
+	kids := map[string][]*Record{}
+	for _, r := range s.Records {
+		if r.UUID != "" && r.ParentUUID != "" && s.isContinuation(r) {
+			kids[r.ParentUUID] = append(kids[r.ParentUUID], r)
+		}
+	}
+	left := map[string]bool{} // roots of the branches the chain did not take
+	for _, list := range kids {
+		taken := false
+		for _, k := range list {
+			taken = taken || on[k.UUID]
+		}
+		if len(list) < 2 || !taken {
+			continue
+		}
+		for _, k := range list {
+			if !on[k.UUID] {
+				left[k.UUID] = true
+			}
+		}
+	}
+	if len(left) == 0 {
+		return
+	}
+	rewound := func(r *Record) bool {
+		seen := map[string]bool{}
+		for id := r.UUID; id != "" && !seen[id]; {
+			seen[id] = true
+			if left[id] {
+				return true
+			}
+			p := s.byUUID[id]
+			if p == nil || on[id] {
+				return false
+			}
+			if id = p.ParentUUID; id == "" {
+				id = p.LogicalParentUUID
+			}
+		}
+		return false
+	}
+	for _, p := range s.Prompts {
+		p.Rewound = rewound(p.Record)
+	}
+	for _, a := range s.Actions {
+		if len(a.Records) > 0 && rewound(a.Records[0]) {
+			a.Rewound = true
+			s.Totals.RewoundActions++
+			s.Totals.RewoundUsage.Add(a.Usage)
+		}
+	}
 }
 
 var spilledMarker = regexp.MustCompile(`Full output saved to: (\S+)`)

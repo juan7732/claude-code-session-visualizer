@@ -1,6 +1,7 @@
 # 0003 · Pricing is a user-configured table
 
-Date: 2026-11-08. Status: accepted.
+Date: 2026-11-08. Status: accepted, not implemented. Deferred on 2026-11-10 (issue #1): until it is built, cost is
+Claude Code's own `cost-state` figure where a transcript has one, and unknown otherwise.
 
 **Context.** Cost needs prices per model and token category. Claude Code writes its own `cost-state` for most sessions,
 but not for all (crashes, subagents, older versions), and prices change.

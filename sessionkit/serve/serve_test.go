@@ -233,3 +233,29 @@ func TestCacheFollowsTheSource(t *testing.T) {
 		t.Fatalf("the appended prompt should be searchable: %v", hits)
 	}
 }
+
+// TestSweepArchivesWhatChangedWhileNothingRan: no file event, no request.
+func TestSweepArchivesWhatChangedWhileNothingRan(t *testing.T) {
+	s, claude := newTestServer(t)
+	if changed, failed := s.Sweep(); changed != 1 || failed != 0 {
+		t.Fatalf("first sweep: changed=%d failed=%d", changed, failed)
+	}
+	if changed, failed := s.Sweep(); changed != 0 || failed != 0 {
+		t.Fatalf("a second sweep finds nothing to do: changed=%d failed=%d", changed, failed)
+	}
+	rep, _ := s.Inspect()
+	if p, err := s.Archive.Pending(rep); err != nil || p.Missing != 0 || p.Behind != 0 {
+		t.Fatalf("pending after a sweep = %+v %v", p, err)
+	}
+	src := filepath.Join(claude, "projects", "-Users-xxxx-work", fixtureID+".jsonl")
+	f, _ := os.OpenFile(src, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.WriteString(`{"type":"user","uuid":"u9","parentUuid":"a8","turnOrigin":"human","sessionId":"` + fixtureID + `","timestamp":"2026-11-08T10:02:00.000Z","message":{"role":"user","content":"later"}}` + "\n")
+	f.Close()
+	rep, _ = s.Inspect()
+	if p, _ := s.Archive.Pending(rep); p.Behind != 1 {
+		t.Fatalf("a grown source is behind until the next sweep: %+v", p)
+	}
+	if changed, _ := s.Sweep(); changed != 1 {
+		t.Fatalf("the sweep should pick up the growth: changed=%d", changed)
+	}
+}

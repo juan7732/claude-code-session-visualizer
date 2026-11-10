@@ -482,3 +482,54 @@ func TestRelationsHeuristics(t *testing.T) {
 		t.Fatalf("errorText = %q", got)
 	}
 }
+
+// TestRewoundBranch: the human rewinds past the second prompt and asks
+// something else. The abandoned prompt and its reply stay on the timeline and
+// in the totals, flagged; the parallel tool result that is off the chain
+// without being abandoned is not flagged.
+func TestRewoundBranch(t *testing.T) {
+	const in = `{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T10:00:00Z","message":{"role":"user","content":"first"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T10:00:01Z","message":{"model":"m","content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}],"usage":{"output_tokens":5}}}
+{"type":"assistant","uuid":"a1b","parentUuid":"a1","requestId":"r1","timestamp":"2026-11-08T10:00:01Z","message":{"model":"m","content":[{"type":"tool_use","id":"t2","name":"Read","input":{}}],"usage":{"output_tokens":5}}}
+{"type":"user","uuid":"res1","parentUuid":"a1","timestamp":"2026-11-08T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"one"}]}}
+{"type":"user","uuid":"res2","parentUuid":"a1b","timestamp":"2026-11-08T10:00:02Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t2","content":"two"}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"res2","requestId":"r2","timestamp":"2026-11-08T10:00:03Z","message":{"model":"m","content":[{"type":"text","text":"done"}],"usage":{"output_tokens":7}}}
+{"type":"user","uuid":"u2","parentUuid":"a2","turnOrigin":"human","timestamp":"2026-11-08T10:01:00Z","message":{"role":"user","content":"the abandoned question"}}
+{"type":"assistant","uuid":"a3","parentUuid":"u2","requestId":"r3","timestamp":"2026-11-08T10:01:01Z","message":{"model":"m","content":[{"type":"text","text":"the abandoned answer"}],"usage":{"output_tokens":11}}}
+{"type":"user","uuid":"u3","parentUuid":"a2","turnOrigin":"human","timestamp":"2026-11-08T10:02:00Z","message":{"role":"user","content":"the question that stayed"}}
+{"type":"last-prompt","leafUuid":"u3","lastPrompt":"the question that stayed"}
+{"type":"assistant","uuid":"a4","parentUuid":"u3","requestId":"r4","timestamp":"2026-11-08T10:02:01Z","message":{"model":"m","content":[{"type":"text","text":"the answer that stayed"}],"usage":{"output_tokens":13}}}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Branches != 1 {
+		t.Fatalf("branches = %d, want 1", s.Branches)
+	}
+	var flagged []string
+	for _, p := range s.Prompts {
+		if p.Rewound {
+			flagged = append(flagged, "prompt:"+p.UUID)
+		}
+	}
+	for _, a := range s.Actions {
+		if a.Rewound {
+			flagged = append(flagged, "action:"+a.RequestID)
+		}
+	}
+	if got := strings.Join(flagged, " "); got != "prompt:u2 action:r3" {
+		t.Fatalf("rewound = %q, want only the abandoned prompt and its reply (the reply written after the stale tip and the parallel tool result are not rewound)", got)
+	}
+	if !s.Turns[1].Rewound || s.Turns[0].Rewound || s.Turns[2].Rewound {
+		t.Fatalf("turn flags = %v %v %v", s.Turns[0].Rewound, s.Turns[1].Rewound, s.Turns[2].Rewound)
+	}
+	tot := s.Totals
+	if tot.RewoundTurns != 1 || tot.RewoundActions != 1 || tot.RewoundUsage.OutputTokens != 11 {
+		t.Fatalf("rewound totals = %d turns, %d actions, %d output tokens", tot.RewoundTurns, tot.RewoundActions, tot.RewoundUsage.OutputTokens)
+	}
+	// Everything else still counts the abandoned work: it was done and paid for.
+	if tot.Turns != 3 || tot.Requests != 4 || tot.Usage.OutputTokens != 5+7+11+13 {
+		t.Fatalf("totals must include rewound work: turns=%d requests=%d out=%d", tot.Turns, tot.Requests, tot.Usage.OutputTokens)
+	}
+}
