@@ -18,7 +18,8 @@ skit stats <id> [--context]    tokens once per request (subagents rolled in), mo
 skit context <id> [--action N] what the model received for an action: system prompt, tool definitions, messages (CLAUDE.md
                                labelled), injected attachments, each with size, next to the reported token counts; --show prints one;
                                --compaction N explains a compaction: before, summary sections, preserved, re-injected, after
-skit archive [id...]           copy sessions losslessly into ~/.sessionkit/archive (raw JSONL, zstd) and index them for search
+skit archive [id...]           copy sessions losslessly into ~/.sessionkit/archive (raw JSONL, zstd) and index them for search;
+                               --verify checks every copy against the index and changes nothing
 skit search <words> [--kind K] find turns across archived sessions; a query of ids or codes weighs exact words more
 skit serve [--socket P]        the same operations over HTTP on a Unix socket (/v0/…); watches ~/.claude and archives
 skit describe                  machine-readable manifest of every command and flag (for agents)
@@ -33,7 +34,9 @@ curl --unix-socket ~/.sessionkit/skit.sock 'http://skit/v0/search?q=retention+sw
 Every read command takes `--json`. `<id>` is a session id, a unique prefix, or the path to a `.jsonl` transcript.
 `list`, `show` and `stats` keep working from the archive after Claude Code has deleted the source. `list` reads indexed
 summaries from `~/.sessionkit/skit.sqlite` when a transcript has not changed (`--no-cache` to bypass). The archive is
-plain JSONL under zstd: `zstd -dc <file>` gives the transcript back without skit.
+plain JSONL under zstd: `zstd -dc <file>` gives the transcript back without skit. It never ends up holding less than it
+did: if a transcript shrinks or is replaced, the fuller copy stays beside the new one as `<copy>.prev-<time>`
+(`docs/decisions/0008-the-archive-never-shrinks.md`).
 
 ## Build and test
 

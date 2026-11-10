@@ -7,17 +7,15 @@
 //	<home>/archive/<project>/<session>.jsonl.zst          raw lines, every record (api-request* too unless --strip-requests)
 //	<home>/archive/<project>/<session>/subagents/*.jsonl.zst, *.meta.json
 //	<home>/archive/<project>/<session>/tool-results/*     spilled tool outputs, as-is
+//	<home>/archive/**/<copy>.prev-<time>                  an earlier copy that held more than the source does now
 //
 // The files are readable without skit: `zstd -dc <file>` gives the transcript back.
 package archive
 
 import (
-	"bufio"
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -37,6 +35,8 @@ import (
 type Archive struct {
 	Home  string
 	Store *store.Store
+
+	cache *cache // parsed sessions, when EnableCache was called
 }
 
 // Open opens the archive under home.Dir().
@@ -82,6 +82,9 @@ type Result struct {
 	Records int    `json:"records"`
 	Bytes   int64  `json:"bytes"` // source bytes covered by the raw copy
 	Path    string `json:"path"`
+	// Kept lists earlier copies that were renamed and kept because they held
+	// lines the source no longer has (it shrank, or was replaced).
+	Kept []string `json:"kept,omitempty"`
 }
 
 // Summary returns the indexed summary for a session on disk when the index is
@@ -120,37 +123,55 @@ func rowFor(l catalog.Located, s *transcript.Session, sum stats.Summary) store.S
 }
 
 // Ingest archives one session: raw copy (appended from the last offset when the
-// file only grew), companion files, segments for search, and the summary.
+// file only grew), companion files, segments for search, and the summary. It
+// never makes the archive hold less than it did: see copy.go and ADR 0008.
 func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 	res := Result{ID: l.File.ID, Project: l.Project.Slug, Path: a.Path(l.Project.Slug, l.File.ID)}
+	if err := os.MkdirAll(a.Home, 0o700); err != nil {
+		return res, err
+	}
+	unlock, err := a.lock()
+	if err != nil {
+		return res, err
+	}
+	defer unlock()
+
+	keep := !opt.StripRequests
+	fp := sourceFingerprint(l)
 	row, err := a.Store.Session(l.File.ID)
 	if err != nil {
 		return res, err
 	}
-	if row != nil && row.Archived() && row.KeepsRequests == !opt.StripRequests && row.Schema == store.SchemaVersion && a.sourceMatches(row, l) {
-		if _, err := os.Stat(row.ArchivePath); err == nil {
+	// Unchanged means the copy was made from exactly this source state and is
+	// still the size we left it. The row's source_* columns cannot answer this:
+	// list refreshes them without copying anything.
+	if row != nil && row.Archived() && row.KeepsRequests == keep && row.Schema == store.SchemaVersion && row.ArchivedFP == fp && row.ArchivePath == res.Path {
+		if fi, err := os.Stat(row.ArchivePath); err == nil && fi.Size() == row.ArchiveSize {
 			res.Action, res.Records, res.Bytes = "unchanged", row.Records, row.ArchivedBytes
 			return res, nil
 		}
 	}
-	s, err := transcript.Load(l.File.Path)
+	// Through the cache when a reader holds this session: in `skit serve` the
+	// client often has it open, and a second parse of a large one costs as
+	// much again.
+	loaded, err := a.loadSource(l, true)
 	if err != nil {
 		return res, err
 	}
+	s := loaded.Session
 	sum := stats.Compute(s, l.Project.Slug, stats.Options{})
 
-	// Raw copy: append when the source only grew, rewrite otherwise.
-	start := int64(0)
-	if row != nil && row.Archived() && row.KeepsRequests == !opt.StripRequests && row.ArchivedBytes <= l.File.Bytes && row.ArchivePath == res.Path {
-		if _, err := os.Stat(res.Path); err == nil {
-			start = row.ArchivedBytes
-		}
+	st, kept, err := a.copyMain(l, row, res.Path, keep)
+	if kept != "" {
+		res.Kept = append(res.Kept, kept)
 	}
-	covered, err := a.copyRaw(l.File.Path, res.Path, start, !opt.StripRequests)
 	if err != nil {
 		return res, err
 	}
-	if err := a.copyCompanion(filepath.Join(filepath.Dir(l.File.Path), l.File.ID), filepath.Join(filepath.Dir(res.Path), l.File.ID), !opt.StripRequests); err != nil {
+	allowSmaller := row != nil && row.Archived() && row.KeepsRequests && !keep
+	keptSub, err := a.copyCompanion(filepath.Join(filepath.Dir(l.File.Path), l.File.ID), filepath.Join(filepath.Dir(res.Path), l.File.ID), keep, allowSmaller)
+	res.Kept = append(res.Kept, keptSub...)
+	if err != nil {
 		return res, err
 	}
 
@@ -160,116 +181,16 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 	if err := a.Store.ReplaceSegments(l.File.ID, Segments(s)); err != nil {
 		return res, err
 	}
-	if err := a.Store.SetArchive(l.File.ID, res.Path, covered, !opt.StripRequests); err != nil {
+	st.Fingerprint = fp
+	if err := a.Store.SetArchive(l.File.ID, st); err != nil {
 		return res, err
 	}
 	res.Action = "archived"
 	if row != nil && row.Archived() {
 		res.Action = "updated"
 	}
-	res.Records, res.Bytes = s.Totals.Records, covered
+	res.Records, res.Bytes = s.Totals.Records, st.Bytes
 	return res, nil
-}
-
-// copyRaw appends the complete lines of src from offset start to dst as a new
-// zstd frame (start == 0 truncates dst first). It returns the source offset
-// just past the last complete line copied. keepRequests false drops api-request*.
-func (a *Archive) copyRaw(src, dst string, start int64, keepRequests bool) (int64, error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return 0, err
-	}
-	defer in.Close()
-	if start > 0 {
-		if _, err := in.Seek(start, io.SeekStart); err != nil {
-			return 0, err
-		}
-	}
-	if err := os.MkdirAll(filepath.Dir(dst), 0o700); err != nil {
-		return 0, err
-	}
-	flags := os.O_CREATE | os.O_WRONLY | os.O_APPEND
-	if start == 0 {
-		flags = os.O_CREATE | os.O_WRONLY | os.O_TRUNC
-	}
-	out, err := os.OpenFile(dst, flags, 0o600)
-	if err != nil {
-		return 0, err
-	}
-	defer out.Close()
-	enc, err := zstd.NewWriter(out, zstd.WithEncoderLevel(zstd.SpeedDefault))
-	if err != nil {
-		return 0, err
-	}
-	covered, err := filterLines(bufio.NewReaderSize(in, 1<<20), enc, start, keepRequests)
-	if cerr := enc.Close(); err == nil {
-		err = cerr
-	}
-	return covered, err
-}
-
-// filterLines copies complete lines, dropping api-request* unless keepRequests,
-// and returns the offset after the last complete line.
-func filterLines(r *bufio.Reader, w io.Writer, start int64, keepRequests bool) (int64, error) {
-	offset := start
-	for {
-		line, err := r.ReadBytes('\n')
-		if err != nil && err != io.EOF {
-			return offset, err
-		}
-		complete := err == nil
-		if complete {
-			if keepRequests || !isAPIRequest(line) {
-				if _, werr := w.Write(line); werr != nil {
-					return offset, werr
-				}
-			}
-			offset += int64(len(line))
-		}
-		if err == io.EOF {
-			return offset, nil // a partial last line is left for the next ingest
-		}
-	}
-}
-
-var apiRequestMarker = []byte(`"type":"api-request`)
-
-func isAPIRequest(line []byte) bool {
-	// Fast path on the usual serialisation, then the exact check.
-	if !bytes.Contains(line, apiRequestMarker) && !bytes.Contains(line, []byte(`"type": "api-request`)) {
-		return false
-	}
-	var t struct {
-		Type string `json:"type"`
-	}
-	return json.Unmarshal(line, &t) == nil && strings.HasPrefix(t.Type, "api-request")
-}
-
-// copyCompanion mirrors <session>/ (subagents, tool-results, …), compressing
-// transcripts and copying everything else as-is.
-func (a *Archive) copyCompanion(src, dst string, keepRequests bool) error {
-	return filepath.WalkDir(src, func(p string, d fs.DirEntry, err error) error {
-		if errors.Is(err, fs.ErrNotExist) {
-			return nil
-		}
-		if err != nil {
-			return err
-		}
-		rel, _ := filepath.Rel(src, p)
-		target := filepath.Join(dst, rel)
-		if d.IsDir() {
-			return os.MkdirAll(target, 0o700)
-		}
-		if strings.HasSuffix(p, ".jsonl") {
-			_, err := a.copyRaw(p, target+".zst", 0, keepRequests)
-			return err
-		}
-		b, err := os.ReadFile(p)
-		if err != nil {
-			return err
-		}
-		return os.WriteFile(target, b, 0o600)
-	})
 }
 
 // Load rebuilds a session from its archived copy.

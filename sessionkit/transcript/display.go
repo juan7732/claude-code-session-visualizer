@@ -28,34 +28,3 @@ func FirstLine(text string) string {
 	}
 	return ""
 }
-
-// StripImages replaces inline image bytes with their size, for JSON output
-// that should not carry megabytes of base64. It mutates the session.
-func (s *Session) StripImages() {
-	for _, r := range s.Records {
-		if r.Message == nil {
-			continue
-		}
-		stripBlocks(r.Message.Content)
-	}
-	for _, a := range s.Actions {
-		stripBlocks(a.Blocks)
-	}
-	for _, sa := range s.Subagents {
-		if sa.Session != nil {
-			sa.Session.StripImages()
-		}
-	}
-}
-
-func stripBlocks(blocks Blocks) {
-	for i := range blocks {
-		if src := blocks[i].Source; src != nil && src.Data != "" {
-			src.Size = len(src.Data) * 3 / 4
-			src.Data = ""
-		}
-		if len(blocks[i].Content) > 0 {
-			stripBlocks(blocks[i].Content)
-		}
-	}
-}

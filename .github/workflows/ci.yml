@@ -15,7 +15,7 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Verify modules
-        run: go mod tidy && git diff --exit-code go.mod go.sum
+        run: go mod tidy -diff
       - name: Vet
         run: go vet ./... && go vet -tags=integration ./test/...
       - name: Format check (gofmt)

@@ -40,6 +40,14 @@ func (r *Report) Find(query string) (Located, error) {
 	if strings.HasSuffix(query, ".jsonl") {
 		if st, err := os.Stat(query); err == nil && !st.IsDir() {
 			abs, _ := filepath.Abs(query)
+			// A path the catalog already knows comes back with its project and
+			// subagent counts, so its fingerprint is the same whichever way the
+			// session was asked for (the watcher asks by path, `archive` by id).
+			for _, l := range r.Sessions() {
+				if l.File.Path == abs {
+					return l, nil
+				}
+			}
 			return Located{Project: Project{Slug: filepath.Base(filepath.Dir(abs)), Dir: filepath.Dir(abs)},
 				File: SessionFile{ID: strings.TrimSuffix(filepath.Base(abs), ".jsonl"), Path: abs, Kind: "main", Bytes: st.Size(), ModTime: st.ModTime()}}, nil
 		}

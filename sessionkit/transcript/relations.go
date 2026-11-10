@@ -465,8 +465,7 @@ func (s *Session) Images() []ImageRef {
 	return refs
 }
 
-// ImageData returns image n's media type and base64 payload. It fails after
-// StripImages, which removes payloads.
+// ImageData returns image n's media type and base64 payload.
 func (s *Session) ImageData(n int) (mediaType, b64 string, err error) {
 	refs, data := s.images(n)
 	if n < 0 || n >= len(refs) {

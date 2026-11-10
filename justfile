@@ -103,5 +103,9 @@ tidy:
     go mod tidy
     go mod verify
 
-# Everything CI runs, locally: fmt-check, vet, race tests, integration
-check: fmt-check vet test-race integration
+# Fail if go.mod or go.sum are not tidy (CI's first step)
+tidy-check:
+    go mod tidy -diff
+
+# Everything CI runs, locally: tidy-check, fmt-check, vet, race tests, integration
+check: tidy-check fmt-check vet test-race integration

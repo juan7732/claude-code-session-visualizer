@@ -101,3 +101,75 @@ func TestSearch_FindsAcrossKinds(t *testing.T) {
 		t.Fatalf("miss should say so:\n%s", res.Stdout)
 	}
 }
+
+// The archive never ends up holding fewer lines than it did (ADR 0008), seen
+// from the command line: growth after a `list`, a shrunk source, a torn copy.
+func TestArchive_NeverShrinks(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+	src := filepath.Join(h.ClaudeDir, "projects", "-Users-me-work", id+".jsonl")
+	zst := filepath.Join(h.Home, ".sessionkit", "archive", "-Users-me-work", id+".jsonl.zst")
+	full, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cut := func(n int) []byte {
+		lines := strings.SplitAfter(string(full), "\n")
+		return []byte(strings.Join(lines[:n], ""))
+	}
+	type check struct {
+		Status   string   `json:"status"`
+		Records  int      `json:"records"`
+		Previous []string `json:"previous"`
+	}
+	verify := func() (check, harness.Result) {
+		res := h.Run("archive", "--verify", "--json")
+		var cs []check
+		if err := json.Unmarshal([]byte(res.Stdout), &cs); err != nil || len(cs) != 1 {
+			t.Fatalf("verify output: %v\n%s", err, res.Stdout)
+		}
+		return cs[0], res
+	}
+
+	// Ten lines archived, then the session grows and `list` runs first.
+	os.WriteFile(src, cut(10), 0o644)
+	h.Run("archive").AssertOK(t)
+	os.WriteFile(src, full, 0o644)
+	h.Run("list").AssertOK(t)
+	res := h.Run("archive")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "updated") {
+		t.Fatalf("growth seen by `list` first must still be archived:\n%s", res.Stdout)
+	}
+	if c, r := verify(); c.Status != "ok" || c.Records != 31 || r.ExitCode != 0 {
+		t.Fatalf("after growth: %+v exit %d", c, r.ExitCode)
+	}
+
+	// The source shrinks: the fuller copy is kept beside the new one.
+	os.WriteFile(src, cut(5), 0o644)
+	res = h.Run("archive")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "kept the earlier copy") {
+		t.Fatalf("a shrunk source should report the kept copy:\n%s", res.Stdout)
+	}
+	c, _ := verify()
+	if c.Status != "ok" || c.Records != 5 || len(c.Previous) != 1 {
+		t.Fatalf("after shrink: %+v", c)
+	}
+
+	// A torn write: verify fails loudly, the next archive repairs it.
+	f, _ := os.OpenFile(zst, os.O_APPEND|os.O_WRONLY, 0o600)
+	f.WriteString("\x28\xb5\x2f\xfd\x04\x58torn")
+	f.Close()
+	if c, r := verify(); c.Status != "corrupt" || r.ExitCode == 0 {
+		t.Fatalf("a torn copy must fail verify: %+v exit %d", c, r.ExitCode)
+	}
+	os.WriteFile(src, full, 0o644)
+	h.Run("archive").AssertOK(t)
+	if c, r := verify(); c.Status != "ok" || c.Records != 31 || r.ExitCode != 0 {
+		t.Fatalf("after repair: %+v exit %d", c, r.ExitCode)
+	}
+	os.Remove(src)
+	h.Run("show", id).AssertOK(t)
+}

@@ -209,13 +209,29 @@ func (b Block) PlainText() string {
 	return ""
 }
 
-// ImageSource is an inline image. Size is set by Session.StripImages when the
-// base64 payload is removed for output.
+// ImageSource is an inline image. Data is the base64 payload as read from the
+// transcript; it never leaves through JSON (see MarshalJSON). Session.ImageData
+// is the way to an image's bytes.
 type ImageSource struct {
 	Type      string `json:"type"`
 	MediaType string `json:"media_type"`
 	Data      string `json:"data,omitempty"`
 	Size      int    `json:"size,omitempty"`
+}
+
+// MarshalJSON writes the image's size in place of its payload, so a JSON
+// document never carries megabytes of base64 and no caller has to strip a
+// session (which may be shared) before printing it.
+func (s ImageSource) MarshalJSON() ([]byte, error) {
+	size := s.Size
+	if s.Data != "" {
+		size = len(s.Data) * 3 / 4
+	}
+	return json.Marshal(struct {
+		Type      string `json:"type"`
+		MediaType string `json:"media_type"`
+		Size      int    `json:"size,omitempty"`
+	}{s.Type, s.MediaType, size})
 }
 
 // Usage is the token accounting of one API request. Claude Code repeats it on

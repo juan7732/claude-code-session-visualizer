@@ -19,6 +19,7 @@
 //	GET  /v0/claude?root=                       how Claude Code is configured: settings layers, experiments, flags (redacted)
 //	GET  /v0/search?q=&limit=&project=&session=&kind=&prefix=
 //	POST /v0/archive                  {"ids": [...], "project": "", "strip_requests": false} → archive results
+//	GET  /v0/archive/verify?id=       every archived copy (or those ids) checked against the index
 package serve
 
 import (
@@ -31,6 +32,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strconv"
 	"strings"
 	"sync"
@@ -45,8 +47,10 @@ import (
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
 )
 
-// Server holds the engine handles. One Archive means one SQLite writer; the
-// mutex serialises requests that touch it.
+// Server holds the engine handles. Requests run concurrently: the index is
+// safe for that (database/sql over one connection), parsed sessions come from
+// the archive's cache and are read-only, and an ingest takes the archive's own
+// lock. Only annotation writes need a mutex here (read, change, write back).
 type Server struct {
 	Version string
 	Archive *archive.Archive
@@ -54,12 +58,13 @@ type Server struct {
 	Inspect func() (*catalog.Report, error)
 	Logf    func(format string, args ...any)
 
-	mu      sync.Mutex
+	annMu   sync.Mutex
 	started time.Time
 }
 
 // New makes a server over an open archive.
 func New(version string, a *archive.Archive) *Server {
+	a.EnableCache(archive.DefaultCacheBytes)
 	return &Server{Version: version, Archive: a, Inspect: catalog.Inspect, Logf: func(string, ...any) {}, started: time.Now()}
 }
 
@@ -85,6 +90,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/claude", s.claude)
 	mux.HandleFunc("GET /v0/search", s.search)
 	mux.HandleFunc("POST /v0/archive", s.archive)
+	mux.HandleFunc("GET /v0/archive/verify", s.verify)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("no route %s %s (see GET /v0)", r.Method, r.URL.Path))
 	})
@@ -100,6 +106,7 @@ type Status struct {
 	Index     IndexCounts           `json:"index"`
 	Live      []catalog.LiveSession `json:"live"`
 	Sessions  int                   `json:"sessions_on_disk"`
+	Cached    int                   `json:"cached_sessions"` // parsed sessions held in memory
 }
 
 // IndexCounts mirrors store.Counts for JSON.
@@ -118,14 +125,12 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
 			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
 			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=",
-			"GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive",
+			"GET /v0/search?q=&limit=&project=&session=&kind=&prefix=", "POST /v0/archive", "GET /v0/archive/verify?id=",
 		},
 	})
 }
 
 func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	rep, err := s.Inspect()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -141,12 +146,10 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 		live = []catalog.LiveSession{}
 	}
 	writeJSON(w, http.StatusOK, Status{Version: s.Version, Uptime: stats.FormatDuration(time.Since(s.started)), ClaudeDir: rep.ClaudeDir,
-		SkitHome: s.Archive.Home, Index: IndexCounts(c), Live: live, Sessions: rep.Totals.Sessions})
+		SkitHome: s.Archive.Home, Index: IndexCounts(c), Live: live, Sessions: rep.Totals.Sessions, Cached: s.Archive.CachedSessions()})
 }
 
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	rep, err := s.Inspect()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -181,8 +184,6 @@ func (s *Server) resolve(w http.ResponseWriter, id string) (archive.Resolved, bo
 }
 
 func (s *Server) session(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -191,8 +192,6 @@ func (s *Server) session(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) sessionStats(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -238,8 +237,6 @@ func actionDoc(sess *transcript.Session, a *transcript.Action) ActionDoc {
 }
 
 func (s *Server) turn(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -249,7 +246,6 @@ func (s *Server) turn(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("turn %q out of range (session has %d turns)", r.PathValue("n"), len(res.Session.Turns)))
 		return
 	}
-	res.Session.StripImages()
 	t := res.Session.Turns[n]
 	doc := TurnDoc{Turn: t, Actions: []ActionDoc{}}
 	for _, a := range t.Actions {
@@ -259,8 +255,6 @@ func (s *Server) turn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) action(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -270,13 +264,10 @@ func (s *Server) action(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, fmt.Sprintf("action %q out of range (session has %d actions)", r.PathValue("n"), len(res.Session.Actions)))
 		return
 	}
-	res.Session.StripImages()
 	writeJSON(w, http.StatusOK, actionDoc(res.Session, res.Session.Actions[n]))
 }
 
 func (s *Server) actionContext(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -296,8 +287,6 @@ func (s *Server) actionContext(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) compaction(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -317,8 +306,6 @@ func (s *Server) compaction(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) relations(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -327,8 +314,6 @@ func (s *Server) relations(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) images(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -339,8 +324,6 @@ func (s *Server) images(w http.ResponseWriter, r *http.Request) {
 // image returns one image's bytes with its media type. The only /v0 route
 // that is not JSON.
 func (s *Server) image(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -366,8 +349,6 @@ func (s *Server) image(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) annotation(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -381,8 +362,8 @@ func (s *Server) annotation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) annotate(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
+	s.annMu.Lock()
+	defer s.annMu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
@@ -401,8 +382,6 @@ func (s *Server) annotate(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) annotations(w http.ResponseWriter, _ *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	all, err := annotate.All(s.Archive.Home)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -412,8 +391,6 @@ func (s *Server) annotations(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) claude(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	rep, err := s.Inspect()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -428,8 +405,6 @@ func (s *Server) claude(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	q := r.URL.Query()
 	limit, _ := strconv.Atoi(q.Get("limit"))
 	hits, err := search.Run(s.Archive.Store, q.Get("q"), search.Options{Limit: limit, Project: q.Get("project"), Session: q.Get("session"),
@@ -452,8 +427,6 @@ type ArchiveRequest struct {
 }
 
 func (s *Server) archive(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	var req ArchiveRequest
 	if r.Body != nil && r.ContentLength != 0 {
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -472,6 +445,16 @@ func (s *Server) archive(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, results)
+}
+
+// verify is GET /v0/archive/verify: what `skit archive --verify --json` prints.
+func (s *Server) verify(w http.ResponseWriter, r *http.Request) {
+	checks, err := s.Archive.Verify(r.URL.Query()["id"])
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, checks)
 }
 
 // ingest archives the requested sessions (all matching when IDs is empty).
@@ -506,8 +489,6 @@ func (s *Server) ingest(rep *catalog.Report, req ArchiveRequest) ([]archive.Resu
 
 // IngestPath archives the session whose transcript is at path (used by the watcher).
 func (s *Server) IngestPath(path string) (archive.Result, error) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
 	rep, err := s.Inspect()
 	if err != nil {
 		return archive.Result{}, err
@@ -516,8 +497,17 @@ func (s *Server) IngestPath(path string) (archive.Result, error) {
 	if err != nil {
 		return archive.Result{}, err
 	}
-	return s.Archive.Ingest(l, archive.Options{})
+	// The watcher keeps the choice the copy was made with: a session archived
+	// with --strip-requests is not turned lossless behind the user's back.
+	opt := archive.Options{}
+	if row, err := s.Archive.Store.Session(l.File.ID); err == nil && row != nil && row.Archived() {
+		opt.StripRequests = !row.KeepsRequests
+	}
+	return s.Archive.Ingest(l, opt)
 }
+
+// cacheIdle is how long a parsed session stays in memory with nobody asking for it.
+const cacheIdle = 10 * time.Minute
 
 // maxSocketPath is the longest Unix socket path the kernel accepts (sun_path
 // is 104 bytes on macOS, 108 on Linux; the NUL terminator takes one).
@@ -547,6 +537,20 @@ func (s *Server) ListenAndServe(ctx context.Context, socket string) error {
 	srv := &http.Server{Handler: s.Handler(), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
+	go func() { // give memory back when nobody is reading
+		tick := time.NewTicker(time.Minute)
+		defer tick.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-tick.C:
+				if s.Archive.TrimCache(cacheIdle) > 0 {
+					debug.FreeOSMemory() // a parsed session is hundreds of megabytes; hand them back now
+				}
+			}
+		}
+	}()
 	select {
 	case <-ctx.Done():
 		shutdown, cancel := context.WithTimeout(context.Background(), 5*time.Second)

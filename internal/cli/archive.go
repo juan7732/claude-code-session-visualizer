@@ -11,7 +11,7 @@ import (
 )
 
 func newArchive() *cobra.Command {
-	var strip bool
+	var strip, verify bool
 	var project string
 	cmd := &cobra.Command{
 		Use:   "archive [session...]",
@@ -24,8 +24,14 @@ archive does not. Safe to run any time; unchanged sessions are skipped.
 
 The copy is lossless: it keeps the api-request* records too (system prompt, tool
 definitions, message bodies, parameters), which is what 'skit context' explains.
---strip-requests drops them for a smaller copy.`,
-		Example: "  skit archive\n  skit archive --project tools\n  skit archive 36086585 --strip-requests",
+--strip-requests drops them for a smaller copy.
+
+The archive never ends up holding less than it did. A source that shrank or was
+replaced leaves the earlier copy beside the new one as <copy>.prev-<time>, and a
+write cut short by a crash is cut off before the next one. --verify decodes
+every copy (or the named sessions) and compares it with the index; it changes
+nothing and exits non-zero when a copy is missing, corrupt or the wrong length.`,
+		Example: "  skit archive\n  skit archive --project tools\n  skit archive 36086585 --strip-requests\n  skit archive --verify",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			rep, err := catalog.Inspect()
 			if err != nil {
@@ -36,6 +42,9 @@ definitions, message bodies, parameters), which is what 'skit context' explains.
 				return err
 			}
 			defer a.Close()
+			if verify {
+				return runVerify(cmd, a, args)
+			}
 			var targets []catalog.Located
 			if len(args) > 0 {
 				for _, q := range args {
@@ -65,6 +74,9 @@ definitions, message bodies, parameters), which is what 'skit context' explains.
 				results = append(results, res)
 				if !jsonWanted(cmd) {
 					fmt.Fprintf(cmd.OutOrStdout(), "  %-9s %s  %-40s %5d records  %s\n", res.Action, res.ID[:8], truncate(l.Project.Slug, 40), res.Records, humanBytes(res.Bytes))
+					for _, k := range res.Kept {
+						fmt.Fprintf(cmd.OutOrStdout(), "            kept the earlier copy, which held more: %s\n", k)
+					}
 				}
 			}
 			if jsonWanted(cmd) {
@@ -81,5 +93,40 @@ definitions, message bodies, parameters), which is what 'skit context' explains.
 	}
 	cmd.Flags().BoolVar(&strip, "strip-requests", false, "drop api-request* records from the raw copy (smaller; skit context then cannot explain archived actions)")
 	cmd.Flags().StringVarP(&project, "project", "p", "", "only projects whose slug contains this text")
+	cmd.Flags().BoolVar(&verify, "verify", false, "check every archived copy against the index instead of archiving; changes nothing")
 	return cmd
+}
+
+// runVerify prints the state of the archived copies and fails when any is not ok.
+func runVerify(cmd *cobra.Command, a *archive.Archive, ids []string) error {
+	checks, err := a.Verify(ids)
+	if err != nil {
+		return err
+	}
+	bad := 0
+	for _, c := range checks {
+		if c.Status != "ok" {
+			bad++
+		}
+	}
+	if jsonWanted(cmd) {
+		if err := writeJSON(cmd.OutOrStdout(), checks); err != nil {
+			return err
+		}
+	} else {
+		for _, c := range checks {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %-9s %s  %-40s %5d records  %s\n", c.Status, c.ID[:min(8, len(c.ID))], truncate(c.Project, 40), c.Records, humanBytes(c.Bytes))
+			if c.Detail != "" {
+				fmt.Fprintf(cmd.OutOrStdout(), "            %s\n", c.Detail)
+			}
+			for _, p := range c.Previous {
+				fmt.Fprintf(cmd.OutOrStdout(), "            earlier copy kept: %s\n", p)
+			}
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "\n%d copies checked, %d ok, %d with problems\n", len(checks), len(checks)-bad, bad)
+	}
+	if bad > 0 {
+		return fmt.Errorf("%d of %d archived copies have problems", bad, len(checks))
+	}
+	return nil
 }

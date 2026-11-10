@@ -19,7 +19,7 @@ import (
 )
 
 // SchemaVersion is bumped with every migration.
-const SchemaVersion = 2
+const SchemaVersion = 3
 
 // Store is an open index.
 type Store struct {
@@ -84,6 +84,19 @@ func (s *Store) migrate() error {
 			DELETE FROM segments;`); err != nil {
 			return err
 		}
+		version = 2
+	}
+	if version == 2 {
+		// v3: what the archive needs to never lose lines (ADR 0008): the raw
+		// copy's size on disk, a hash of the source bytes just before the append
+		// offset, and the source fingerprint the copy was made from. Rows from v2
+		// have none of them, so their next ingest rewrites the copy with checks.
+		if _, err := tx.Exec(`ALTER TABLE sessions ADD COLUMN archive_size INTEGER NOT NULL DEFAULT 0;
+			ALTER TABLE sessions ADD COLUMN archive_tail TEXT NOT NULL DEFAULT '';
+			ALTER TABLE sessions ADD COLUMN archived_fp TEXT NOT NULL DEFAULT '';`); err != nil {
+			return err
+		}
+		version = 3
 	}
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion)); err != nil {
 		return err
@@ -114,7 +127,10 @@ CREATE TABLE sessions(
   archived_bytes INTEGER NOT NULL DEFAULT 0, -- source bytes copied so far (append offset)
   debug          INTEGER NOT NULL DEFAULT 0, -- api-request* records kept in the raw copy (name is historical)
   archived_at    TEXT,
-  schema         INTEGER NOT NULL DEFAULT 1  -- SchemaVersion that produced the summary and segments
+  schema         INTEGER NOT NULL DEFAULT 1, -- SchemaVersion that produced the summary and segments
+  archive_size   INTEGER NOT NULL DEFAULT 0, -- size of the raw copy on disk after the last write (0: unknown)
+  archive_tail   TEXT NOT NULL DEFAULT '',   -- sha256 of the source bytes just before archived_bytes
+  archived_fp    TEXT NOT NULL DEFAULT ''    -- source fingerprint the raw copy was made from
 );
 CREATE INDEX sessions_last_at ON sessions(last_at);
 CREATE TABLE segments(
@@ -160,14 +176,30 @@ type SessionRow struct {
 	KeepsRequests bool // api-request* records are in the raw copy (column `debug`, kept for schema stability)
 	ArchivedAt    time.Time
 	Schema        int
+	// ArchiveSize is the raw copy's size on disk after the last successful
+	// write: an append truncates to it first, so a torn write never stays.
+	ArchiveSize int64
+	// ArchiveTail is a hash of the source bytes just before ArchivedBytes; an
+	// append is only safe while the source still has them.
+	ArchiveTail string
+	// ArchivedFP is the source fingerprint the raw copy was made from. The
+	// source_* columns are refreshed by list's cache too, so they cannot say
+	// whether the copy is current; this can.
+	ArchivedFP string
 }
 
 // Archived reports whether a raw copy exists for the row.
 func (r SessionRow) Archived() bool { return r.ArchivePath != "" }
 
-// Fingerprint identifies a source transcript's state.
+// Fingerprint identifies the state of a transcript's subagent files.
 func Fingerprint(subFiles int, subBytes int64) string {
 	return fmt.Sprintf("%d:%d", subFiles, subBytes)
+}
+
+// SourceFingerprint identifies a source transcript's whole state: its size,
+// its modification time and its subagent files.
+func SourceFingerprint(size, mtimeNanos int64, subFiles int, subBytes int64) string {
+	return fmt.Sprintf("%d:%d:%s", size, mtimeNanos, Fingerprint(subFiles, subBytes))
 }
 
 // UpsertSummary writes the indexed summary and source fingerprint, leaving the
@@ -187,10 +219,20 @@ ON CONFLICT(id) DO UPDATE SET project=excluded.project, source_path=excluded.sou
 	return err
 }
 
+// ArchiveState is what the index records about a session's raw copy.
+type ArchiveState struct {
+	Path          string // the raw copy
+	Bytes         int64  // source bytes covered (the append offset)
+	Size          int64  // the copy's size on disk
+	Tail          string // hash of the source bytes just before Bytes
+	Fingerprint   string // source fingerprint the copy was made from
+	KeepsRequests bool
+}
+
 // SetArchive records the raw copy's state for a session.
-func (s *Store) SetArchive(id, archivePath string, archivedBytes int64, keepsRequests bool) error {
-	res, err := s.db.Exec(`UPDATE sessions SET archive_path=?, archived_bytes=?, debug=?, archived_at=? WHERE id=?`,
-		archivePath, archivedBytes, boolInt(keepsRequests), time.Now().UTC().Format(time.RFC3339Nano), id)
+func (s *Store) SetArchive(id string, a ArchiveState) error {
+	res, err := s.db.Exec(`UPDATE sessions SET archive_path=?, archived_bytes=?, debug=?, archived_at=?, archive_size=?, archive_tail=?, archived_fp=? WHERE id=?`,
+		a.Path, a.Bytes, boolInt(a.KeepsRequests), time.Now().UTC().Format(time.RFC3339Nano), a.Size, a.Tail, a.Fingerprint, id)
 	if err != nil {
 		return err
 	}
@@ -201,7 +243,8 @@ func (s *Store) SetArchive(id, archivePath string, archivedBytes int64, keepsReq
 }
 
 const sessionCols = `id, project, source_path, source_size, source_mtime, source_sub, records, first_at, last_at, title,
- owner_account, owner_org, summary, indexed_at, archive_path, archived_bytes, debug, archived_at, schema`
+ owner_account, owner_org, summary, indexed_at, archive_path, archived_bytes, debug, archived_at, schema,
+ archive_size, archive_tail, archived_fp`
 
 func scanSession(sc interface{ Scan(...any) error }) (SessionRow, error) {
 	var r SessionRow
@@ -209,7 +252,8 @@ func scanSession(sc interface{ Scan(...any) error }) (SessionRow, error) {
 	var summary string
 	var debug int
 	err := sc.Scan(&r.ID, &r.Project, &r.SourcePath, &r.SourceSize, &r.SourceMtime, &r.SourceSub, &r.Records, &first, &last, &r.Title,
-		&r.OwnerAccount, &r.OwnerOrg, &summary, &indexed, &r.ArchivePath, &r.ArchivedBytes, &debug, &archived, &r.Schema)
+		&r.OwnerAccount, &r.OwnerOrg, &summary, &indexed, &r.ArchivePath, &r.ArchivedBytes, &debug, &archived, &r.Schema,
+		&r.ArchiveSize, &r.ArchiveTail, &r.ArchivedFP)
 	if err != nil {
 		return r, err
 	}

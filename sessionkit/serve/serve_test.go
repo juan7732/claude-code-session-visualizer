@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
@@ -142,5 +143,93 @@ func TestRoutes(t *testing.T) {
 	}
 	if code := get(t, h, "/v0/search?q=", &e); code != 400 {
 		t.Fatalf("empty query should be 400, got %d", code)
+	}
+}
+
+// TestConcurrentReadsShareOneParse hits every read route of one session from
+// many goroutines. Run under -race it proves a cached session is only read;
+// the image route proves no request stripped the payloads another one needs.
+func TestConcurrentReadsShareOneParse(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+	base := "/v0/sessions/" + fixtureID
+	paths := []string{base, base + "/stats", base + "/turns/0", base + "/actions/3", base + "/actions/0/context", base + "/compactions/0",
+		base + "/relations", base + "/images", "/v0/sessions", "/v0/status", "/v0/search?q=Bash", "/v0/archive/verify"}
+	var imgs []map[string]any
+	get(t, h, base+"/images", &imgs)
+
+	var wg sync.WaitGroup
+	fail := make(chan string, 256)
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for _, p := range paths {
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, httptest.NewRequest("GET", p, nil))
+				if rec.Code != 200 {
+					fail <- p + ": " + rec.Body.String()
+				}
+			}
+			if len(imgs) > 0 {
+				rec := httptest.NewRecorder()
+				h.ServeHTTP(rec, httptest.NewRequest("GET", base+"/images/0", nil))
+				if rec.Code != 200 || rec.Body.Len() == 0 {
+					fail <- "image bytes after a document was served: " + rec.Body.String()
+				}
+			}
+		}()
+	}
+	wg.Wait()
+	close(fail)
+	for f := range fail {
+		t.Error(f)
+	}
+	var st Status
+	if get(t, h, "/v0/status", &st); st.Cached != 1 {
+		t.Fatalf("one session should be held in the cache, got %d", st.Cached)
+	}
+	// The document never carries image payloads.
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("GET", base, nil))
+	if strings.Contains(rec.Body.String(), `"data"`) {
+		t.Fatal("the session document must not carry image payloads")
+	}
+}
+
+// TestCacheFollowsTheSource: a transcript that grows is parsed again, and the
+// watcher's ingest leaves the archive complete.
+func TestCacheFollowsTheSource(t *testing.T) {
+	s, claude := newTestServer(t)
+	h := s.Handler()
+	var doc archive.SessionDoc
+	get(t, h, "/v0/sessions/"+fixtureID, &doc)
+	before := len(doc.Prompts)
+
+	src := filepath.Join(claude, "projects", "-Users-xxxx-work", fixtureID+".jsonl")
+	if _, err := s.IngestPath(src); err != nil {
+		t.Fatal(err)
+	}
+	f, _ := os.OpenFile(src, os.O_APPEND|os.O_WRONLY, 0o644)
+	f.WriteString(`{"type":"user","uuid":"u9","parentUuid":"a8","turnOrigin":"human","sessionId":"` + fixtureID + `","timestamp":"2026-11-08T10:02:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Appended prompt about zebras"}]}}` + "\n")
+	f.Close()
+
+	var rows []archive.ListRow
+	get(t, h, "/v0/sessions", &rows) // the client lists before the watcher fires
+	get(t, h, "/v0/sessions/"+fixtureID, &doc)
+	if len(doc.Prompts) != before+1 {
+		t.Fatalf("the grown transcript should be parsed again: %d prompts, want %d", len(doc.Prompts), before+1)
+	}
+	res, err := s.IngestPath(src)
+	if err != nil || res.Action != "updated" {
+		t.Fatalf("watcher ingest after a list = %+v %v", res, err)
+	}
+	var checks []archive.Check
+	if get(t, h, "/v0/archive/verify", &checks); len(checks) != 1 || checks[0].Status != "ok" || checks[0].Records != res.Records {
+		t.Fatalf("verify = %+v (ingest covered %d records)", checks, res.Records)
+	}
+	var hits []map[string]any
+	if get(t, h, "/v0/search?q=zebras", &hits); len(hits) != 1 {
+		t.Fatalf("the appended prompt should be searchable: %v", hits)
 	}
 }

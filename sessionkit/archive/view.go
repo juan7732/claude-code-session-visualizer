@@ -9,6 +9,7 @@ import (
 
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/store"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
 )
 
@@ -90,16 +91,31 @@ func (e *NotFoundError) Error() string {
 	return fmt.Sprintf("no session matches %q on disk or in the archive", e.Query)
 }
 
-// Resolve finds a session by id, unique prefix or transcript path: Claude
-// Code's directory first, then the archive.
-func (a *Archive) Resolve(rep *catalog.Report, query string) (Resolved, error) {
-	l, err := rep.Find(query)
-	if err == nil {
+// loadSource parses a transcript on disk, through the cache when there is one.
+// With onlyIfHeld the cache is used only for a session it already holds: an
+// ingest refreshes what a reader has open, and does not fill the cache with
+// every session it archives.
+func (a *Archive) loadSource(l catalog.Located, onlyIfHeld bool) (Resolved, error) {
+	load := func() (Resolved, error) {
 		s, err := transcript.Load(l.File.Path)
 		if err != nil {
 			return Resolved{}, err
 		}
 		return Resolved{Session: s, Project: l.Project.Slug}, nil
+	}
+	if a.cache == nil || (onlyIfHeld && !a.cache.holds(l.File.Path)) {
+		return load()
+	}
+	return a.cache.get(l.File.Path, sourceFingerprint(l), l.File.Bytes+l.File.SubagentBytes, load)
+}
+
+// Resolve finds a session by id, unique prefix or transcript path: Claude
+// Code's directory first, then the archive. With EnableCache the session may
+// be one that other callers hold too: treat it as read-only.
+func (a *Archive) Resolve(rep *catalog.Report, query string) (Resolved, error) {
+	l, err := rep.Find(query)
+	if err == nil {
+		return a.loadSource(l, false)
 	}
 	if !strings.HasPrefix(err.Error(), "no session") {
 		return Resolved{}, err // ambiguous prefix on disk
@@ -108,31 +124,40 @@ func (a *Archive) Resolve(rep *catalog.Report, query string) (Resolved, error) {
 	if err != nil {
 		return Resolved{}, err
 	}
-	var ids []string
+	var archived []store.SessionRow
 	for _, r := range rows {
 		if r.Archived() {
-			ids = append(ids, r.ID)
+			archived = append(archived, r)
 		}
 	}
-	switch len(ids) {
+	switch len(archived) {
 	case 0:
 		return Resolved{}, &NotFoundError{Query: query}
 	case 1:
-		s, row, err := a.Load(ids[0])
-		if err != nil {
-			return Resolved{}, err
+		found := archived[0]
+		load := func() (Resolved, error) {
+			s, row, err := a.Load(found.ID)
+			if err != nil {
+				return Resolved{}, err
+			}
+			res := Resolved{Session: s, Project: row.Project, ArchivedOnly: true}
+			if _, statErr := os.Stat(row.SourcePath); statErr == nil {
+				res.Note = row.SourcePath + " exists on disk but was not found by catalog; showing the archived copy"
+			}
+			return res, nil
 		}
-		res := Resolved{Session: s, Project: row.Project, ArchivedOnly: true}
-		if _, statErr := os.Stat(row.SourcePath); statErr == nil {
-			res.Note = row.SourcePath + " exists on disk but was not found by catalog; showing the archived copy"
+		if a.cache == nil {
+			return load()
 		}
-		return res, nil
+		stamp := fmt.Sprintf("%d:%d", found.ArchiveSize, found.ArchivedAt.UnixNano())
+		return a.cache.get(found.ArchivePath, stamp, found.ArchivedBytes, load)
 	}
-	return Resolved{}, fmt.Errorf("%q matches %d archived sessions", query, len(ids))
+	return Resolved{}, fmt.Errorf("%q matches %d archived sessions", query, len(archived))
 }
 
 // SessionDoc is the full session document: what `skit show --json` prints and
-// what GET /v0/sessions/{id} returns. Image bytes are replaced by their size.
+// what GET /v0/sessions/{id} returns. Images appear with their size, never
+// their bytes (transcript.ImageSource leaves the payload out of JSON).
 type SessionDoc struct {
 	*transcript.Session
 	Project      string        `json:"project"`
@@ -142,7 +167,6 @@ type SessionDoc struct {
 
 // Document builds the SessionDoc for a resolved session.
 func Document(r Resolved) SessionDoc {
-	r.Session.StripImages()
 	return SessionDoc{Session: r.Session, Project: r.Project, ArchivedOnly: r.ArchivedOnly,
 		Summary: stats.Compute(r.Session, r.Project, stats.Options{Context: true})}
 }
