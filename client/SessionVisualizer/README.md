@@ -36,8 +36,9 @@ the Score), `ArcsMap` (the Summary's map), `TimelineView` (the strip and the pla
 `Ledger`; `TimelineLayout` holds `TimeAxis`, which cuts idle time and maps moments to points, and what the strip draws),
 `FilesView` (files, injected context, images; `FileViewer` shows a file as it is now with its colours and its history
 across sessions, and holds `FileOpener`), `StatsPage` (every figure is `skit overview`'s), `ComparePage`, `ClaudePage`,
-`NowPage` (a card per session at work, asked for every 3 seconds; `HostOpener` brings a running session's editor window
-or terminal to the front; `CacheReminders` keeps one pending notification per session whose bell is on),
+`Onboarding` (the first run: shown once in place of the window, and the only place the background agent is started from
+on a new Mac), `NowPage` (a card per session at work, asked for every 3 seconds; `HostOpener` brings a running session's
+editor window or terminal to the front; `CacheReminders` keeps one pending notification per session whose bell is on),
 `PrimitivesPage` (a list by kind and the selected item beside it; every figure is `skit primitives`'s). `SessionModel`
 is what they all read; `Commands` holds every command once, for the menu bar and the palette; `Export` writes Markdown
 through the engine and builds and reads `skit-visualizer://` links.

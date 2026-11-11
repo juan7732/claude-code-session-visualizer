@@ -367,6 +367,13 @@ comes, without warranty. Juan's other two Macs, each with its own sessions, are 
   pattern).
 - The open issues each closed or left open on purpose (#1 the pricing table, #2 `/relations` memoised).
 
+Built ahead of the rest, 2026-11-11: the first run (`Onboarding.swift`). It stands in place of the window until it has
+been seen, so nothing connects and no agent is installed before the person presses "Start the Archiver": what the app
+reads and keeps, why sessions are lost (with that Mac's own count from `skit doctor`), the archiver, search and the one
+download, a tour. Help › Welcome to SessionVisualizer shows it again. Still to do in it for the release: the download
+offered from the app once `llama-server` ships with it, and the model's terms shown. Also ahead of the release:
+`docs/launch/`, pictures of every page on made-up sessions, and the questions people ask.
+
 Done when: the release, installed from nothing on Juan's other Mac, archives that Mac's sessions and answers a question
 about them, and removing it leaves nothing running.
 

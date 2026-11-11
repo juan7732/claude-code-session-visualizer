@@ -57,7 +57,9 @@ struct SessionsView: View {
     }
 
     private var firstName: String {
-        NSFullUserName().split(separator: " ").first.map(String.init) ?? NSUserName()
+        // A picture of the app is not a picture of whoever took it: `--set sessions.name=Maya`.
+        if let name = UserDefaults.standard.string(forKey: "sessions.name"), !name.isEmpty { return name }
+        return NSFullUserName().split(separator: " ").first.map(String.init) ?? NSUserName()
     }
 
     private var runningLine: String {

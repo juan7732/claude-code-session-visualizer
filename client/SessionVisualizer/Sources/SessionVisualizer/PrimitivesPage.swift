@@ -564,7 +564,7 @@ nonisolated enum PrimitivesContent {
             if usage.seconds >= 1 { out.append(Figure(label: item.kind == "agent" ? "running" : "waiting", value: duration(usage.seconds))) }
             if usage.outputTokens > 0 { out.append(Figure(label: "output tokens", value: Format.tokens(usage.outputTokens))) }
         }
-        if usage.offeredSessions > 0 { out.append(Figure(label: "sessions offered", value: "\(usage.offeredSessions)")) }
+        if usage.offeredSessions > 0 { out.append(Figure(label: "on offer in", value: "\(usage.offeredSessions)")) }
         return out
     }
 

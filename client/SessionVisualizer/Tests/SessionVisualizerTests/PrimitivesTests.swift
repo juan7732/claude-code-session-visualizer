@@ -57,13 +57,13 @@ import Testing
         let report = try report()
         func item(_ kind: String, _ name: String) throws -> PrimitivesReport.Item { try #require(report.items.first { $0.kind == kind && $0.name == name }) }
         let deploy = try item("skill", "deploy")
-        #expect(PrimitivesContent.figures(deploy).map { "\($0.value) \($0.label)" } == ["2 uses", "1 sessions", "1 typed by you", "1 by the model", "1 sessions offered"])
+        #expect(PrimitivesContent.figures(deploy).map { "\($0.value) \($0.label)" } == ["2 uses", "1 sessions", "1 typed by you", "1 by the model", "1 on offer in"])
         #expect(!PrimitivesContent.unused(deploy) && PrimitivesContent.lastUsed(deploy) != "never")
         #expect(PrimitivesContent.notes(deploy).first?.hasPrefix("Claude Code's own counter says 5") == true)
         let tidy = try item("skill", "tidy")
         #expect(PrimitivesContent.unused(tidy) && PrimitivesContent.lastUsed(tidy) == "never")
         #expect(PrimitivesContent.notes(tidy) == ["On offer and never used in the sessions kept here."])
-        #expect(PrimitivesContent.figures(tidy).map(\.label) == ["sessions offered"])
+        #expect(PrimitivesContent.figures(tidy).map(\.label) == ["on offer in"])
         // Only Claude Code's counter knows it: neither used nor unused here.
         let old = try item("skill", "old-skill")
         #expect(!PrimitivesContent.unused(old) && PrimitivesContent.figures(old).isEmpty && PrimitivesContent.notes(old).count == 1)
