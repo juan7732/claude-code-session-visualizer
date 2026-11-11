@@ -156,6 +156,8 @@ final class FilesState {
     var contextKind: String?
     /// The image shown large over the view.
     var lightbox: Int?
+    /// For the chosen file: the file as it is now, or each touch the session made.
+    var showsTouches = false
 }
 
 /// What the Timeline of one session remembers while the window shows it.

@@ -193,8 +193,8 @@ private struct ListRow: View {
     }
 }
 
-/// One file: where in the session it was touched, and each touch with the
-/// command or edit that made it and what came back.
+/// One file: where in the session it was touched, the file as it is now, and
+/// each touch with the command or edit that made it and what came back.
 private struct FileDetail: View {
     @Environment(WindowState.self) private var window
     @Environment(\.palette) private var palette
@@ -207,40 +207,60 @@ private struct FileDetail: View {
 
     var body: some View {
         let name = file.path.split(separator: "/").last.map(String.init) ?? file.path
+        let state = window.files
+        VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Text(FilesContent.name(file.path)).font(.display(20))
+                    Text(Format.homeRelative(file.path)).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(palette.muted).lineLimit(1).truncationMode(.middle)
+                        .textSelection(.enabled)
+                }
+                HStack(spacing: 10) {
+                    Text("\(file.touches.count) touch\(file.touches.count == 1 ? "" : "es"), \(file.writes) write\(file.writes == 1 ? "" : "s"), across \(file.turns) turn\(file.turns == 1 ? "" : "s")")
+                        .foregroundStyle(palette.ink2)
+                    Button("Inspect") {
+                        inspector = true
+                        window.selection = .file(file.path)
+                    }
+                    .buttonStyle(.plain).foregroundStyle(palette.accent)
+                    Spacer()
+                    Picker("Show", selection: Binding(get: { state.showsTouches }, set: { state.showsTouches = $0 })) {
+                        Text("The file").tag(false)
+                        Text("Touches \(file.touches.count)").tag(true)
+                    }
+                    .pickerStyle(.segmented).labelsHidden().fixedSize()
+                }
+                .font(.system(size: 12.5))
+            }
+            TurnStrip(marks: FilesContent.strip(file, turns: model.doc.turns.count))
+                .help("One mark per turn of the session: green where a turn wrote the file, grey where it only read it.")
+            if state.showsTouches {
+                touches(name)
+            } else {
+                FilePane(model: model, file: file)
+            }
+        }
+        .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, state.showsTouches ? 0 : 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+
+    /// What the session did to the file, a card a touch.
+    private func touches(_ name: String) -> some View {
         let shown = all ? file.touches : Array(file.touches.prefix(Self.first))
-        ScrollView {
+        return ScrollView {
             // A plain stack: a file has tens of touches, not thousands.
             VStack(alignment: .leading, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(alignment: .firstTextBaseline, spacing: 10) {
-                        Text(FilesContent.name(file.path)).font(.display(20))
-                        Text(Format.homeRelative(file.path)).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(palette.muted).lineLimit(1).truncationMode(.middle)
-                            .textSelection(.enabled)
-                    }
-                    HStack(spacing: 6) {
-                        Text("\(file.touches.count) touch\(file.touches.count == 1 ? "" : "es"), \(file.writes) write\(file.writes == 1 ? "" : "s"), across \(file.turns) turn\(file.turns == 1 ? "" : "s")")
-                            .foregroundStyle(palette.ink2)
-                        Button("Inspect") {
-                            inspector = true
-                            window.selection = .file(file.path)
-                        }
-                        .buttonStyle(.plain).foregroundStyle(palette.accent)
-                    }
-                    .font(.system(size: 12.5))
-                }
-                TurnStrip(marks: FilesContent.strip(file, turns: model.doc.turns.count))
-                    .help("One mark per turn of the session: green where a turn wrote the file, grey where it only read it.")
                 ForEach(Array(shown.enumerated()), id: \.offset) { _, touch in
                     TouchCard(model: model, touch: touch, name: name)
                 }
                 if file.touches.count > shown.count {
                     Button("Show the other \(file.touches.count - shown.count) touches") { all = true }.buttonStyle(.plain).foregroundStyle(palette.accent)
                 }
-                Text("Each touch shows the command or edit that made it. The file as it was at a turn, and what each write changed, are not here yet: the engine does not read Claude Code's file-history snapshots.")
+                Text("Each touch shows the command or edit that made it. The file as it was at that turn, and what each write changed, are not here yet (issue #5).")
                     .font(.system(size: 11.5)).foregroundStyle(palette.muted).fixedSize(horizontal: false, vertical: true)
             }
             .frame(maxWidth: 900, alignment: .leading)
-            .padding(.horizontal, 28).padding(.top, 18).padding(.bottom, 60)
+            .padding(.bottom, 60)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
     }

@@ -81,6 +81,25 @@ Added with M13 (2026-11-10), for Files, Stats, Compare and Claude:
   itself under `projects/<slug>/memory/`. Each file says its `kind` (`instructions` or `memory`) and its `project`. As
   before, a file is listed by where it is, how long and how old; what it says is never sent.
 
+Added after M13 (2026-11-10), for the file viewer:
+
+- `skit file <path> [--session id] [--text]` and `GET /v0/file?path=&session=&text=0`: a file some session touched, as
+  it is on disk now (there or not, its size, when it changed, its text up to 2 MB unless it is not text), and every
+  archived session that read or wrote it, the latest first, each with the path as that session wrote it. With a session,
+  `path` may be the path as that session wrote it.
+- **Only a file an archived session touched is read.** A path no session touched is refused (404), so the socket is not
+  a way to read any file.
+- **Where a path is on disk.** A session writes `docs/plan.md`, not where that is. The relations work out the likely
+  places: what each touch's working directory and the `cd`s of its command say, the most agreed first, then the path
+  under every directory the session worked in. A transcript cannot say which is right, so the archive, which can look,
+  keeps the first that is on disk when it indexes the session (index schema 7, table `files`: session, path, the path as
+  written, reads, writes, first and last touch). When none is there, the likeliest is kept and the file reads as gone:
+  either it was deleted, or it was named from somewhere the transcript does not record. On one long session 144 of 191
+  paths were found on disk; the rest are deleted files, scratch files and paths named in passing.
+- A write is what the relations call one: an edit tool, or a shell redirect, `tee`, `sed -i`, `cp`, `mv`, `touch`. A
+  script that writes a file (a Python heredoc) counts as a read, so "written" undercounts for sessions that edit that
+  way.
+
 ## Relations
 
 `Session.Relations()` derives, on read:

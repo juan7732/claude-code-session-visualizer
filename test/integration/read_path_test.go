@@ -116,6 +116,40 @@ func TestStats_HumanAndJSON(t *testing.T) {
 	}
 }
 
+// TestFile_HistoryOfATouchedFile: after archiving, a file a session touched has
+// a history, says it is gone when it is, and a file nobody touched is refused.
+func TestFile_HistoryOfATouchedFile(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+	h.Run("archive").AssertOK(t)
+
+	res := h.Run("file", "/xxx/y.go")
+	res.AssertOK(t)
+	for _, want := range []string{"File      /xxx/y.go", "deleted or moved", "Sessions (1)", id[:8]} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("file lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+	res = h.Run("file", "/xxx/y.go", "--session", id, "--json")
+	res.AssertOK(t)
+	var v struct {
+		Path     string `json:"path"`
+		Exists   bool   `json:"exists"`
+		Reason   string `json:"reason"`
+		Sessions []struct {
+			Session string `json:"session"`
+			Writes  int    `json:"writes"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &v); err != nil || v.Exists || v.Reason != "deleted" || len(v.Sessions) != 1 || v.Sessions[0].Session != id || v.Sessions[0].Writes != 1 {
+		t.Fatalf("file --json: %v %+v", err, v)
+	}
+	if res = h.Run("file", "/etc/hosts"); res.ExitCode == 0 || !strings.Contains(res.Stderr, "no archived session touched this path") {
+		t.Fatalf("a file nobody touched must be refused: %d %s", res.ExitCode, res.Stderr)
+	}
+}
+
 // TestOverview_AddsSessionsUpFromTheIndex: totals, projects and days for a person
 // and as JSON; the second run reads summaries from the index.
 func TestOverview_AddsSessionsUpFromTheIndex(t *testing.T) {

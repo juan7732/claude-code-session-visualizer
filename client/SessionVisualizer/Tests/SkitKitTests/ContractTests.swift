@@ -226,6 +226,15 @@ import Testing
         #expect(full.state?["numStartups"]?.compact == "41" && full.identity?["userID"] == "set")
     }
 
+    /// `skit file`: a file a session touched, as it is now, with the sessions that touched it.
+    @Test func aTouchedFileAndItsHistory() throws {
+        let file = try decode(FileView.self, "file.json")
+        // The fixture's file was never on this disk.
+        #expect(file.path == "/xxx/y.go" && !file.exists && file.reason == "deleted" && file.text == nil)
+        let entry = try #require(file.sessions.first)
+        #expect(entry.session.hasPrefix("aaaaaaaa") && entry.raw == "/xxx/y.go" && entry.writes == 1 && entry.reads == 0 && entry.firstAt <= entry.lastAt)
+    }
+
     /// `skit images`: where each picture is, never its bytes.
     @Test func imagesAreListedWithoutTheirBytes() throws {
         let images = try decode([SessionImage].self, "images.json")

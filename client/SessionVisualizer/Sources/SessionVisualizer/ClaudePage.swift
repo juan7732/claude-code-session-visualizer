@@ -156,7 +156,7 @@ struct ClaudePage: View {
             memoryTable(written, first: "FILE")
             Heading("Notes Claude Code keeps for itself · \(kept.count)").padding(.top, 14)
             memoryTable(kept, first: "NOTE")
-            Note("The engine says where each file is, how long and how old; it never sends what a file says. A CLAUDE.md is looked for in each project Claude Code knows; Claude Code's own notes are under ~/.claude/projects/<project>/memory.")
+            Note("Double-click a file to open it in the application chosen in Settings, or right-click for more. The engine says where each file is, how long and how old; it never sends what a file says. A CLAUDE.md is looked for in each project Claude Code knows; Claude Code's own notes are under ~/.claude/projects/<project>/memory.")
             let skills = snapshot.skills.filter { ClaudeContent.matches(needle, $0.name, $0.path ?? "") }
             Heading("Skills").padding(.top, 14)
             Columns(cells: [("SKILL", 280), ("WHERE", nil), ("USED", 70), ("ON DISK", 80)], header: true)
@@ -209,9 +209,18 @@ extension ClaudePage {
                     Text(FilesContent.bytes(file.bytes)).font(.system(size: 12.5)).monospacedDigit().frame(width: 80, alignment: .trailing)
                     Text(Format.dateTime(file.modified)).font(.system(size: 12)).foregroundStyle(palette.muted).frame(width: 130, alignment: .trailing)
                 }
+                .contentShape(Rectangle())
+                .onTapGesture(count: 2) { FileOpener.open(file.path, with: opener) }
+                .contextMenu {
+                    Button(FileOpener.title(opener)) { FileOpener.open(file.path, with: opener) }
+                    Button("Reveal in Finder") { FileOpener.reveal(file.path) }
+                    Button("Copy Path") { Exporter.copy(file.path) }
+                }
             }
         }
     }
+
+    fileprivate var opener: String { FileOpener.setting }
 }
 
 /// What the Claude page matches and writes out.

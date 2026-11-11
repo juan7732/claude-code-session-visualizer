@@ -194,6 +194,21 @@ func TestRoutes(t *testing.T) {
 	if code := get(t, h, "/v0/search?q=", &e); code != 400 {
 		t.Fatalf("empty query should be 400, got %d", code)
 	}
+	// Once archived, a file the session touched can be asked about; one it did not touch cannot.
+	var fv map[string]any
+	if code := get(t, h, "/v0/file?path=/xxx/y.go", &fv); code != 200 || fv["exists"] != false || fv["reason"] != "deleted" || len(fv["sessions"].([]any)) != 1 {
+		t.Fatalf("file route: %d %v", code, fv)
+	}
+	if code := get(t, h, "/v0/file?path=/xxx/y.go&session="+fixtureID+"&text=0", &fv); code != 200 || fv["path"] != "/xxx/y.go" {
+		t.Fatalf("file route with a session: %d %v", code, fv)
+	}
+	var refused map[string]string
+	if code := get(t, h, "/v0/file?path=/etc/hosts", &refused); code != 404 || refused["error"] == "" {
+		t.Fatalf("a file no session touched: %d %v", code, refused)
+	}
+	if code := get(t, h, "/v0/file", &refused); code != 400 {
+		t.Fatalf("file without a path: %d", code)
+	}
 }
 
 // TestConcurrentReadsShareOneParse hits every read route of one session from

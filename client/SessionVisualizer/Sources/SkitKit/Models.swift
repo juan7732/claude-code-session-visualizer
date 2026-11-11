@@ -686,3 +686,39 @@ public struct ClaudeSnapshot: Codable, Sendable, Equatable {
         }
     }
 }
+
+/// A file some session touched, as it is on disk now, and every archived session that
+/// touched it: `GET /v0/file` (`skit file`). The engine reads no other files.
+public struct FileView: Codable, Sendable, Equatable {
+    /// Where the file is on disk.
+    public var path: String
+    public var exists: Bool
+    /// Why there is no text: "deleted", "binary", "directory", "unreadable".
+    public var reason: String?
+    public var bytes: Int?
+    public var modified: Date?
+    /// The content, at most two megabytes of it (`truncated` says so).
+    public var text: String?
+    public var truncated: Bool?
+    @EmptyWhenNull public var sessions: [History]
+
+    /// One session's dealings with the file. `raw` is the path as that session wrote it.
+    public struct History: Codable, Sendable, Equatable, Identifiable {
+        public var session: String
+        public var title: String
+        public var project: String
+        public var raw: String
+        public var reads: Int
+        public var writes: Int
+        public var firstAt: Date
+        public var lastAt: Date
+
+        public var id: String { session }
+
+        enum CodingKeys: String, CodingKey {
+            case session, title, project, raw, reads, writes
+            case firstAt = "first_at"
+            case lastAt = "last_at"
+        }
+    }
+}

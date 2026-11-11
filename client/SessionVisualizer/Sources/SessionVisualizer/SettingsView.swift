@@ -19,9 +19,25 @@ struct SettingsView: View {
 private struct GeneralSettings: View {
     @AppStorage(SettingsKey.oled) private var oled = false
     @AppStorage(SettingsKey.sidebar) private var sidebar = true
+    @AppStorage(SettingsKey.fileOpener) private var chosen: String?
 
     var body: some View {
         Form {
+            Section("Files") {
+                let opener = chosen ?? FileOpener.fallback
+                Picker("Open files with", selection: Binding(get: { opener }, set: { choice in
+                    // "Other…" asks for an application; cancelling leaves the choice as it was.
+                    if choice == "other" { if let path = FileOpener.choose() { chosen = path } } else { chosen = choice }
+                })) {
+                    Text("Each file's default application").tag("")
+                    ForEach(FileOpener.installed(), id: \.id) { app in Text(app.name).tag(app.id) }
+                    if opener.hasPrefix("/"), let name = FileOpener.name(opener) { Text(name).tag(opener) }
+                    Divider()
+                    Text("Other…").tag("other")
+                }
+                Text("What the Open button on a file uses: in the Files view, the inspector and the Claude page.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
             Section("Appearance") {
                 Toggle("Pure black in dark mode", isOn: $oled)
                 Text("Light and dark follow System Settings. Pure black suits OLED displays.")

@@ -17,6 +17,8 @@ skit show <id> [--turn N]      one session as a timeline grouped by turn; --turn
                                --context adds injected prompt blocks and every attachment Claude Code added
 skit export <id> [--turn N]    the session, or one turn, as Markdown: what was asked, what was said, one line per tool call
 skit stats <id> [--context]    tokens once per request (subagents rolled in), models, tools, compactions, context curve
+skit file <path> [--session id] a file some session touched: there or gone, and every session that read or wrote it;
+                               --text prints it. Only files a session touched are ever read
 skit overview [-p text]        every session added up from the index: totals, by project, by day, tools, models, time
 skit time <id> [--top N]       where the wall time went: waiting for you or for background work against in turns; in turns
                                the model, tools, subagents, waiting for a hand-back; slowest calls, longest waits

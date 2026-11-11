@@ -649,3 +649,28 @@ func TestDocumentListsAndResultHeads(t *testing.T) {
 		}
 	}
 }
+
+// TestResolvePath: where a path a session wrote is on disk.
+func TestResolvePath(t *testing.T) {
+	cases := []struct{ raw, cwd, command, want string }{
+		{"/a/b/../c.go", "/Users/me/work", "", "/a/c.go"},
+		{"docs/plan.md", "/Users/me/work", "", "/Users/me/work/docs/plan.md"},
+		{"./docs/plan.md", "/Users/me/work", "", "/Users/me/work/docs/plan.md"},
+		{"~/notes/x.md", "/Users/me/work/deep", "", "/Users/me/notes/x.md"},
+		// The command went somewhere else before it named the file.
+		{"sessions/x.md", "/Users/me/work", "cd /Users/me/agent && cat > sessions/x.md <<'EOF'", "/Users/me/agent/sessions/x.md"},
+		{"sessions/x.md", "/Users/me/work", "cd agent && git add -A; cat sessions/x.md", "/Users/me/work/agent/sessions/x.md"},
+		{"x.md", "/Users/me/work", "cd a && cd ../b && cat x.md", "/Users/me/work/b/x.md"},
+		// A cd after the file is named does not move it; a cd to a variable is not followed.
+		{"x.md", "/Users/me/work", "cat x.md && cd /tmp", "/Users/me/work/x.md"},
+		{"x.md", "/Users/me/work", `cd "$ROOT" && cat x.md`, "/Users/me/work/x.md"},
+		// Nothing to resolve against.
+		{"x.md", "", "", ""},
+		{"~/x.md", "/srv/app", "", ""},
+	}
+	for _, c := range cases {
+		if got := resolvePath(c.raw, c.cwd, c.command); got != c.want {
+			t.Errorf("resolvePath(%q, %q, %q) = %q, want %q", c.raw, c.cwd, c.command, got, c.want)
+		}
+	}
+}

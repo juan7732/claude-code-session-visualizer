@@ -16,6 +16,7 @@
 //	GET  /v0/sessions/{id}/relations            action spans, background tasks, hand-backs, retries, files, outside services, commits, events
 //	GET  /v0/sessions/{id}/time?top=            where the wall time went: waiting, the model, tools, subagents; slowest calls, longest waits
 //	GET  /v0/sessions/{id}/export?format=markdown&turn=&thinking=   the session or one turn as Markdown (text/markdown)
+//	GET  /v0/file?path=&session=&text=0         a file some session touched, as it is now, and the sessions that touched it
 //	GET  /v0/sessions/{id}/images               the session's images (no bytes); /images/{n} returns one image
 //	GET  /v0/sessions/{id}/annotations          pin, tags and notes; PATCH the same path to change them
 //	GET  /v0/annotations                        every annotated session
@@ -107,6 +108,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/status", s.status)
 	mux.HandleFunc("GET /v0/sessions", s.sessions)
 	mux.HandleFunc("GET /v0/overview", s.overview)
+	mux.HandleFunc("GET /v0/file", s.file)
 	mux.HandleFunc("GET /v0/sessions/{id}", s.session)
 	mux.HandleFunc("GET /v0/sessions/{id}/stats", s.sessionStats)
 	mux.HandleFunc("GET /v0/sessions/{id}/turns/{n}", s.turn)
@@ -163,7 +165,7 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version": s.Version,
 		"routes": []string{
-			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/overview?project=&slug=", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
+			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/overview?project=&slug=", "GET /v0/file?path=&session=&text=0", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
 			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}?agent=", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
 			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/time?top=", "GET /v0/sessions/{id}/export?format=markdown&turn=&thinking=", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
 			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=",
@@ -229,6 +231,34 @@ func (s *Server) overview(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, http.StatusOK, stats.Overall(sums, home.LocalZone()))
+}
+
+// file says what a touched file is now and who touched it: `skit file`.
+func (s *Server) file(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	path := q.Get("path")
+	if path == "" {
+		writeError(w, http.StatusBadRequest, "path is required")
+		return
+	}
+	id := ""
+	if q.Get("session") != "" {
+		res, ok := s.resolve(w, q.Get("session"))
+		if !ok {
+			return
+		}
+		id = res.Session.ID
+	}
+	v, err := s.Archive.FileNow(path, id, q.Get("text") != "0")
+	if errors.Is(err, archive.ErrUntouched) {
+		writeError(w, http.StatusNotFound, err.Error())
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, v)
 }
 
 func (s *Server) resolve(w http.ResponseWriter, id string) (archive.Resolved, bool) {

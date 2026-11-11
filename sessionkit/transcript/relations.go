@@ -98,9 +98,15 @@ type FileTouch struct {
 	Tool string `json:"tool"`
 }
 
-// FileTouched is a file with every touch, in order.
+// FileTouched is a file with every touch, in order. Path is the path as the
+// session wrote it. Places is where that may be on disk, the likeliest first
+// (see resolvePath): what each touch's command and working directory say, most
+// agreed first, then the path under each directory the session worked in. A
+// transcript cannot say which one is right; whoever can look at the disk
+// (the archive, when it indexes a session) takes the first that is there.
 type FileTouched struct {
 	Path    string      `json:"path"`
+	Places  []string    `json:"-"`
 	Writes  int         `json:"writes"`
 	Turns   int         `json:"turns"`
 	Touches []FileTouch `json:"touches"`
@@ -398,8 +404,42 @@ func (s *Session) Relations() *Relations {
 			}
 		}
 	}
+	callAt := map[string]int{}
+	for i, c := range s.ToolCalls {
+		callAt[c.ID] = i
+	}
 	for p, f := range files {
 		f.Turns = len(turnsOf[p])
+		// Where the file may be: each touch says where its command was working,
+		// and they do not always agree (a recorded directory can lag a `cd` in
+		// the call before, and a path can be named from anywhere).
+		votes := map[string]int{}
+		var order []string
+		for k := len(f.Touches) - 1; k >= 0; k-- {
+			at := f.Touches[k]
+			i, ok := callAt[at.ToolID]
+			if !ok {
+				continue
+			}
+			cwd := s.Cwd
+			if at.Action >= 0 && at.Action < len(s.Actions) && s.Actions[at.Action].Cwd != "" {
+				cwd = s.Actions[at.Action].Cwd
+			}
+			if where := resolvePath(p, cwd, inputs[i].Command); where != "" {
+				if votes[where] == 0 {
+					order = append(order, where)
+				}
+				votes[where]++
+			}
+		}
+		sort.SliceStable(order, func(i, j int) bool { return votes[order[i]] > votes[order[j]] })
+		for _, cwd := range s.Cwds {
+			if where := resolvePath(p, cwd, ""); where != "" && votes[where] == 0 {
+				votes[where] = 1
+				order = append(order, where)
+			}
+		}
+		f.Places = order
 		rel.Files = append(rel.Files, *f)
 	}
 	sort.Slice(rel.Files, func(i, j int) bool {
@@ -517,6 +557,78 @@ func firstNonEmpty(a ...string) string {
 		}
 	}
 	return ""
+}
+
+var cdInCommand = regexp.MustCompile(`(?m)(?:^|&&|;|\()\s*cd\s+("[^"]+"|'[^']+'|[^\s;&|)]+)`)
+
+// resolvePath says where a path a session wrote is on disk. An absolute path
+// is itself; "~/x" is under the home the working directory sits in; a relative
+// one is under the working directory of its action, or under the directory the
+// command changed to before naming it (`cd agent && cat > sessions/x.md`).
+// Empty when there is nothing to resolve against.
+//
+// DECISION: like the paths themselves this reads the shell without parsing it.
+// A `cd` inside a subshell or a loop is followed as if it were not.
+func resolvePath(raw, cwd, command string) string {
+	home := ""
+	if parts := strings.Split(cwd, "/"); len(parts) >= 3 && parts[0] == "" && (parts[1] == "Users" || parts[1] == "home") {
+		home = "/" + parts[1] + "/" + parts[2]
+	}
+	expand := func(p string) string {
+		if p == "~" || strings.HasPrefix(p, "~/") {
+			if home == "" {
+				return ""
+			}
+			return home + strings.TrimPrefix(p, "~")
+		}
+		return p
+	}
+	raw = expand(raw)
+	if raw == "" {
+		return ""
+	}
+	if strings.HasPrefix(raw, "/") {
+		return pathClean(raw)
+	}
+	base := cwd
+	if command != "" {
+		upTo := len(command)
+		if i := strings.Index(command, raw); i >= 0 {
+			upTo = i
+		}
+		for _, m := range cdInCommand.FindAllStringSubmatch(command[:upTo], -1) {
+			dir := expand(strings.Trim(m[1], `"'`))
+			switch {
+			case dir == "" || strings.ContainsAny(dir, "$`"):
+				// A variable or a substitution: where it leads is not in the text.
+			case strings.HasPrefix(dir, "/"):
+				base = dir
+			case base != "":
+				base = base + "/" + dir
+			}
+		}
+	}
+	if base == "" {
+		return ""
+	}
+	return pathClean(base + "/" + raw)
+}
+
+// pathClean is filepath.Clean for the slash-separated paths of a transcript.
+func pathClean(p string) string {
+	var out []string
+	for _, part := range strings.Split(p, "/") {
+		switch part {
+		case "", ".":
+		case "..":
+			if len(out) > 0 {
+				out = out[:len(out)-1]
+			}
+		default:
+			out = append(out, part)
+		}
+	}
+	return "/" + strings.Join(out, "/")
 }
 
 // writesTo says whether a shell command writes the path: a redirect, tee, an

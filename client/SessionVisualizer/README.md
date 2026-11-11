@@ -34,9 +34,10 @@ grid), `TranscriptView` and `TranscriptRows`, `Drawer` (the inspector under both
 camera and takes the pointer; `BraidLayout` and `BraidCanvas` say and draw the Braid, `ScoreLayout` and `ScoreCanvas`
 the Score), `ArcsMap` (the Summary's map), `TimelineView` (the strip and the playhead in `TimelineStrip`, the rows in
 `Ledger`; `TimelineLayout` holds `TimeAxis`, which cuts idle time and maps moments to points, and what the strip draws),
-`FilesView` (files, injected context, images), `StatsPage` (every figure is `skit overview`'s), `ComparePage`,
-`ClaudePage`. `SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the
-palette; `Export` writes Markdown through the engine and builds and reads `skit-visualizer://` links.
+`FilesView` (files, injected context, images; `FileViewer` shows a file as it is now with its colours and its history
+across sessions, and holds `FileOpener`), `StatsPage` (every figure is `skit overview`'s), `ComparePage`, `ClaudePage`.
+`SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the palette; `Export`
+writes Markdown through the engine and builds and reads `skit-visualizer://` links.
 
 ## Rules
 

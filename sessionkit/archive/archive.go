@@ -162,7 +162,8 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 	// have the answers it will ask for ready before it asks.
 	go loaded.warm()
 	s := loaded.Session
-	sum := stats.Compute(s, l.Project.Slug, stats.Options{})
+	rel := loaded.Relations()
+	sum := stats.Compute(s, l.Project.Slug, stats.Options{Relations: rel})
 
 	st, kept, err := a.copyMain(l, row, res.Path, keep)
 	if kept != "" {
@@ -182,6 +183,9 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 		return res, err
 	}
 	if err := a.Store.ReplaceSegments(l.File.ID, Segments(s)); err != nil {
+		return res, err
+	}
+	if err := a.Store.ReplaceFiles(l.File.ID, fileRows(rel)); err != nil {
 		return res, err
 	}
 	st.Fingerprint = fp

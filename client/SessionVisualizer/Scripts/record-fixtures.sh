@@ -69,6 +69,7 @@ send PATCH "/v0/sessions/$id/annotations" '{"pinned":true,"add_tags":["keep"],"n
 get /v0/annotations annotations.json
 send POST /v0/archive "{\"ids\":[\"$id\"]}" archive.json
 get "/v0/search?q=Bash&session=$id&limit=50" search.json
+get "/v0/file?path=/xxx/y.go&session=$id" file.json
 get "/v0/search?q=xxxx&kind=prompt&limit=50" search-prompts.json
 curl -sS --unix-socket "$sock" "http://skit/v0/sessions/nope/stats" -o "$out/error.json"
 "$work/skit" service status --json > "$out/service-status.json"

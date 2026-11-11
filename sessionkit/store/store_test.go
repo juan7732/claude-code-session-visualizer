@@ -116,7 +116,7 @@ PRAGMA user_version = 1;`); err != nil {
 	}
 }
 
-// TestMigrateFromV4KeepsEverything: schemas 5 and 6 only add, so segments stay, rows
+// TestMigrateFromV4KeepsEverything: schemas 5 to 7 only add, so segments stay, rows
 // keep the version they were indexed at (no session is parsed again), and the
 // new tables work on the migrated index.
 func TestMigrateFromV4KeepsEverything(t *testing.T) {
@@ -126,8 +126,8 @@ func TestMigrateFromV4KeepsEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Schema 4 is the latest schema without what v5 added.
-	v4 := strings.Replace(strings.TrimSuffix(schemaLatest, schemaVectors), "text    TEXT NOT NULL,\n  chunked INTEGER NOT NULL DEFAULT 0  -- 1 once its chunks are written (possibly none: nothing worth a vector)\n", "text    TEXT NOT NULL\n", 1)
-	if strings.Contains(v4, "chunked") || strings.Contains(v4, "vectors") {
+	v4 := strings.Replace(strings.TrimSuffix(schemaLatest, schemaVectors+schemaFiles), "text    TEXT NOT NULL,\n  chunked INTEGER NOT NULL DEFAULT 0  -- 1 once its chunks are written (possibly none: nothing worth a vector)\n", "text    TEXT NOT NULL\n", 1)
+	if strings.Contains(v4, "chunked") || strings.Contains(v4, "vectors") || strings.Contains(v4, "files(") {
 		t.Fatal("the test's schema 4 still has schema 5 in it")
 	}
 	if _, err := db.Exec(v4 + `
@@ -361,5 +361,48 @@ func TestVectorGenerationMovesWhenTheVectorsDo(t *testing.T) {
 	}
 	if c, _ := st.VectorCounts(); c.EmbeddedAt != "2026-11-10T17:30:00Z" {
 		t.Fatalf("embedded_at = %q", c.EmbeddedAt)
+	}
+}
+
+// TestFilesByPath: which sessions touched a file, the latest first; two paths a
+// session wrote that are the same file on disk are one row.
+func TestFilesByPath(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "skit.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	at := func(h int) time.Time { return time.Date(2026, 11, 8, h, 0, 0, 0, time.UTC) }
+	for _, id := range []string{"s1", "s2"} {
+		if err := st.UpsertSummary(SessionRow{ID: id, Project: "p", SourcePath: "/x/" + id, Title: "title " + id, Summary: []byte("{}")}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := st.ReplaceFiles("s1", []FileRow{
+		{Path: "/w/a.go", Raw: "a.go", Reads: 2, Writes: 1, FirstAt: at(1), LastAt: at(3)},
+		{Path: "/w/a.go", Raw: "./a.go", Reads: 1, FirstAt: at(4), LastAt: at(5)},
+		{Path: "/w/b.go", Raw: "b.go", Writes: 1, FirstAt: at(2), LastAt: at(2)},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.ReplaceFiles("s2", []FileRow{{Path: "/w/a.go", Raw: "/w/a.go", Writes: 4, FirstAt: at(9), LastAt: at(9)}}); err != nil {
+		t.Fatal(err)
+	}
+	got, err := st.FileSessions("/w/a.go")
+	if err != nil || len(got) != 2 || got[0].Session != "s2" || got[0].Writes != 4 || got[0].Title != "title s2" {
+		t.Fatalf("sessions of a.go: %+v %v", got, err)
+	}
+	if got[1].Session != "s1" || got[1].Reads != 3 || got[1].Writes != 1 || !got[1].FirstAt.Equal(at(1)) || !got[1].LastAt.Equal(at(5)) || got[1].Raw != "a.go" {
+		t.Fatalf("two spellings of one file are one row: %+v", got[1])
+	}
+	// Replacing a session's files forgets the old ones; nobody touched c.go.
+	if err := st.ReplaceFiles("s1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := st.FileSessions("/w/b.go"); len(got) != 0 {
+		t.Fatalf("b.go after s1 was replaced: %+v", got)
+	}
+	if got, _ := st.FileSessions("/w/c.go"); len(got) != 0 {
+		t.Fatalf("c.go: %+v", got)
 	}
 }

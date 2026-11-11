@@ -2,8 +2,8 @@
 
 The milestones, done and to come, and the choices behind them. v0 ends at M9. v1 is M0 to M16 complete, M16 being the
 release itself, and v1 is what gets shared (Juan, 2026-11-10). M17 to M19 come after it; M20 to M22 were added on
-2026-11-10 and are not yet placed in that order. This file is the source of truth for what is in scope; the workspace
-session log only records what happened.
+2026-11-10 and may be taken up before the release, while its signing waits on Apple. This file is the source of truth
+for what is in scope; the workspace session log only records what happened.
 
 Decisions already taken: Go engine runs as a process (not linked into Swift). IDL deferred until a second face needs it;
 the contract for v0 is "one CLI subcommand = one engine function = one service endpoint, same names, JSON shapes". Not
@@ -292,9 +292,18 @@ cards.
 - **Claude**: experiments with the flag each drives and "copy as id=variation", settings in effect by layer, the cached
   flags with a filter, projects, memory files and skills, what Claude Code remembers about itself. Read-only.
 
+After Juan's pass (2026-11-10): **a file viewer in the Files view.** A file opens on "The file": its text as it is on
+disk now, coloured by a small highlighter for the usual languages, or the plain fact that nothing is at that path any
+more; Open in the application chosen in Settings › General (Visual Studio Code when it is installed and nothing was
+chosen), Reveal in Finder, Copy Path; and beside it every session that touched the same file, each a click away.
+"Touches" is the list that was there before. The inspector's file panel has "View File". Memory files on the Claude page
+open in the chosen application (double-click); the app does not show their text, because the engine does not send it.
+The file at a turn and a diff per write are still issue #5.
+
 Engine, for it (`relations-and-client-routes.md`): `activity`, `shape` and `time` in summaries (index schema 6);
-`skit overview` and `/v0/overview`; and a second correction to the time split, which the overview exposed: a wait after
-the agent spoke is a hand-back wait only when a hand-back arrived, otherwise it is waiting for you.
+`skit file` and `/v0/file`, with a table of which session touched which file (index schema 7); `skit overview` and
+`/v0/overview`; and a second correction to the time split, which the overview exposed: a wait after the agent spoke is a
+hand-back wait only when a hand-back arrived, otherwise it is waiting for you.
 
 **M14 Semantic search (DONE).** Find a turn by meaning, not only by its words. Engine first; the engine half can run
 beside M7 to M13.
@@ -382,7 +391,7 @@ Code never titled and a line per turn for the Summary; a query rewritten before 
 settles which model, how much memory and how long per call, before any of it is promised.
 
 M20 to M22 were asked for by Juan on 2026-11-10, after M13. They are numbered after M19 because that is when they were
-written down; where they come relative to the release and the model milestones is his to say.
+written down. They may be taken up before the release: M16's signing waits on Apple (Juan, 2026-11-10).
 
 **M20 Now: sessions at work.** A page of its own: every session that did something in the last 60 minutes is a card, all
 of them at a glance.

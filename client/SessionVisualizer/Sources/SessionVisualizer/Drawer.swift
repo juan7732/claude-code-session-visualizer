@@ -493,6 +493,16 @@ private struct DrawerDetails: View {
                     ("In", "\(file.turns) turn\(file.turns == 1 ? "" : "s")"),
                 ])
                 Sub("Found in tool inputs: the edit tools' paths, and paths named in shell commands.")
+                HStack(spacing: 8) {
+                    Button("View File") {
+                        // The Files view on this file, as it is now; Open and Reveal in Finder are there.
+                        window.files.selected = path
+                        window.files.tab = .files
+                        window.files.showsTouches = false
+                        window.sessionView = .files
+                    }
+                }
+                .controlSize(.small).padding(.top, 2)
             }
             Section_("Touched by") {
                 ForEach(Array(file.touches.prefix(60).enumerated()), id: \.offset) { _, touch in

@@ -19,7 +19,7 @@ import (
 )
 
 // SchemaVersion is bumped with every migration.
-const SchemaVersion = 6
+const SchemaVersion = 7
 
 // IndexedVersion is the last schema that changed what a session's summary or
 // segments hold. A session row records the one it was indexed at, and a row
@@ -28,7 +28,7 @@ const SchemaVersion = 6
 // DECISION: kept apart from SchemaVersion so that a migration which only adds
 // tables (schema 5: chunks and vectors) does not make every session be parsed
 // again for nothing.
-const IndexedVersion = 6
+const IndexedVersion = 7
 
 // Store is an open index.
 type Store struct {
@@ -129,6 +129,15 @@ func (s *Store) migrate() error {
 		// `list`. Vectors are keyed by the text's hash and are not made again.
 		version = 6
 	}
+	if version == 6 {
+		// v7: which sessions touched which file, so a file can be asked for its
+		// history across sessions. Filled when a session is archived, so rows
+		// from before are indexed again.
+		if _, err := tx.Exec(schemaFiles); err != nil {
+			return err
+		}
+		version = 7
+	}
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion)); err != nil {
 		return err
 	}
@@ -185,7 +194,7 @@ END;
 CREATE TRIGGER segments_ad AFTER DELETE ON segments BEGIN
   INSERT INTO fts(fts, rowid, text) VALUES ('delete', old.id, old.text);
 END;
-` + schemaVectors
+` + schemaVectors + schemaFiles
 
 // schemaVectors is what schema 5 added, shared by a new index and the migration.
 const schemaVectors = `
@@ -202,6 +211,21 @@ CREATE TABLE vectors(
   hash BLOB PRIMARY KEY,
   vec  BLOB NOT NULL         -- little-endian float16, L2-normalised; made by meta.vector_source
 ) WITHOUT ROWID;
+`
+
+// schemaFiles is what schema 7 added: one row per session and file it touched.
+const schemaFiles = `
+CREATE TABLE files(
+  session  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  path     TEXT NOT NULL,              -- where the file is on disk, as the engine resolved it
+  raw      TEXT NOT NULL,              -- the path as the session wrote it
+  reads    INTEGER NOT NULL DEFAULT 0,
+  writes   INTEGER NOT NULL DEFAULT 0,
+  first_at TEXT,
+  last_at  TEXT,
+  PRIMARY KEY(session, path)
+) WITHOUT ROWID;
+CREATE INDEX files_path ON files(path);
 `
 
 // SessionRow is one indexed session.
@@ -456,4 +480,80 @@ func boolInt(b bool) int {
 
 func escapeLike(s string) string {
 	return strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`).Replace(s)
+}
+
+// FileRow is one file a session touched.
+type FileRow struct {
+	Path    string // resolved, absolute
+	Raw     string // as the session wrote it
+	Reads   int
+	Writes  int
+	FirstAt time.Time
+	LastAt  time.Time
+}
+
+// ReplaceFiles swaps the files a session touched.
+func (s *Store) ReplaceFiles(session string, files []FileRow) error {
+	tx, err := s.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`DELETE FROM files WHERE session = ?`, session); err != nil {
+		return err
+	}
+	stmt, err := tx.Prepare(`INSERT INTO files(session, path, raw, reads, writes, first_at, last_at) VALUES(?,?,?,?,?,?,?)
+		ON CONFLICT(session, path) DO UPDATE SET reads = reads + excluded.reads, writes = writes + excluded.writes,
+		first_at = min(first_at, excluded.first_at), last_at = max(last_at, excluded.last_at)`)
+	if err != nil {
+		return err
+	}
+	defer stmt.Close()
+	for _, f := range files {
+		if _, err := stmt.Exec(session, f.Path, f.Raw, f.Reads, f.Writes, timeText(f.FirstAt), timeText(f.LastAt)); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// FilePath is where the file a session wrote as raw is on disk; "" when the
+// session has no such file.
+func (s *Store) FilePath(session, raw string) (string, error) {
+	var path string
+	err := s.db.QueryRow(`SELECT path FROM files WHERE session = ? AND raw = ?`, session, raw).Scan(&path)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return path, err
+}
+
+// FileSession is a session that touched a file.
+type FileSession struct {
+	Session string
+	Title   string
+	Project string
+	FileRow
+}
+
+// FileSessions lists the sessions that touched the file at path, the latest touch first.
+func (s *Store) FileSessions(path string) ([]FileSession, error) {
+	rows, err := s.db.Query(`SELECT f.session, s.title, s.project, f.raw, f.reads, f.writes, f.first_at, f.last_at
+		FROM files f JOIN sessions s ON s.id = f.session WHERE f.path = ? ORDER BY f.last_at DESC, f.session`, path)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	out := []FileSession{}
+	for rows.Next() {
+		fs := FileSession{}
+		fs.Path = path
+		var first, last sql.NullString
+		if err := rows.Scan(&fs.Session, &fs.Title, &fs.Project, &fs.Raw, &fs.Reads, &fs.Writes, &first, &last); err != nil {
+			return nil, err
+		}
+		fs.FirstAt, fs.LastAt = parseTime(first), parseTime(last)
+		out = append(out, fs)
+	}
+	return out, rows.Err()
 }

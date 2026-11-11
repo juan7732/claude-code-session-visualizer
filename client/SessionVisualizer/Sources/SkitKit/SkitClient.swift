@@ -42,6 +42,7 @@ public struct SkitClient: Sendable {
         "GET /v0/sessions/{id}/images/{n}",
         "GET /v0/overview",
         "GET /v0/claude",
+        "GET /v0/file",
         "GET /v0/sessions/{id}/compactions/{n}",
         "GET /v0/sessions/{id}/export",
         "GET /v0/search",
@@ -74,6 +75,12 @@ public struct SkitClient: Sendable {
 
     /// How Claude Code is configured on this Mac: settings by layer, experiments, flags, projects, memory, skills.
     public func claude() async throws -> ClaudeSnapshot { try await get("/v0/claude") }
+
+    /// A file a session touched, as it is now, with the sessions that touched it. `path` is the
+    /// path as `session` wrote it, or where the file is on disk.
+    public func file(path: String, session id: String? = nil, text: Bool = true) async throws -> FileView {
+        try await get("/v0/file?path=" + Self.escape(path) + (id.map { "&session=" + Self.escape($0) } ?? "") + (text ? "" : "&text=0"))
+    }
 
     public func stats(session id: String) async throws -> SessionSummary {
         try await get("/v0/sessions/\(Self.escape(id))/stats")
