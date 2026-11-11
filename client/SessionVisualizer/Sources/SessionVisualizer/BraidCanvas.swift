@@ -152,6 +152,9 @@ final class BraidCanvasNSView: NSView {
     private var dragged = false
     private var tracking: NSTrackingArea?
 
+    /// How far the canvas moves for a point of scrolling.
+    static let scrollSpeed: CGFloat = 0.85
+
     override var isFlipped: Bool { true }
     override var acceptsFirstResponder: Bool { true }
     override var isOpaque: Bool { true }
@@ -614,7 +617,9 @@ final class BraidCanvasNSView: NSView {
             let delta = event.hasPreciseScrollingDeltas ? event.scrollingDeltaY : event.scrollingDeltaY * 8
             move { $0.zoom(by: exp(delta * 0.01), at: point) }
         } else {
-            let k: CGFloat = event.hasPreciseScrollingDeltas ? 1 : 10
+            // A trackpad's deltas are points; a wheel's are lines. Both a little under one to one:
+            // at full speed the canvas ran ahead of the fingers (Juan, 2026-11-10: "about 15 % too fast").
+            let k: CGFloat = (event.hasPreciseScrollingDeltas ? 1 : 10) * Self.scrollSpeed
             move { $0.x += event.scrollingDeltaX * k; $0.y += event.scrollingDeltaY * k }
         }
     }

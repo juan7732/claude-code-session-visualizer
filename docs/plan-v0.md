@@ -205,8 +205,7 @@ which the app runs only on the Mac that built it; a ⚙ popover per view (the op
 any session, what it was about, what happened when, and whether X was discussed can be answered from the app in
 /Applications. This closes v0's definition of done, item 6.
 
-**M10 Canvas: Braid.** Mock: `?view=canvas`, layout Braid; lab in `ux-mocks/canvas/`. Built on 2026-11-10; waiting for
-Juan's pass in the live app before it is marked done.
+**M10 Canvas: Braid (DONE).** Mock: `?view=canvas`, layout Braid; lab in `ux-mocks/canvas/`.
 
 - **The spike came first and settled the approach** (`decisions/0012-the-canvas-is-drawn.md`): one AppKit view draws the
   canvas with Core Graphics and Core Text; every text is broken into lines once, so the layout is computed and the same
