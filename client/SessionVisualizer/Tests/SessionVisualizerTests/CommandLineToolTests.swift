@@ -8,8 +8,16 @@ import Testing
     private let link = NSHomeDirectory() + "/.local/bin/skit"
 
     private func status(link: String? = nil, onPath: Bool? = false, resolved: String? = nil, occupied: Bool = false,
-                        stale: String? = nil, place: BundlePlace = .stable) -> CommandLineTool.Status {
-        .init(link: link, destination: self.link, onPath: onPath, resolved: resolved, occupied: occupied, stale: stale, place: place)
+                        stale: String? = nil, place: BundlePlace = .stable, external: Bool = false) -> CommandLineTool.Status {
+        .init(link: link, destination: self.link, onPath: onPath, resolved: resolved, occupied: occupied, stale: stale, place: place, external: external)
+    }
+
+    /// Installed with Homebrew, the link is Homebrew's: it works, and Remove is not offered for it.
+    @Test func aLinkHomebrewMadeIsNotOfferedForRemoval() {
+        let brew = "/opt/homebrew/bin/skit"
+        let words = CommandLineContent.words(status(link: brew, onPath: true, resolved: brew, external: true))
+        #expect(words.tone == .ok && words.action == nil && !words.removable)
+        #expect(words.detail.contains("Homebrew"))
     }
 
     @Test func offersTheLinkAndSaysWhereItGoes() {

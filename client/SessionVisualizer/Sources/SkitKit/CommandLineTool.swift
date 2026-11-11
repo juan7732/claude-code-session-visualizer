@@ -51,8 +51,13 @@ public struct CommandLineTool: Sendable {
         public var stale: String?
         /// The app is somewhere that does not last (a disk image, App Translocation): a link there would break.
         public var place: BundlePlace
+        /// The link was made by something else, in a folder that is not one of this app's: Homebrew
+        /// links the cask's skit into its own. It works the same and is not this app's to remove.
+        public var external: Bool
 
-        public init(link: String?, destination: String, onPath: Bool?, resolved: String?, occupied: Bool, stale: String?, place: BundlePlace) {
+        public init(link: String?, destination: String, onPath: Bool?, resolved: String?, occupied: Bool, stale: String?, place: BundlePlace,
+                    external: Bool = false) {
+            self.external = external
             self.link = link
             self.destination = destination
             self.onPath = onPath
@@ -79,7 +84,11 @@ public struct CommandLineTool: Sendable {
     public func status() -> Status {
         let destination = self.destination()
         let path = destination + "/" + Self.name
-        let link = candidates.map { $0 + "/" + Self.name }.first { isLink($0, to: helper) }
+        var link = candidates.map { $0 + "/" + Self.name }.first { isLink($0, to: helper) }
+        // What a terminal finds first may already be a link to this app's skit that somebody else made.
+        let first = resolved()
+        var external = false
+        if link == nil, let first, isLink(first, to: helper) { (link, external) = (first, true) }
         var stale: String?
         if link == nil, let target = ownLinkTarget(path), !same(target, helper) { stale = target }
         let folder = link.map { ($0 as NSString).deletingLastPathComponent } ?? destination
@@ -87,10 +96,11 @@ public struct CommandLineTool: Sendable {
             link: link,
             destination: path,
             onPath: searchPath.map { $0.contains { same($0, folder) } },
-            resolved: resolved(),
+            resolved: first,
             occupied: link == nil && exists(path) && ownLinkTarget(path) == nil,
             stale: stale,
-            place: BundlePlace.of(helper))
+            place: BundlePlace.of(helper),
+            external: external)
     }
 
     /// The folder the link goes in: where one of this app's already is, else the first candidate

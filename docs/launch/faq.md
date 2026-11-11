@@ -1,6 +1,10 @@
 # Questions and answers
 
-Answers that are true of the code today. Where something depends on the release (M16), it says so.
+Answers that are true of the code today.
+
+**How do I install it?** `brew install --cask juan7732/tap/sessionvisualizer`, or the zip from the repository's
+releases. The app is signed with a Developer ID and notarised by Apple, so it opens by double click. The README has both
+ways and how to remove it.
 
 **Does it send my sessions anywhere?** No. There is no account, no telemetry and no update check. The engine listens on
 a Unix socket in `~/.sessionkit`, not on a network port. The one thing that uses the network is the download of the

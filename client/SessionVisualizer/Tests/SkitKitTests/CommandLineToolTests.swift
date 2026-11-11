@@ -147,6 +147,25 @@ import Testing
         #expect(status.shadowedBy == place.home + "/go/bin/skit")
     }
 
+    /// Homebrew links the cask's skit into its own folder: that counts, and it is not this app's to remove.
+    @Test func aLinkSomebodyElseMadeToThisSkitCounts() throws {
+        let place = try Place()
+        let brew = place.home + "/homebrew/bin"
+        try FileManager.default.createDirectory(atPath: brew, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(atPath: brew + "/skit", withDestinationPath: place.helper)
+        let tool = place.tool(path: [brew, "/usr/bin"])
+        let status = tool.status()
+        #expect(status.link == brew + "/skit")
+        #expect(status.external && status.works && status.onPath == true)
+        #expect(try tool.remove().isEmpty)
+        #expect(FileManager.default.fileExists(atPath: brew + "/skit"))
+        // The same link to another copy of the app is just another skit that comes first.
+        let other = try Place.app(in: place.home, named: "Other/SessionVisualizer")
+        try FileManager.default.removeItem(atPath: brew + "/skit")
+        try FileManager.default.createSymbolicLink(atPath: brew + "/skit", withDestinationPath: other)
+        #expect(tool.status().link == nil && !tool.status().external)
+    }
+
     @Test func removeTakesOnlyTheLinkAway() throws {
         let place = try Place()
         let tool = place.tool(path: [place.local])

@@ -20,7 +20,11 @@ that declares it.
   agent with the app's own `skit`.
 - **Signing is ad hoc unless an identity is given.** `SIGN_IDENTITY` names a Developer ID; with it the script signs with
   the hardened runtime and a timestamp, which is what notarization asks for. Without it the signature is ad hoc: the app
-  runs on the Mac that built it and Gatekeeper refuses it elsewhere. Notarizing and stapling are not in the script yet.
+  runs on the Mac that built it and Gatekeeper refuses it elsewhere. Notarizing is a script of its own (`notarize.sh`,
+  `just client-app-notarize`, 2026-11-11): it builds with the Developer ID in the keychain, sends the app to Apple
+  through a `notarytool` keychain profile, staples the ticket, asks Gatekeeper for its verdict and leaves a zip with its
+  checksum. It refuses a checkout with uncommitted changes, so that what is handed out is what a commit says. The
+  everyday build stays ad hoc and needs neither certificate nor profile.
 - **Links are `skit-visualizer://session/<id>`**, with the view and one node in the query: `?view=transcript&action=60`,
   `&turn=3`, `&tool=<id>`, `&subagent=<agent id>[&step=4]`, `&compaction=0`, `&file=<path>`, `&outside=<kind:name>`. The
   scheme name is Juan's choice (2026-11-10). A link selects its node, so the drawer opens on it; a link to a session

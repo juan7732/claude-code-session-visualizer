@@ -1,7 +1,8 @@
 # SessionVisualizer privacy policy
 
 _Applies to SessionVisualizer (the macOS app) and the `skit` command-line tool published from
-https://github.com/juan7732/claude-code-session-visualizer. Last updated: 2026-11-11._
+https://github.com/juan7732/claude-code-session-visualizer, including the `juan7732/tap/sessionvisualizer` Homebrew
+cask. Last updated: 2026-11-11._
 
 SessionVisualizer and `skit` run on your Mac. There is no service behind them, no account system, and no telemetry. They
 do handle sensitive material: a Claude Code transcript holds your prompts, the contents of files, the output of commands
@@ -78,6 +79,10 @@ a pinned revision, and verifies its SHA-256 before using it. What is sent is an 
 Hugging Face and the content network it redirects to: your IP address, and nothing about you or your sessions. It is
 subject to Hugging Face's privacy policy. It happens once, and never unless you run the command.
 
+**GitHub, when you install or update.** Installing with Homebrew, or downloading the zip yourself, fetches the app from
+this repository's releases on GitHub. That request is Homebrew's or your browser's, made when you ask, and is subject to
+GitHub's privacy statement. The app never checks for a newer version by itself.
+
 **Nothing else.** The app and the engine talk to each other over a Unix socket in `~/.sessionkit/`, not over a network
 port. Search by meaning runs the model in `llama-server`, a separate program you install yourself; `skit` starts it
 bound to `127.0.0.1` only, in offline mode, behind a key made up for that run, and the text it is given does not leave
@@ -117,6 +122,8 @@ To remove everything SessionVisualizer has written:
 2. Delete `~/.sessionkit/`.
 3. Remove the terminal's link if you installed it: Remove Link in the same window, or `rm ~/.local/bin/skit`.
 4. Delete the app, and its settings with `defaults delete dev.sessionkit.SessionVisualizer`.
+
+Installed with Homebrew, `brew uninstall --zap --cask sessionvisualizer` does all four.
 
 Claude Code's own files are untouched by any of this. There is no server-side data to request or delete.
 

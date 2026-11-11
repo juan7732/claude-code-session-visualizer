@@ -13,9 +13,9 @@ It comes with `skit`, the same engine as a command line tool, with `--json` on e
 
 Nothing leaves your machine. It is free and open source, and it is not made by or affiliated with Anthropic.
 
-> **Before 1.0.** Everything on this page works today, but there is no download yet: for now you
-> [build it from source](#install). A signed, notarised download is what 1.0 adds. Apple silicon Macs only, macOS 14 or
-> later. It is shared as it comes, without warranty.
+> **An early release.** Everything on this page works today, and the app is signed and notarised:
+> [install it with Homebrew](#install). It is not 1.0 yet, so things will still change. Apple silicon Macs only, macOS
+> 14 or later. It is shared as it comes, without warranty.
 
 ## What is in it
 
@@ -105,8 +105,39 @@ user alone. [`PRIVACY.md`](PRIVACY.md) lists exactly what is read, what is store
 
 ## Install
 
-Until 1.0 there is no download, so this builds the app on your Mac. You need an Apple silicon Mac on macOS 14 or later,
-[Go](https://go.dev/dl/) 1.26 or later, Swift 6.2 or later (Xcode, or only the Command Line Tools:
+On an Apple silicon Mac with macOS 14 or later and [Homebrew](https://brew.sh):
+
+```sh
+brew install --cask juan7732/tap/sessionvisualizer
+```
+
+That puts SessionVisualizer in /Applications and `skit` in your terminal, and brings `llama.cpp` along for search by
+meaning. Open the app: the first run walks through what it reads and keeps, then starts the archiver when you press the
+button. The sessions Claude Code still has are archived soon after.
+
+**Search by meaning** is optional: one run of `skit embed` downloads the model (about 310 MB) and gives what is archived
+its vectors. After that the archiver keeps them current.
+
+**Without Homebrew,** download the zip from the
+[latest release](https://github.com/juan7732/claude-code-session-visualizer/releases/latest) and move the app to
+Applications. For `skit` in your terminal choose SessionVisualizer › Install Command Line Tool… in the app: it links the
+skit inside the app into a folder your shell searches (`~/.local/bin` unless a better one is there) and tells you if a
+line is missing from your shell's profile. Search by meaning needs `llama-server` from somewhere
+(`brew install llama.cpp`).
+
+**To remove it:**
+
+```sh
+brew uninstall --cask sessionvisualizer   # the app, the archiver's login item, the terminal's skit
+rm -rf ~/.sessionkit                      # the archive: every session it kept
+```
+
+Leave the last line out to keep the sessions; the archive is plain files and does not need the app to be read.
+`brew uninstall --zap --cask sessionvisualizer` does both, and removes the app's settings too.
+
+### From source
+
+You need [Go](https://go.dev/dl/) 1.26 or later, Swift 6.2 or later (Xcode, or only the Command Line Tools:
 `xcode-select --install`) and [just](https://github.com/casey/just) (`brew install just`).
 
 ```sh
@@ -116,20 +147,10 @@ just client-app-install   # builds the app, with skit inside, into /Applications
 ```
 
 If Xcode is installed but is not the selected toolchain, point at it for that one command, with no `sudo` needed:
-`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer just client-app-install`.
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer just client-app-install`. `skit` in your terminal comes from
+the app's Install Command Line Tool…, or from `just install`, which builds one into `~/go/bin`.
 
-Open SessionVisualizer from /Applications. The first run walks through what it reads and keeps, then starts the archiver
-when you press the button. The sessions Claude Code still has are archived soon after.
-
-**`skit` in your terminal:** choose SessionVisualizer › Install Command Line Tool… in the app. It links the skit inside
-the app into a folder your shell searches (`~/.local/bin` unless a better one is there), so the terminal's skit is
-always the app's own, and it tells you if a line is missing from your shell's profile. It edits nothing but that link.
-Without the app, `just install` builds a skit into `~/go/bin`.
-
-**Search by meaning** is optional. It needs `llama-server` (`brew install llama.cpp`) and one run of `skit embed`, which
-downloads the model and gives what is archived its vectors. After that the archiver keeps them current.
-
-**To remove it:**
+To remove a copy that Homebrew did not install:
 
 ```sh
 skit service uninstall    # stop the archiver and remove its login item
@@ -137,8 +158,6 @@ rm -f ~/.local/bin/skit   # the terminal's link, if you installed it
 rm -rf /Applications/SessionVisualizer.app
 rm -rf ~/.sessionkit      # the archive: every session it kept
 ```
-
-Leave the last line out to keep the sessions; the archive is plain files and does not need the app to be read.
 
 Without `skit` in your terminal, the one inside the app does the same:
 `/Applications/SessionVisualizer.app/Contents/Helpers/skit service uninstall`.

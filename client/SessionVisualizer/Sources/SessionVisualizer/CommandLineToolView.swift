@@ -173,6 +173,9 @@ nonisolated enum CommandLineContent {
                 return Words(tone: .plain, headline: "Linked",
                              detail: "The link is at \(link). Your shell could not be asked whether it looks there. If a new terminal window does not find `skit`, the line below is what is missing.",
                              showsHint: true, removable: true)
+            case true? where status.external:
+                return Words(tone: .ok, headline: "skit is in your terminal",
+                             detail: "A new terminal window finds the app's own skit through \(link). That link was not made here (Homebrew makes one when it installs the app), so it is not removed here either.")
             case true?:
                 return Words(tone: .ok, headline: "skit is in your terminal",
                              detail: "A new terminal window finds the app's own skit at \(link). Try `skit doctor`. The link follows the app: update the app and the terminal's skit is updated with it.",

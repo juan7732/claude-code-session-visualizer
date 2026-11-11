@@ -374,6 +374,18 @@ download, a tour. Help › Welcome to SessionVisualizer shows it again. Still to
 offered from the app once `llama-server` ships with it, and the model's terms shown. Also ahead of the release:
 `docs/launch/`, pictures of every page on made-up sessions, and the questions people ask.
 
+Signing, 2026-11-11: the Developer Program membership came through. `just client-app-notarize`
+(`client/SessionVisualizer/notarize.sh`) builds with the Developer ID, has Apple notarise the app, staples the ticket
+and checks Gatekeeper's verdict; a first trial was accepted.
+
+Decided the same day (Juan): **`llama-server` is not bundled.** The way in is Homebrew, and the cask
+(`juan7732/tap/sessionvisualizer`) depends on the `llama.cpp` formula; `embed.FindBinary` already looks where Homebrew
+puts it, also under launchd. That replaces "and `llama-server` in `Contents/Helpers/`" in the list above. Someone who
+takes the zip instead installs `llama.cpp` themselves for search by meaning.
+
+First release, 2026-11-11: **v0.1.0**, a tag, a GitHub release with the notarised zip, and the cask. It is not 1.0:
+`/v0` and its shapes are not frozen, and the rest of this list stands.
+
 Done when: the release, installed from nothing on Juan's other Mac, archives that Mac's sessions and answers a question
 about them, and removing it leaves nothing running.
 

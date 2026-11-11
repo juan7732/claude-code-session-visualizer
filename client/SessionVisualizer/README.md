@@ -13,6 +13,7 @@ just client-fixtures      refresh the recorded responses checked in under Source
 just client-snapshot out.png --page sessions --appearance dark    render one state to a PNG, no window shown
 just client-app           SessionVisualizer.app with this checkout's skit in Contents/Helpers, signed (build.sh)
 just client-app-install   the same, copied into /Applications
+just client-app-notarize  signed with the Developer ID, notarised by Apple, stapled, checked and zipped (notarize.sh)
 ```
 
 ## Layout

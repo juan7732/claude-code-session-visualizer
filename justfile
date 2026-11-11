@@ -171,6 +171,11 @@ client-contract:
 client-app:
     {{client}}/build.sh
 
+# Build the app signed with a Developer ID, have Apple notarise it, staple it, check it, and zip it for handing out
+# (needs the certificate in the keychain and a notarytool profile: see client/SessionVisualizer/notarize.sh)
+client-app-notarize:
+    {{client}}/notarize.sh
+
 # Build the app and put it in /Applications, replacing the one there
 client-app-install: client-app
     rm -rf /Applications/SessionVisualizer.app
