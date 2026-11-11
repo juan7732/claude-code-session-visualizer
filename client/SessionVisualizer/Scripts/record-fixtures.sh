@@ -58,6 +58,7 @@ get "/v0/sessions/$id/actions/3" action.json
 get "/v0/sessions/$id/actions/0?agent=a1b2c3d4e5f607182" subagent-action.json
 get "/v0/sessions/$id/relations" relations.json
 get "/v0/sessions/$out_id/relations" relations-outside.json
+get "/v0/sessions/$id/time?top=3" time.json
 get "/v0/sessions/$id/compactions/0" compaction.json
 get "/v0/sessions/$id/export?turn=0" export-turn.md
 get "/v0/sessions/$id/annotations" annotation-empty.json

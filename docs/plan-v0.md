@@ -226,17 +226,29 @@ Engine: nothing new was needed (`/relations` is memoised since M8; a subagent's 
 Not built: the keyboard inside a strand, dragging a strand aside. Done when: the five questions in `ux-mocks/README.md`
 can be answered on the Braid without leaving it.
 
-**M11 Timeline.** Mock: `?view=timeline` (strip and ledger).
+**M11 Timeline (built; Juan's pass in the live window pending).** Mock: `?view=timeline` (strip and ledger).
 
-- The session strip that always fits the width, idle gaps cut; rows for You, Agent, Subagents, Background; the context
-  curve with compaction marks; output tokens.
-- Playhead: scrub, play, speed and follow settings; the "now" card.
-- The ledger beneath; scrubbing lights the row, a row moves the playhead.
-- "Where the time went": waiting for you against in turns, then writing, tools, waiting on subagents and tasks; slowest
-  tool calls; longest waits.
+- **The data came first and changed the split.** The mock read the gap after an action's tools as "waiting on subagents,
+  tasks, you reading". Measured on real sessions it is the model: a transcript stamps a block when it is complete, so
+  the wait for a response, the thinking and most of a long write sit before an action's timestamp
+  (`relations-and-client-routes.md`, "Where the time went"). Spans gained `start`, and the split is the engine's.
+- The session strip that always fits the width, idle gaps over 90 s cut to hatched bands (the bands narrow when there
+  are many); rows for You, Agent (the model working, tools running, waiting to be brought back), Subagents, Background;
+  the context curve with compaction marks; the output of every request.
+- Playhead: drag anywhere on the strip, play and pause (space), previous and next turn; playing moves along the strip,
+  so an idle night is one band. Speed and "the ledger follows" are settings, behind the gear and in Settings. The "now"
+  line says the turn, the action, which stretch it is in, what runs beside it and the context size.
+- The ledger beneath: a row per action with its clock time, what it did, what came back, and a bar of the model's time
+  and the tools'; a turn's row carries the engine's split of that turn. Scrubbing lights the row, a row moves the
+  playhead. Idle gaps, compactions, waits for a hand-back and API errors have rows of their own.
+- "Where the time went" (W): waiting for you and for background work against in turns; in turns the model, tools,
+  subagents, waiting for a hand-back; slowest tool calls; longest waits. Each line goes to its place in the session.
+- Selection, find, the drawer and links work as on the other views; `TimeAxis` is the piece M12's Score reuses.
 
-Engine: `/relations` spans, `/stats` context curve. Done when: "where did the time go" and "what was happening at this
-moment" are answered for the largest session.
+Engine, for it: `start` on spans, `skit time` and `/v0/sessions/{id}/time` (`relations-and-client-routes.md`). Not
+built: the ledger's row height as a true time scale (it grows a little with duration, as in the mock); a per-session
+memory of where the playhead was. Done when: "where did the time go" and "what was happening at this moment" are
+answered for the largest session.
 
 **M12 Canvas: Score.** Mock: Canvas layout Score. Staves on M10's camera with M11's doubly warped time axis: action
 bars, tool lanes, subagent strands with spawn and hand-back arrows, background pills, hot-file rows, ruler, gutter,

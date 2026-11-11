@@ -46,6 +46,8 @@ final class AppStore {
     private(set) var stepDetails: [String: [String: Loadable<ActionDetail>]] = [:]
     /// What each compaction did, fetched when the drawer shows one.
     private(set) var compactionDetails: [String: [Int: Loadable<CompactionDetail>]] = [:]
+    /// Where each opened session's time went (`skit time`), fetched when the Timeline shows it.
+    private(set) var times: [String: Loadable<SessionTime>] = [:]
     /// The last thing that went wrong after the engine was ready (a failed pin, a failed refresh).
     var notice: String?
 
@@ -165,6 +167,7 @@ final class AppStore {
                 actionDetails[old] = nil
                 stepDetails[old] = nil
                 compactionDetails[old] = nil
+                times[old] = nil
             }
         } catch {
             models[id] = .failed("\(error)")
@@ -206,6 +209,16 @@ final class AppStore {
             compactionDetails[id, default: [:]][index] = .loaded(try await client.compaction(session: id, index))
         } catch {
             compactionDetails[id, default: [:]][index] = .failed("\(error)")
+        }
+    }
+
+    func loadTime(_ id: String) async {
+        if case .loaded = times[id] { return }
+        times[id] = .loading
+        do {
+            times[id] = .loaded(try await client.time(session: id, top: 8))
+        } catch {
+            times[id] = .failed("\(error)")
         }
     }
 

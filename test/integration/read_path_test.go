@@ -116,6 +116,48 @@ func TestStats_HumanAndJSON(t *testing.T) {
 	}
 }
 
+// TestTime_WhereTheWallTimeWent: the split adds up, for a person and as JSON.
+func TestTime_WhereTheWallTimeWent(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := h.SeedFixture("synthetic-basics", "-Users-me-work")
+
+	res := h.Run("time", id)
+	res.AssertOK(t)
+	for _, want := range []string{"waiting for you", "in turns", "the model", "tools running", "subagents running", "Slowest tool calls (4)", "Longest waits (1)", "Turns (2), longest first"} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("time lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+	res = h.Run("time", id, "--top", "1", "--json")
+	res.AssertOK(t)
+	var tm struct {
+		Wall    float64 `json:"wall_seconds"`
+		ForYou  float64 `json:"waiting_for_you_seconds"`
+		InTurns struct {
+			Seconds   float64 `json:"seconds"`
+			Model     float64 `json:"model_seconds"`
+			Tools     float64 `json:"tools_seconds"`
+			Subagents float64 `json:"subagents_seconds"`
+			Waiting   float64 `json:"waiting_seconds"`
+		} `json:"in_turns"`
+		Slowest []struct {
+			Name    string  `json:"name"`
+			Seconds float64 `json:"seconds"`
+		} `json:"slowest_calls"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &tm); err != nil {
+		t.Fatalf("time --json: %v\n%s", err, res.Stdout)
+	}
+	in := tm.InTurns
+	if tm.Wall != 64 || tm.ForYou+in.Seconds != tm.Wall || in.Model+in.Tools+in.Subagents+in.Waiting != in.Seconds {
+		t.Fatalf("the parts must add up: %+v", tm)
+	}
+	if len(tm.Slowest) != 1 || tm.Slowest[0].Name != "Bash" {
+		t.Fatalf("--top 1 lists the slowest call: %+v", tm.Slowest)
+	}
+}
+
 // TestExport_MarkdownOfASessionAndATurn: the conversation leaves the tool as
 // Markdown, to stdout, to a file, or inside a JSON object.
 func TestExport_MarkdownOfASessionAndATurn(t *testing.T) {

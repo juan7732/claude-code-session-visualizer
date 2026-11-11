@@ -20,5 +20,13 @@
     }
   ],
   "sessions_on_disk": 3,
-  "cached_sessions": 0
+  "cached_sessions": 0,
+  "vectors": {
+    "source": "",
+    "chunks": 0,
+    "texts": 0,
+    "vectors": 0,
+    "bytes": 0
+  },
+  "vectors_held": 0
 }

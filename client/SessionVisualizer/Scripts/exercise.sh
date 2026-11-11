@@ -2,7 +2,7 @@
 # Opens a real window on one view of a session, scrolls it from top to bottom
 # with a pointer resting on the page, and says whether the window kept up.
 #
-#   Scripts/exercise.sh <summary|transcript> <session id> [app arguments...]
+#   Scripts/exercise.sh <summary|transcript|canvas|timeline> <session id> [app arguments...]
 #   Scripts/exercise.sh search <words>
 #
 # A snapshot cannot show a freeze: it draws one frame offscreen. This runs the

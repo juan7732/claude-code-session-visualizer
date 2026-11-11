@@ -162,6 +162,32 @@ import Testing
         #expect(relations.outside.isEmpty && relations.commits.isEmpty)
     }
 
+    /// The three stretches of an action are in order, and the first action of
+    /// a turn starts with its prompt: the model's wait is the model's time.
+    @Test func spansCarryTheModelsStart() throws {
+        let relations = try decode(Relations.self, "relations.json")
+        let document = try decode(SessionDocument.self, "document.json")
+        #expect(relations.spans.allSatisfy { $0.start <= $0.at && $0.at <= $0.genEnd && $0.genEnd <= $0.toolsEnd })
+        #expect(relations.spans.first?.start == document.turns.first?.startAt)
+        #expect(relations.spans[1].start == relations.spans[0].toolsEnd)
+    }
+
+    /// `skit time`: the parts add up to the whole.
+    @Test func timeAddsUp() throws {
+        let time = try decode(SessionTime.self, "time.json")
+        #expect(time.wall == 64 && time.waitingForYou == 51 && time.waitingForBackground == 0)
+        let split = time.inTurns
+        #expect(abs(split.seconds - (split.model + split.tools + split.subagents + split.waiting)) < 0.002)
+        #expect(abs(time.wall - (time.waitingForYou + time.waitingForBackground + split.seconds)) < 0.002)
+        #expect(time.turns.count == 2 && time.turns[0].actions == 4 && time.turns[0].origin == "human")
+        // top=3 was asked for.
+        #expect(time.slowestCalls.count == 3)
+        let slowest = try #require(time.slowestCalls.first)
+        #expect(slowest.toolId == "toolu_01" && slowest.name == "Bash" && slowest.seconds == 0.8 && slowest.summary?.isEmpty == false)
+        let wait = try #require(time.longestWaits.first)
+        #expect(wait.whom == "you" && wait.afterTurn == 0 && wait.beforeTurn == 1 && wait.seconds == 50.5)
+    }
+
     /// A session that fetched a page, used a connector and committed.
     @Test func relationsOutsideAndCommits() throws {
         let relations = try decode(Relations.self, "relations-outside.json")

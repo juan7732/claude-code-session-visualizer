@@ -58,13 +58,20 @@ transcript, 255 actions), through the background agent:
 - The agent runs as an interactive process, not a background one (ADR 0009): throttled, it took six times as long.
 - `skit serve` answers in compact JSON. `skit <command> --json` prints the same shapes indented.
 
+Added with M11 (2026-11-10), for the Timeline:
+
+- `start` on every span, and a corrected reading of what a span means (below).
+- `skit time <session> [--top N]` and `GET /v0/sessions/{id}/time?top=`: where the wall time went (below).
+
 ## Relations
 
 `Session.Relations()` derives, on read:
 
-- **spans**: per action, when the model stopped writing (`gen_end`), when its tools finished (`tools_end`) and when the
-  next action of the turn began (`end`). The gap after `tools_end` is waiting: on a subagent, a background task, or the
-  human. This is what the Score canvas and the Timeline draw.
+- **spans**: per action, three stretches. The model worked from `start` (the turn's start, or the end of the action
+  before) until `gen_end`: waiting for the response, thinking and writing. Its tools ran from `gen_end` until
+  `tools_end`. The next action of the turn began at `end`; for an action that `said` something, `tools_end` to `end` is
+  the agent waiting to be brought back by a hand-back or a notification. `at` is when the action's first block was
+  complete. This is what the Timeline draws and the Score canvas will.
 - **tasks**: commands started in the background (a result saying "running in background with ID", or
   `run_in_background`), every later call that read the task's output, the call that stopped it, and the output as last
   read.
@@ -83,6 +90,34 @@ transcript, 255 actions), through the background agent:
 
 Relations are heuristics over tool inputs and results. They are derived from the parsed session and never written to the
 index, so they can improve without a re-index; `skit serve` keeps them in memory beside the parsed session.
+
+## Where the time went
+
+`skit time` (`stats.TimeOf`) splits a session's wall time, in seconds, so that the parts add up:
+
+```
+wall      = waiting for you + waiting for background work + in turns
+in turns  = the model + tools + subagents + waiting for a hand-back
+```
+
+- **Outside turns** the session waited: for you when the next turn is a prompt of yours, for background work when a
+  notification started it.
+- **The model** is every span's `start` to `gen_end`, and what is left of a turn after its last action.
+- **Tools** is `gen_end` to `tools_end`; the part covered by calls that ran a subagent is **subagents**.
+- **Waiting** is `tools_end` to `end` of an action that spoke.
+
+Then the same split per turn (`turns`), the slowest tool calls with what each was for (`slowest_calls`) and the longest
+waits between turns (`longest_waits`); `--top` bounds those two lists, 10 by default.
+
+Why the time before an action's first block is the model's: a transcript stamps a block when it is complete, so an
+action that is one long `Write` has nearly all of its generation before its own timestamp. Measured on real sessions
+(2026-11-10): a session with no subagent and no background task had 1430 s in the gaps after `tools_end`, as much as
+between `at` and `gen_end`; one 394 s gap came before an action of 47k output tokens; and the time from each prompt to
+the first action (650 to 1271 s a session) was in no span. The mock, and this document before M11, called those gaps
+"waiting on a subagent, a task or the human". They are not.
+
+What the split cannot see: a tool call that waited for the human's permission counts as tool time, because a transcript
+does not record that wait. The command and the app both say so.
 
 ## Annotations
 

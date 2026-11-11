@@ -47,6 +47,10 @@ enum AppActions {
             out.append(AppAction(title: "Show All Tool Calls", shortcut: "⌥⌘→", enabled: inTranscript) { setAllFolded(false, window, model) })
             out.append(AppAction(title: "Fold All Tool Calls", shortcut: "⌥⌘←", enabled: inTranscript) { setAllFolded(true, window, model) })
         }
+        if id != nil, window.sessionView == .timeline {
+            out.append(AppAction(title: window.timeline.playing ? "Pause" : "Play", shortcut: "space") { window.timeline.playing.toggle() })
+            out.append(AppAction(title: window.timeline.whereShown ? "Hide Where the Time Went" : "Where the Time Went", shortcut: "W") { window.timeline.whereShown.toggle() })
+        }
         out.append(AppAction(title: "Open in New Window", enabled: id != nil) { if let id { openWindow(id) } })
         out.append(AppAction(title: id.map { store.annotation($0).pinned } == true ? "Unpin" : "Pin", enabled: id != nil) {
             if let id { Task { await store.togglePin(id) } }
@@ -109,6 +113,7 @@ struct AppCommands: Commands {
     private var inTranscript: Bool { sessionID != nil && window?.sessionView == .transcript }
     private var onSearch: Bool { window?.page == .search }
     private var onCanvas: Bool { sessionID != nil && window?.sessionView == .canvas }
+    private var onTimeline: Bool { sessionID != nil && window?.sessionView == .timeline }
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -122,8 +127,8 @@ struct AppCommands: Commands {
             Divider()
             Button("Find") {
                 guard let window else { return }
-                // The Canvas finds in place; from any other view, find is the Transcript's.
-                if window.sessionView == .canvas { window.transcript.findRequests += 1 } else { AppActions.find(window) }
+                // The Canvas and the Timeline find in place; from any other view, find is the Transcript's.
+                if window.sessionView == .canvas || window.sessionView == .timeline { window.transcript.findRequests += 1 } else { AppActions.find(window) }
             }
                 .keyboardShortcut("f").disabled(sessionID == nil)
             Button("Search All Sessions") { if let window { AppActions.showSearch(window) } }
@@ -167,6 +172,10 @@ struct AppCommands: Commands {
             Button("Actual Size") { window?.canvas.actualSize() }.keyboardShortcut("0").disabled(!onCanvas)
             Button("Zoom to Fit") { window?.canvas.fitWidth() }.keyboardShortcut("0", modifiers: [.command, .shift]).disabled(!onCanvas)
             Divider()
+            // The Timeline's own keys (space, W) are the view's: a menu key without ⌘ would take them from every text field.
+            Button(window?.timeline.playing == true ? "Pause" : "Play") { window?.timeline.playing.toggle() }.disabled(!onTimeline)
+            Button(window?.timeline.whereShown == true ? "Hide Where the Time Went" : "Where the Time Went") { window?.timeline.whereShown.toggle() }.disabled(!onTimeline)
+            Divider()
         }
         CommandMenu("Session") {
             Button("Continue in Claude") {}.disabled(true) // not scheduled
@@ -191,7 +200,7 @@ struct AppCommands: Commands {
         }
         CommandGroup(replacing: .help) {
             Button("Keyboard Shortcuts") { window?.transcript.helpShown.toggle() }
-                .keyboardShortcut("/", modifiers: [.command, .shift]).disabled(!inTranscript && !onCanvas)
+                .keyboardShortcut("/", modifiers: [.command, .shift]).disabled(!inTranscript && !onCanvas && !onTimeline)
         }
     }
 }

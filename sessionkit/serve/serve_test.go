@@ -113,6 +113,13 @@ func TestRoutes(t *testing.T) {
 	if rel["commits"] == nil {
 		t.Fatalf("relations lists commits, empty when there are none: %v", rel["commits"])
 	}
+	var tm map[string]any
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/time?top=2", &tm); code != 200 || tm["wall_seconds"] != float64(64) || len(tm["slowest_calls"].([]any)) != 2 || len(tm["turns"].([]any)) != 2 {
+		t.Fatalf("time route: %d %v", code, tm)
+	}
+	if code := get(t, h, "/v0/sessions/"+fixtureID+"/time?top=none", &none); code != 400 {
+		t.Fatalf("time with a bad top: %d", code)
+	}
 	md := httptest.NewRecorder()
 	h.ServeHTTP(md, httptest.NewRequest("GET", "/v0/sessions/"+fixtureID+"/export?turn=0", nil))
 	if md.Code != 200 || !strings.HasPrefix(md.Header().Get("Content-Type"), "text/markdown") || !strings.HasPrefix(md.Body.String(), "## Turn 0 · ") || !strings.Contains(md.Body.String(), "- `Edit`") {
@@ -186,7 +193,7 @@ func TestConcurrentReadsShareOneParse(t *testing.T) {
 	h := s.Handler()
 	base := "/v0/sessions/" + fixtureID
 	paths := []string{base, base + "/stats", base + "/turns/0", base + "/actions/3", base + "/actions/0/context", base + "/compactions/0",
-		base + "/relations", base + "/images", "/v0/sessions", "/v0/status", "/v0/search?q=Bash", "/v0/archive/verify"}
+		base + "/relations", base + "/time", base + "/images", "/v0/sessions", "/v0/status", "/v0/search?q=Bash", "/v0/archive/verify"}
 	var imgs []map[string]any
 	get(t, h, base+"/images", &imgs)
 

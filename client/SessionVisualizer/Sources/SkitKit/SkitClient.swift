@@ -37,6 +37,7 @@ public struct SkitClient: Sendable {
         "GET /v0/sessions/{id}/stats",
         "GET /v0/sessions/{id}/actions/{n}",
         "GET /v0/sessions/{id}/relations",
+        "GET /v0/sessions/{id}/time",
         "GET /v0/sessions/{id}/compactions/{n}",
         "GET /v0/sessions/{id}/export",
         "GET /v0/search",
@@ -91,6 +92,11 @@ public struct SkitClient: Sendable {
 
     public func relations(session id: String) async throws -> Relations {
         try await get("/v0/sessions/\(Self.escape(id))/relations")
+    }
+
+    /// Where the session's wall time went, with the `top` slowest calls and longest waits.
+    public func time(session id: String, top: Int? = nil) async throws -> SessionTime {
+        try await get("/v0/sessions/\(Self.escape(id))/time" + (top.map { "?top=\($0)" } ?? ""))
     }
 
     /// Search across every archived session or inside one. `kind` narrows to

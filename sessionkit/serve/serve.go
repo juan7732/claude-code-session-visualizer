@@ -13,6 +13,7 @@
 //	GET  /v0/sessions/{id}/actions/{n}/context  what the model received: system prompt, tools, messages, attachments (?full=1 for texts)
 //	GET  /v0/sessions/{id}/compactions/{n}      before/after a compaction: summary sections, preserved messages, re-injected context
 //	GET  /v0/sessions/{id}/relations            action spans, background tasks, hand-backs, retries, files, outside services, commits, events
+//	GET  /v0/sessions/{id}/time?top=            where the wall time went: waiting, the model, tools, subagents; slowest calls, longest waits
 //	GET  /v0/sessions/{id}/export?format=markdown&turn=&thinking=   the session or one turn as Markdown (text/markdown)
 //	GET  /v0/sessions/{id}/images               the session's images (no bytes); /images/{n} returns one image
 //	GET  /v0/sessions/{id}/annotations          pin, tags and notes; PATCH the same path to change them
@@ -110,6 +111,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/sessions/{id}/actions/{n}/context", s.actionContext)
 	mux.HandleFunc("GET /v0/sessions/{id}/compactions/{n}", s.compaction)
 	mux.HandleFunc("GET /v0/sessions/{id}/relations", s.relations)
+	mux.HandleFunc("GET /v0/sessions/{id}/time", s.timeSplit)
 	mux.HandleFunc("GET /v0/sessions/{id}/export", s.export)
 	mux.HandleFunc("GET /v0/sessions/{id}/images", s.images)
 	mux.HandleFunc("GET /v0/sessions/{id}/images/{n}", s.image)
@@ -160,7 +162,7 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 		"routes": []string{
 			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
 			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}?agent=", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
-			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/export?format=markdown&turn=&thinking=", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
+			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/time?top=", "GET /v0/sessions/{id}/export?format=markdown&turn=&thinking=", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
 			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=",
 			"GET /v0/search?q=&mode=&limit=&project=&session=&kind=&tools=&prefix=&all=&min_cosine=&min_z=", "POST /v0/archive", "GET /v0/archive/verify?id=",
 		},
@@ -396,6 +398,24 @@ func (s *Server) relations(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, res.Relations())
+}
+
+// timeSplit says where the session's wall time went: `skit time`.
+func (s *Server) timeSplit(w http.ResponseWriter, r *http.Request) {
+	res, ok := s.resolve(w, r.PathValue("id"))
+	if !ok {
+		return
+	}
+	top := 0
+	if v := r.URL.Query().Get("top"); v != "" {
+		n, err := strconv.Atoi(v)
+		if err != nil || n < 1 {
+			writeError(w, http.StatusBadRequest, "top must be a positive number")
+			return
+		}
+		top = n
+	}
+	writeJSON(w, http.StatusOK, stats.TimeOf(res.Session, res.Relations(), top))
 }
 
 func (s *Server) images(w http.ResponseWriter, r *http.Request) {

@@ -368,10 +368,16 @@ public struct Relations: Codable, Sendable, Equatable {
         public var call: CallRef
     }
 
-    /// When an action's model stopped writing, when its tools finished, when the next began.
+    /// The wall time of one action in three stretches: the model worked from
+    /// `start` (waiting for the response, thinking, writing) until `genEnd`,
+    /// its tools ran until `toolsEnd`, and the next action of the turn began at
+    /// `end`. When the action `said` something, `toolsEnd` to `end` is the agent
+    /// waiting to be brought back by a hand-back or a notification.
     public struct Span: Codable, Sendable, Equatable {
         public var action: Int
         public var turn: Int
+        public var start: Date
+        /// When the action's first block was complete.
         public var at: Date
         public var genEnd: Date
         public var toolsEnd: Date
@@ -380,7 +386,7 @@ public struct Relations: Codable, Sendable, Equatable {
         public var said: Bool?
 
         enum CodingKeys: String, CodingKey {
-            case action, turn, at, end, said
+            case action, turn, start, at, end, said
             case genEnd = "gen_end"
             case toolsEnd = "tools_end"
         }

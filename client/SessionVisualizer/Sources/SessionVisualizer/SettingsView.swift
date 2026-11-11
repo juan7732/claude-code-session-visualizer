@@ -9,9 +9,10 @@ struct SettingsView: View {
             SummarySettings().tabItem { Label("Summary", systemImage: "rectangle.grid.2x2") }
             TranscriptSettings().tabItem { Label("Transcript", systemImage: "text.bubble") }
             CanvasSettings().tabItem { Label("Canvas", systemImage: "point.3.connected.trianglepath.dotted") }
+            TimelineSettings().tabItem { Label("Timeline", systemImage: "timeline.selection") }
             EngineSettings().tabItem { Label("Engine", systemImage: "shippingbox") }
         }
-        .frame(width: 520, height: 420)
+        .frame(width: 560, height: 420)
     }
 }
 
@@ -93,6 +94,19 @@ private struct CanvasSettings: View {
                 }
                 Toggle("Legend", isOn: $legend)
                 Text("The same options are behind the gear on the Canvas. Where each session's canvas was left is remembered.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct TimelineSettings: View {
+    var body: some View {
+        Form {
+            Section("The playhead") {
+                TimelineOptions()
+                Text("Playing moves along the strip, where an idle night is one band wide, not along the clock. The same options are behind the gear on the Timeline.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

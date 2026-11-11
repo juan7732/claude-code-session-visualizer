@@ -113,7 +113,7 @@ struct RootView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden()
             }
-            if window.sessionView == .transcript || window.sessionView == .canvas {
+            if window.sessionView == .transcript || window.sessionView == .canvas || window.sessionView == .timeline {
                 ToolbarItem(placement: .primaryAction) { FindField(sessionID: id) }
             }
             if window.sessionView.arrives == nil {
@@ -159,6 +159,18 @@ struct RootView: View {
         try? await Task.sleep(for: .milliseconds(1500))
         FileHandle.standardError.write(Data("exercise: \(what) of \(id) is up\n".utf8))
         if let shown = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) { await Snapshot.scrollThrough(shown) }
+        if what == "timeline" {
+            // Then the playhead plays for a few seconds with the ledger following it.
+            window.timeline.playing = true
+            for tick in 0..<80 {
+                try? await Task.sleep(for: .milliseconds(50))
+                if tick % 4 == 0 {
+                    FileHandle.standardError.write(Data("scroll-through: playing, \(tick) of 80, action \(window.timeline.current ?? -1)\n".utf8))
+                }
+            }
+            window.timeline.playing = false
+            FileHandle.standardError.write(Data("scroll-through: played to action \(window.timeline.current ?? -1)\n".utf8))
+        }
         try? await Task.sleep(for: .milliseconds(500))
         exit(0)
     }

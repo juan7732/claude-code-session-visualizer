@@ -336,3 +336,109 @@ public struct ServiceStatus: Codable, Sendable, Equatable {
         case detail
     }
 }
+
+/// Where a session's wall time went: `GET /v0/sessions/{id}/time` (`skit time`).
+/// Seconds throughout, and the parts add up: the wall is waiting for you,
+/// waiting for background work and the turns; the turns are the model, tools,
+/// subagents and waiting for a hand-back.
+public struct SessionTime: Codable, Sendable, Equatable {
+    public var id: String
+    public var firstAt: Date
+    public var lastAt: Date
+    public var wall: Double
+    /// Outside turns, before a prompt of the human's.
+    public var waitingForYou: Double
+    /// Outside turns, before a turn a notification started.
+    public var waitingForBackground: Double
+    public var inTurns: Split
+    @EmptyWhenNull public var turns: [TurnTime]
+    @EmptyWhenNull public var slowestCalls: [SlowCall]
+    @EmptyWhenNull public var longestWaits: [Wait]
+
+    enum CodingKeys: String, CodingKey {
+        case id, turns
+        case firstAt = "first_at"
+        case lastAt = "last_at"
+        case wall = "wall_seconds"
+        case waitingForYou = "waiting_for_you_seconds"
+        case waitingForBackground = "waiting_for_background_seconds"
+        case inTurns = "in_turns"
+        case slowestCalls = "slowest_calls"
+        case longestWaits = "longest_waits"
+    }
+
+    /// Time inside turns. The model: waiting for its response, thinking and
+    /// writing. Tools: calls running, a wait for permission included. Waiting:
+    /// after the agent spoke, until a hand-back or a notification.
+    public struct Split: Codable, Sendable, Equatable {
+        public var seconds: Double
+        public var model: Double
+        public var tools: Double
+        public var subagents: Double
+        public var waiting: Double
+
+        enum CodingKeys: String, CodingKey {
+            case seconds
+            case model = "model_seconds"
+            case tools = "tools_seconds"
+            case subagents = "subagents_seconds"
+            case waiting = "waiting_seconds"
+        }
+    }
+
+    public struct TurnTime: Codable, Sendable, Equatable {
+        public var turn: Int
+        public var origin: String
+        public var at: Date
+        public var end: Date
+        public var actions: Int
+        public var seconds: Double
+        public var model: Double
+        public var tools: Double
+        public var subagents: Double
+        public var waiting: Double
+
+        enum CodingKeys: String, CodingKey {
+            case turn, origin, at, end, actions, seconds
+            case model = "model_seconds"
+            case tools = "tools_seconds"
+            case subagents = "subagents_seconds"
+            case waiting = "waiting_seconds"
+        }
+    }
+
+    public struct SlowCall: Codable, Sendable, Equatable {
+        public var toolId: String
+        public var action: Int
+        public var turn: Int
+        public var at: Date
+        public var name: String
+        public var summary: String?
+        public var seconds: Double
+        public var subagent: Bool?
+        public var isError: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case action, turn, at, name, summary, seconds, subagent
+            case toolId = "tool_id"
+            case isError = "is_error"
+        }
+    }
+
+    /// A stretch between two turns; `whom` is "you" or "background".
+    public struct Wait: Codable, Sendable, Equatable {
+        public var afterTurn: Int
+        public var beforeTurn: Int
+        public var at: Date
+        public var end: Date
+        public var seconds: Double
+        public var whom: String
+
+        enum CodingKeys: String, CodingKey {
+            case at, end, seconds
+            case afterTurn = "after_turn"
+            case beforeTurn = "before_turn"
+            case whom = "for"
+        }
+    }
+}

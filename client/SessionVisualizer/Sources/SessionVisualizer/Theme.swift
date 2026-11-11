@@ -169,6 +169,10 @@ enum SettingsKey {
     static let canvasMinimap = "canvas.minimap"
     static let canvasLegend = "canvas.legend"
     static let canvasNotes = "canvas.resultNotes"
+    /// How fast the Timeline's playhead plays, in points of the strip a second.
+    static let timelineSpeed = "timeline.speed"
+    /// The ledger scrolls to the playhead as it plays or is dragged.
+    static let timelineFollow = "timeline.follow"
     /// Where a session's canvas was left: one camera per session.
     static func canvasCamera(_ sessionID: String) -> String { "canvas.camera." + sessionID }
 }

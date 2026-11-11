@@ -20,8 +20,7 @@ enum SessionView: String, CaseIterable, Identifiable {
     /// The milestone that brings the view, for the ones not built yet.
     var arrives: String? {
         switch self {
-        case .summary, .transcript, .canvas: nil
-        case .timeline: "M11"
+        case .summary, .transcript, .canvas, .timeline: nil
         case .files: "M13"
         }
     }
@@ -85,6 +84,25 @@ final class TranscriptState {
     var summaryKind = ""
 }
 
+/// What the Timeline of one session remembers while the window shows it.
+@Observable
+final class TimelineState {
+    /// Where the playhead is; nil until the session's strip has been laid out.
+    var time: Date?
+    /// The action the model had begun on at the playhead: the ledger row that is lit.
+    var current: Int?
+    var playing = false
+    /// The "Where the time went" panel is open.
+    var whereShown = false
+    /// A ledger row to bring into view; the ledger clears it once it has scrolled.
+    var scrollTarget: String?
+    /// The session the playhead was placed for.
+    var placedFor: String?
+    /// The node this view itself just put the keyboard or the selection on, so
+    /// that it does not answer its own move as if it came from elsewhere.
+    @ObservationIgnored var own: NodeKey?
+}
+
 /// The Search page of one window: what is asked, what came back, where the cursor is.
 @Observable
 final class SearchState {
@@ -132,6 +150,7 @@ final class WindowState {
                 selection = nil
                 transcript = TranscriptState()
                 canvas = CanvasState()
+                timeline = TimelineState()
             }
         }
     }
@@ -205,6 +224,7 @@ final class WindowState {
     var inspectorTab = InspectorTab.details
     var transcript = TranscriptState()
     var canvas = CanvasState()
+    var timeline = TimelineState()
     var search = SearchState()
     /// The ⌘K palette is open.
     var paletteShown = false

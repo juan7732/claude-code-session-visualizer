@@ -2,8 +2,8 @@ import SkitKit
 import SwiftUI
 
 /// One session: its views over one selection, and the drawer under them.
-/// The Summary, the Transcript and the Canvas are built; the other views name
-/// the milestone that brings them.
+/// The Summary, the Transcript, the Canvas and the Timeline are built; Files
+/// names the milestone that brings it.
 struct SessionPage: View {
     @Environment(AppStore.self) private var store
     @Environment(WindowState.self) private var window
@@ -17,8 +17,9 @@ struct SessionPage: View {
                 if let session = store.session(id) {
                     switch window.sessionView {
                     case .summary: SummaryView(session: session)
-                    case .transcript: transcript
-                    case .canvas: canvas
+                    case .transcript: loaded { TranscriptView(model: $0) }
+                    case .canvas: loaded { CanvasView(model: $0) }
+                    case .timeline: loaded { TimelineView(model: $0) }
                     default: ComingPage(title: window.sessionView.title, milestone: window.sessionView.arrives ?? "")
                     }
                 } else {
@@ -42,32 +43,14 @@ struct SessionPage: View {
         }
     }
 
-    @ViewBuilder private var canvas: some View {
+    /// A view that needs the whole session: it waits for the document and says so when there is none.
+    @ViewBuilder private func loaded<Content: View>(@ViewBuilder _ content: (SessionModel) -> Content) -> some View {
         switch store.models[id] {
         case .loaded(let model):
             if model.items.isEmpty {
                 ComingPage(title: "Nothing was said", detail: "This session has no prompts and no requests.")
             } else {
-                CanvasView(model: model)
-            }
-        case .failed(let why):
-            ComingPage(title: "Could not read the session", detail: why)
-        case .loading, nil:
-            VStack(spacing: 8) {
-                ProgressView().controlSize(.small)
-                Text("Reading the session").foregroundStyle(palette.muted)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity).background(palette.bg)
-        }
-    }
-
-    @ViewBuilder private var transcript: some View {
-        switch store.models[id] {
-        case .loaded(let model):
-            if model.items.isEmpty {
-                ComingPage(title: "Nothing was said", detail: "This session has no prompts and no requests.")
-            } else {
-                TranscriptView(model: model)
+                content(model)
             }
         case .failed(let why):
             ComingPage(title: "Could not read the session", detail: why)

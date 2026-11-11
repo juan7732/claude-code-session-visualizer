@@ -6,7 +6,7 @@ import SwiftUI
 /// [--view summary|…] [--appearance light|dark|oled] [--size 1500x940] [--socket path] [--flyout]
 /// [--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>]
 /// [--tab details|io|note] [--query text] [--palette]
-/// [--open-calls] [--fold]`
+/// [--open-calls] [--fold] [--where]`
 ///
 /// Renders one state of the app to a PNG and exits, without showing a window:
 /// the way a view is held against its mock (plan, "Judged against the mock").
@@ -39,6 +39,8 @@ struct SnapshotRequest {
     var zoom: Double?
     var collapse = false
     var fit: String?
+    /// On the Timeline: the "Where the time went" panel open.
+    var whereTime = false
 
     init?(arguments: [String]) {
         guard let at = arguments.firstIndex(of: "--snapshot"), at + 1 < arguments.count else { return nil }
@@ -91,6 +93,7 @@ struct SnapshotRequest {
         zoom = value("--zoom").flatMap(Double.init)
         collapse = arguments.contains("--collapse")
         fit = value("--fit")
+        whereTime = arguments.contains("--where")
     }
 }
 
@@ -275,6 +278,11 @@ enum Snapshot {
                         if let zoom = request.zoom { state.canvas.zoom(by: zoom / state.canvas.camera.scale) }
                         if request.fit == "all" { state.canvas.fitAll() } else if request.fit == "width" { state.canvas.fitWidth() }
                         if request.select != nil, request.fit == nil { state.canvas.focusRequests += 1 }
+                    }
+                    if request.view == .timeline {
+                        // The split is a request of its own.
+                        for _ in 0..<100 where store.times[id] == nil || store.times[id] == .loading { try? await Task.sleep(for: .milliseconds(50)) }
+                        state.timeline.whereShown = request.whereTime
                     }
                     try? await Task.sleep(for: .milliseconds(900)) // scrolling, the drawer, the results
                 }

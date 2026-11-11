@@ -31,13 +31,22 @@ type Relations struct {
 	Events    []Event       `json:"events"`
 }
 
-// ActionSpan is the wall time of one action: the model wrote until GenEnd (its
-// first tool call, or the end when it called none), its tools ran until
-// ToolsEnd, and the next action of the turn started at End. The gap between
-// ToolsEnd and End is waiting: on a subagent, a background task, or the human.
+// ActionSpan is the wall time of one action, in three stretches. The model
+// worked from Start (the turn's start, or the end of the action before) until
+// GenEnd: waiting for the response, thinking and writing. Its tools ran from
+// GenEnd until ToolsEnd. The next action of the turn started at End; when the
+// action Said something, the stretch from ToolsEnd to End is the agent waiting
+// to be brought back, by a subagent's hand-back or a notification.
+//
+// DECISION: the time before At belongs to the model. A transcript stamps a
+// block when it is complete, so an action whose first block is a long Write
+// has almost all of its generation before At (measured 2026-11-10: 394 s
+// before an action of 47k output tokens, on a session with no subagent and no
+// background task). Reading the gap after ToolsEnd as "waiting" was wrong.
 type ActionSpan struct {
 	Action   int       `json:"action"`
 	Turn     int       `json:"turn"`
+	Start    time.Time `json:"start"`
 	At       time.Time `json:"at"`
 	GenEnd   time.Time `json:"gen_end"`
 	ToolsEnd time.Time `json:"tools_end"`
@@ -180,8 +189,12 @@ func (s *Session) Relations() *Relations {
 
 	// spans
 	for _, t := range s.Turns {
+		start := t.StartAt
 		for i, a := range t.Actions {
-			sp := ActionSpan{Action: a.Index, Turn: t.Index, At: a.At, GenEnd: a.At, ToolsEnd: a.At, End: t.EndAt,
+			if start.IsZero() || start.After(a.At) {
+				start = a.At
+			}
+			sp := ActionSpan{Action: a.Index, Turn: t.Index, Start: start, At: a.At, GenEnd: a.At, ToolsEnd: a.At, End: t.EndAt,
 				Said: a.StopReason == "end_turn" && a.Text() != ""}
 			if i+1 < len(t.Actions) {
 				sp.End = t.Actions[i+1].At
@@ -189,9 +202,8 @@ func (s *Session) Relations() *Relations {
 			if sp.End.Before(sp.At) {
 				sp.End = sp.At
 			}
-			if len(a.ToolCalls) == 0 {
-				sp.GenEnd, sp.ToolsEnd = sp.End, sp.End
-			} else {
+			switch {
+			case len(a.ToolCalls) > 0:
 				sp.GenEnd = a.ToolCalls[0].At
 				for _, c := range a.ToolCalls {
 					if c.At.Before(sp.GenEnd) {
@@ -201,11 +213,23 @@ func (s *Session) Relations() *Relations {
 						sp.ToolsEnd = c.EndedAt
 					}
 				}
+				if sp.GenEnd.Before(sp.At) {
+					sp.GenEnd = sp.At
+				}
 				if sp.ToolsEnd.Before(sp.GenEnd) {
 					sp.ToolsEnd = sp.GenEnd
 				}
+			case sp.Said:
+				// It finished writing at At; what follows is waiting.
+			default:
+				sp.GenEnd, sp.ToolsEnd = sp.End, sp.End
 			}
 			rel.Spans = append(rel.Spans, sp)
+			// After its tools the model works on the next action; after it spoke, the turn waits.
+			start = sp.ToolsEnd
+			if sp.Said {
+				start = sp.End
+			}
 		}
 	}
 

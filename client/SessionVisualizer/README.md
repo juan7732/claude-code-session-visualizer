@@ -30,9 +30,11 @@ just client-app-install   the same, copied into /Applications
 The views, by file: `SessionsView` (home), `SummaryView` (the dashboard, search in this session, the digest, the hours
 grid), `TranscriptView` and `TranscriptRows`, `Drawer` (the inspector under both), `SearchPage` (the Finder),
 `PaletteView` (⌘K), `CanvasView` (the Braid: `BraidLayout` says what each node says and where it is, `BraidCanvas` is
-the AppKit view that draws it and takes the pointer, ADR 0012), `ArcsMap` (the Summary's map). `SessionModel` is what
-they all read; `Commands` holds every command once, for the menu bar and the palette; `Export` writes Markdown through
-the engine and builds and reads `skit-visualizer://` links.
+the AppKit view that draws it and takes the pointer, ADR 0012), `ArcsMap` (the Summary's map), `TimelineView` (the strip
+and the playhead in `TimelineStrip`, the rows in `Ledger`; `TimelineLayout` holds `TimeAxis`, which cuts idle time and
+maps moments to points, and what the strip draws). `SessionModel` is what they all read; `Commands` holds every command
+once, for the menu bar and the palette; `Export` writes Markdown through the engine and builds and reads
+`skit-visualizer://` links.
 
 ## Rules
 
@@ -85,11 +87,12 @@ shapes in a dark offscreen capture; in a real window they are dark.
 
 ## The live exercise
 
-`just client-exercise summary <session id>` (or `transcript <id>`, or `search <words>`) opens a real window on that
-page, scrolls it from top to bottom with a pointer resting on the page, and quits. If the scroll stops advancing, the
-main thread is stuck: the script samples the process and exits 1. Run it on a long session after changing how a
-scrolling page is laid out. The window appears on screen for a few seconds. `--scroll-through` does the same offscreen
-in snapshot mode, which found nothing the day the Summary froze: only a live window with a pointer did.
+`just client-exercise summary <session id>` (or `transcript <id>`, `timeline <id>`, `search <words>`) opens a real
+window on that page, scrolls it from top to bottom with a pointer resting on the page, and quits; on the Timeline it
+then plays the playhead for a few seconds with the ledger following. If the scroll stops advancing, the main thread is
+stuck: the script samples the process and exits 1. Run it on a long session after changing how a scrolling page is laid
+out. The window appears on screen for a few seconds. `--scroll-through` does the same offscreen in snapshot mode, which
+found nothing the day the Summary froze: only a live window with a pointer did.
 
 ## Toolchain
 
