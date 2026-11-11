@@ -12,7 +12,8 @@ resume or steer sessions. Its own files are in `~/.sessionkit`.
 
 **What does it install?** One login item, `dev.sessionkit.skit`, which runs `skit serve`: it archives each session as it
 is written and answers the app. The first run explains this and installs nothing until you press the button.
-`skit service uninstall` removes it; deleting `~/.sessionkit` removes the archive.
+`skit service uninstall` removes it; deleting `~/.sessionkit` removes the archive. If you ask for `skit` in your
+terminal, it also makes one link in a folder of yours, and nothing else.
 
 **Why does it need a background program at all?** Because Claude Code deletes transcripts on its own schedule. Something
 has to copy a session before that happens, whether or not the app is open.
@@ -48,6 +49,7 @@ before.
 **Is it affiliated with Anthropic?** No.
 
 **What is `skit`?** The engine as a command line tool: `skit list`, `skit show`, `skit search`, `skit now`,
-`skit primitives` and more, each with `--json`. `skit describe` prints every command and flag for an agent to read.
+`skit primitives` and more, each with `--json`. `skit describe` prints every command and flag for an agent to read. The
+app carries one inside it; SessionVisualizer › Install Command Line Tool… links it into your terminal.
 
 **Licence?** MIT.

@@ -113,7 +113,6 @@ Until 1.0 there is no download, so this builds the app on your Mac. You need an 
 git clone https://github.com/juan7732/claude-code-session-visualizer
 cd claude-code-session-visualizer
 just client-app-install   # builds the app, with skit inside, into /Applications
-just install              # optional: skit for your terminal, in ~/go/bin
 ```
 
 If Xcode is installed but is not the selected toolchain, point at it for that one command, with no `sudo` needed:
@@ -122,6 +121,11 @@ If Xcode is installed but is not the selected toolchain, point at it for that on
 Open SessionVisualizer from /Applications. The first run walks through what it reads and keeps, then starts the archiver
 when you press the button. The sessions Claude Code still has are archived soon after.
 
+**`skit` in your terminal:** choose SessionVisualizer › Install Command Line Tool… in the app. It links the skit inside
+the app into a folder your shell searches (`~/.local/bin` unless a better one is there), so the terminal's skit is
+always the app's own, and it tells you if a line is missing from your shell's profile. It edits nothing but that link.
+Without the app, `just install` builds a skit into `~/go/bin`.
+
 **Search by meaning** is optional. It needs `llama-server` (`brew install llama.cpp`) and one run of `skit embed`, which
 downloads the model and gives what is archived its vectors. After that the archiver keeps them current.
 
@@ -129,6 +133,7 @@ downloads the model and gives what is archived its vectors. After that the archi
 
 ```sh
 skit service uninstall    # stop the archiver and remove its login item
+rm -f ~/.local/bin/skit   # the terminal's link, if you installed it
 rm -rf /Applications/SessionVisualizer.app
 rm -rf ~/.sessionkit      # the archive: every session it kept
 ```

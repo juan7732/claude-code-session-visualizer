@@ -39,9 +39,12 @@ across sessions, and holds `FileOpener`), `StatsPage` (every figure is `skit ove
 `Onboarding` (the first run: shown once in place of the window, and the only place the background agent is started from
 on a new Mac), `NowPage` (a card per session at work, asked for every 3 seconds; `HostOpener` brings a running session's
 editor window or terminal to the front; `CacheReminders` keeps one pending notification per session whose bell is on),
-`PrimitivesPage` (a list by kind and the selected item beside it; every figure is `skit primitives`'s). `SessionModel`
-is what they all read; `Commands` holds every command once, for the menu bar and the palette; `Export` writes Markdown
-through the engine and builds and reads `skit-visualizer://` links.
+`PrimitivesPage` (a list by kind and the selected item beside it; every figure is `skit primitives`'s),
+`CommandLineToolView` (SessionVisualizer › Install Command Line Tool…: links the bundle's `skit` into a folder the
+person's shell searches and says what is in the way; `CommandLineTool` in `SkitKit` chooses the folder, makes and
+removes the link, and asks the login shell for its PATH; `--tool-snapshot out.png --state …` draws each state).
+`SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the palette; `Export`
+writes Markdown through the engine and builds and reads `skit-visualizer://` links.
 
 ## Rules
 

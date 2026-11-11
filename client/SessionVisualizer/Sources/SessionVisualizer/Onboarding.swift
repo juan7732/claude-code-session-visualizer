@@ -196,6 +196,8 @@ struct OnboardingView: View {
                 Text("in a terminal. It needs llama.cpp (brew install llama.cpp).").font(.system(size: 12)).foregroundStyle(palette.muted)
             }
             .padding(.leading, 38)
+            Text("For skit in your terminal: SessionVisualizer › Install Command Line Tool…")
+                .font(.system(size: 12)).foregroundStyle(palette.muted).padding(.leading, 38).padding(.top, -6)
             Point(symbol: "network.slash", title: "Nothing else uses the network", text: "No account, no telemetry, no update check. What your sessions say stays on this Mac.")
         }
     }
@@ -432,11 +434,18 @@ enum OnboardingSnapshot {
         let parts = (value("--size") ?? "1100x760").split(separator: "x").compactMap { Double($0) }
         let size = parts.count == 2 ? CGSize(width: parts[0], height: parts[1]) : CGSize(width: 1100, height: 760)
 
-        let app = NSApplication.shared
-        app.setActivationPolicy(.accessory)
         let store = AppStore(socketPath: "/nonexistent/skit.sock", managesEngine: false)
         // The archiver's step is drawn as a new Mac sees it: nothing running, the button offered.
         let view = Themed { OnboardingView(firstRun: true, startAt: step, fixedFacts: .demo, fixedServing: nil) {} }.environment(store)
+        OffscreenPicture.write(view, size: size, dark: dark, to: output)
+    }
+}
+
+/// Draws a view in a window nobody sees, writes it as a PNG and exits.
+enum OffscreenPicture {
+    static func write(_ view: some View, size: CGSize, dark: Bool, after wait: Duration = .milliseconds(700), to output: String) -> Never {
+        let app = NSApplication.shared
+        app.setActivationPolicy(.accessory)
         let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.titled, .fullSizeContentView], backing: .buffered, defer: false)
         let appearance = NSAppearance(named: dark ? .darkAqua : .aqua)
         app.appearance = appearance
@@ -448,7 +457,7 @@ enum OnboardingSnapshot {
         window.setFrame(CGRect(origin: CGPoint(x: -20_000, y: -20_000), size: size), display: true)
         window.orderFrontRegardless()
         Task {
-            try? await Task.sleep(for: .milliseconds(700))
+            try? await Task.sleep(for: wait)
             guard let frame = window.contentView?.superview, let bitmap = frame.bitmapImageRepForCachingDisplay(in: frame.bounds) else { exit(1) }
             frame.cacheDisplay(in: frame.bounds, to: bitmap)
             guard let png = bitmap.representation(using: .png, properties: [:]) else { exit(1) }

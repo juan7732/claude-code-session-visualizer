@@ -29,6 +29,9 @@ struct RootView: View {
         .overlay(alignment: .bottom) { notice }
         .overlay { if window.paletteShown, store.engine == .ready { PaletteView() } }
         .animation(.easeOut(duration: 0.1), value: window.paletteShown)
+        .sheet(isPresented: Binding(get: { window.commandLineToolShown }, set: { window.commandLineToolShown = $0 })) {
+            Themed { CommandLineToolView { window.commandLineToolShown = false } }
+        }
         // A link from a note or a pull request: skit-visualizer://session/<id>?view=…&action=…
         .onOpenURL { url in
             guard let target = SessionLink.parse(url) else {

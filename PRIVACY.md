@@ -44,6 +44,10 @@ on that session's own processes: the parent process, the port it listens on, and
 (`~/Library/Application Support/Code/User/globalStorage/storage.json`, or the same file of a VS Code relative). None of
 this is stored.
 
+**Your shell's PATH.** When you open Install Command Line Tool…, the app starts your login shell once, the way a
+terminal window does, and asks it for `$PATH`, to tell you whether the folder it links into is searched. That runs your
+shell's profile, as opening a terminal would. Nothing of the answer is stored.
+
 ## What it stores on your machine
 
 | Path                                                           | Contents                                                                                                                                                                                                                                 | Written by                                          |
@@ -55,6 +59,7 @@ this is stored.
 | `~/.sessionkit/serve.log`                                      | The archiver's log: times, session ids, record counts and errors, which can name file paths. It is cut back when it passes 50 MB.                                                                                                        | The archiver                                        |
 | `~/.sessionkit/skit.sock`, `*.lock`, `run/`                    | The socket the app talks to, lock files, and a note of the model server's process while it runs.                                                                                                                                         | The archiver                                        |
 | `~/Library/LaunchAgents/dev.sessionkit.skit.plist`             | The login item that keeps the archiver running.                                                                                                                                                                                          | `skit service install`, or the app's first run      |
+| `~/.local/bin/skit` (or `~/bin`, `/usr/local/bin`)             | A link to the `skit` inside the app, so that a terminal finds it. Only when you choose Install Command Line Tool…; your shell's profile is not edited.                                                                                   | You, in the app                                     |
 | `~/Library/Preferences/dev.sessionkit.SessionVisualizer.plist` | The app's settings, your recent searches (Settings can turn that off), where you left a session's canvas, and which sessions have a reminder on.                                                                                         | The app                                             |
 | A place you choose                                             | A session exported as Markdown, or an image extracted from one.                                                                                                                                                                          | You, with Export or `skit export` and `skit images` |
 
@@ -110,7 +115,8 @@ To remove everything SessionVisualizer has written:
 
 1. Run `skit service uninstall`, which stops the archiver and removes its login item.
 2. Delete `~/.sessionkit/`.
-3. Delete the app, and its settings with `defaults delete dev.sessionkit.SessionVisualizer`.
+3. Remove the terminal's link if you installed it: Remove Link in the same window, or `rm ~/.local/bin/skit`.
+4. Delete the app, and its settings with `defaults delete dev.sessionkit.SessionVisualizer`.
 
 Claude Code's own files are untouched by any of this. There is no server-side data to request or delete.
 

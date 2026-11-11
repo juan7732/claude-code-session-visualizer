@@ -64,6 +64,7 @@ enum AppActions {
             if let id { Task { await store.togglePin(id) } }
         })
         out.append(AppAction(title: "Archive Now", enabled: id != nil) { if let id { Task { await store.archiveNow(id) } } })
+        out.append(AppAction(title: "Install Command Line Tool…") { window.commandLineToolShown = true })
         out.append(AppAction(title: "Settings…", shortcut: "⌘,", run: openSettings))
         return out
     }
@@ -131,6 +132,9 @@ struct AppCommands: Commands {
     private var onTimeline: Bool { sessionID != nil && window?.sessionView == .timeline }
 
     var body: some Commands {
+        CommandGroup(after: .appSettings) {
+            Button("Install Command Line Tool…") { window?.commandLineToolShown = true }.disabled(window == nil)
+        }
         CommandGroup(after: .newItem) {
             Button("Open Session…") { window?.paletteShown = true }.keyboardShortcut("o").disabled(window == nil)
             Divider()

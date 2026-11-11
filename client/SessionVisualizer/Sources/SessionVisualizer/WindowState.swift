@@ -338,6 +338,8 @@ final class WindowState {
     var search = SearchState()
     /// The ⌘K palette is open.
     var paletteShown = false
+    /// The sheet that links `skit` into the terminal (SessionVisualizer › Install Command Line Tool…).
+    var commandLineToolShown = false
     /// A node to select once the session it belongs to has loaded (a link, a search hit).
     var pending: Pending?
 

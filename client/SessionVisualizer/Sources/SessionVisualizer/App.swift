@@ -14,6 +14,7 @@ enum Main {
         _ = MeasureCanvas.run(arguments: CommandLine.arguments)
         #if DEBUG
         _ = OnboardingSnapshot.run(arguments: CommandLine.arguments)
+        _ = CommandLineToolSnapshot.run(arguments: CommandLine.arguments)
         if let request = SnapshotRequest(arguments: CommandLine.arguments) {
             Snapshot.run(request)
         }

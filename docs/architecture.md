@@ -57,8 +57,10 @@ client/SessionVisualizer   (M7 onwards) the native macOS app, a Swift package: S
 - **The archive lives in `~/.sessionkit/`.** Never under `~/Library`.
 - **The embedding model runs in a sidecar**, `llama-server` over its OpenAI-style HTTP API (ADR 0005), never linked into
   the engine.
-- **One file outside skit's home:** the launchd agent's plist in `~/Library/LaunchAgents`, written only by
-  `skit service install`.
+- **Two files outside skit's home, each only when asked for:** the launchd agent's plist in `~/Library/LaunchAgents`,
+  written by `skit service install`; and a link named `skit` in a folder of the person's own that their shell searches
+  (`~/.local/bin` by default), made by the app's Install Command Line Tool… and pointing at the `skit` inside the app.
+  No shell profile is edited.
 
 ## Data flow (v0)
 
