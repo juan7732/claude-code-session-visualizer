@@ -33,6 +33,44 @@ cat > "$work/home/.claude/projects/-Users-me-work/$out_id.jsonl" <<'JSONL'
 {"type":"user","uuid":"r2a","parentUuid":"a2","timestamp":"2026-11-08T11:00:05Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_c1","content":"[main 2b4b1ec] Add the guide\n 1 file changed, 3 insertions(+)"}]}}
 {"type":"assistant","uuid":"a3","parentUuid":"r2a","requestId":"r3","timestamp":"2026-11-08T11:00:06Z","message":{"model":"claude-fable-5-1","stop_reason":"end_turn","content":[{"type":"text","text":"Committed as 2b4b1ec."}],"usage":{"input_tokens":14,"output_tokens":6}}}
 JSONL
+# What Claude Code is extended with: a skill defined for the user and again in a
+# project, one from the account, an agent, a hook, a connector, memory files; and
+# a session that was offered them and used some, typed and by the model's choice.
+home="$work/home"
+proj="$home/proj"
+prim_id=dddddddd-0000-0000-0000-000000000004
+mkdir -p "$home/.claude/skills/deploy" "$home/.claude/skills/tidy" "$home/.claude/skills/synced/bucket/pdf" "$home/.claude/agents" \
+  "$proj/.claude/skills/deploy" "$home/.claude/projects/-fixture-proj/memory"
+printf -- '---\nname: deploy\ndescription: Ship it, for every project\n---\nSteps.\n' > "$home/.claude/skills/deploy/SKILL.md"
+printf -- '---\nname: deploy\ndescription: Ship this project\n---\nSteps.\n' > "$proj/.claude/skills/deploy/SKILL.md"
+printf -- '---\ndescription: Tidy up after a change\n---\n' > "$home/.claude/skills/tidy/SKILL.md"
+printf -- '---\nname: pdf\ndescription: Read and make PDF files\n---\n' > "$home/.claude/skills/synced/bucket/pdf/SKILL.md"
+printf -- '---\nname: reviewer\ndescription: Reviews a change before it is committed\n---\n' > "$home/.claude/agents/reviewer.md"
+printf '# Mine\nBe brief.\n' > "$home/.claude/CLAUDE.md"
+printf '# Project\nUse just.\n' > "$proj/CLAUDE.md"
+printf -- '- [A note](a-note.md)\n' > "$home/.claude/projects/-fixture-proj/memory/MEMORY.md"
+printf 'A note.\n' > "$home/.claude/projects/-fixture-proj/memory/a-note.md"
+printf '%s\n' '{"hooks":{"PostToolUse":[{"matcher":"Edit|Write","hooks":[{"type":"command","command":"gofmt -l ."}]}]}}' > "$home/.claude/settings.json"
+printf '%s\n' '{"mcpServers":{"notes":{"command":"/usr/local/bin/notes-mcp","args":["--token","never-recorded"]}},"claudeAiMcpEverConnected":["claude.ai Gmail"],"skillUsage":{"deploy":{"usageCount":5,"lastUsedAt":1794000000000},"old-skill":{"usageCount":2,"lastUsedAt":1780000000000}}}' > "$home/.claude.json"
+cat > "$home/.claude/projects/-Users-me-work/$prim_id.jsonl" <<JSONL
+{"type":"attachment","uuid":"at1","sessionId":"$prim_id","cwd":"$proj","timestamp":"2026-11-09T09:00:00Z","attachment":{"type":"skill_listing","names":["deploy","tidy","anthropic-skills:pdf","init"],"isInitial":true}}
+{"type":"attachment","uuid":"at2","parentUuid":"at1","timestamp":"2026-11-09T09:00:00Z","attachment":{"type":"agent_listing_delta","addedTypes":["Explore","reviewer"],"builtInTypes":["Explore"],"isInitial":true}}
+{"type":"attachment","uuid":"at3","parentUuid":"at2","timestamp":"2026-11-09T09:00:00Z","attachment":{"type":"deferred_tools_delta","addedNames":["mcp__notes__search","mcp__claude_ai_Gmail__send"],"surfacedNames":[]}}
+{"type":"attachment","uuid":"at4","parentUuid":"at3","timestamp":"2026-11-09T09:00:00Z","attachment":{"type":"instructions","files":[{"path":"$home/.claude/CLAUDE.md","type":"User","content":"x"},{"path":"$proj/CLAUDE.md","type":"Project","content":"x"},{"path":"$home/.claude/projects/-fixture-proj/memory/MEMORY.md","type":"AutoMem","content":"x"}]}}
+{"type":"user","uuid":"u1","parentUuid":"at4","sessionId":"$prim_id","cwd":"$proj","turnOrigin":"human","timestamp":"2026-11-09T09:00:01Z","message":{"role":"user","content":"<command-message>deploy</command-message>\n<command-name>/deploy</command-name>\n<command-args>staging</command-args>"}}
+{"type":"user","uuid":"u1m","parentUuid":"u1","isMeta":true,"timestamp":"2026-11-09T09:00:01.1Z","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: $home/.claude/skills/deploy\n\nSteps."}]}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1m","requestId":"r1","timestamp":"2026-11-09T09:00:03Z","message":{"model":"claude-fable-5-1","content":[{"type":"tool_use","id":"toolu_p1","name":"mcp__notes__search","input":{"query":"staging"}},{"type":"tool_use","id":"toolu_p2","name":"Agent","input":{"subagent_type":"Explore","description":"Find the deploy script","prompt":"Where is it?"}}],"usage":{"input_tokens":10,"output_tokens":5}}}
+{"type":"user","uuid":"r1a","parentUuid":"a1","timestamp":"2026-11-09T09:00:05Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_p1","is_error":true,"content":"not connected"}]}}
+{"type":"user","uuid":"r1b","parentUuid":"r1a","timestamp":"2026-11-09T09:00:33Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_p2","content":"scripts/deploy.sh"}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"r1b","requestId":"r2","timestamp":"2026-11-09T09:00:35Z","message":{"model":"claude-fable-5-1","content":[{"type":"tool_use","id":"toolu_p3","name":"Skill","input":{"skill":"deploy"}},{"type":"tool_use","id":"toolu_p4","name":"Read","input":{"file_path":"$home/.claude/projects/-fixture-proj/memory/a-note.md"}}],"usage":{"input_tokens":12,"output_tokens":5}}}
+{"type":"user","uuid":"r2a","parentUuid":"a2","timestamp":"2026-11-09T09:00:36Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_p3","content":"Launching skill: deploy"}]}}
+{"type":"user","uuid":"r2m","parentUuid":"r2a","isMeta":true,"sourceToolUseID":"toolu_p3","timestamp":"2026-11-09T09:00:36.1Z","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: $home/.claude/skills/deploy\n\nSteps."}]}}
+{"type":"user","uuid":"r2b","parentUuid":"r2m","timestamp":"2026-11-09T09:00:37Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_p4","content":"A note."}]}}
+{"type":"attachment","uuid":"at5","parentUuid":"r2b","timestamp":"2026-11-09T09:00:37.5Z","attachment":{"type":"hook_additional_context","hookName":"PostToolUse:Edit","hookEvent":"PostToolUse","content":["ok"]}}
+{"type":"assistant","uuid":"a3","parentUuid":"r2b","requestId":"r3","timestamp":"2026-11-09T09:00:40Z","message":{"model":"claude-fable-5-1","stop_reason":"end_turn","content":[{"type":"text","text":"Deployed to staging."}],"usage":{"input_tokens":14,"output_tokens":6}}}
+{"type":"user","uuid":"u2","parentUuid":"a3","timestamp":"2026-11-10T08:00:00Z","message":{"role":"user","content":"<command-name>/compact</command-name>\n<command-message>compact</command-message>"}}
+{"type":"ai-title","aiTitle":"Deploy to staging","sessionId":"$prim_id"}
+JSONL
 (cd "$repo" && CGO_ENABLED=0 go build -ldflags "-X main.version=fixture" -o "$work/skit" ./cmd/skit)
 
 export HOME="$work/home"
@@ -71,6 +109,9 @@ send POST /v0/archive "{\"ids\":[\"$id\"]}" archive.json
 get "/v0/search?q=Bash&session=$id&limit=50" search.json
 get "/v0/file?path=/xxx/y.go&session=$id" file.json
 get "/v0/search?q=xxxx&kind=prompt&limit=50" search-prompts.json
+curl -sS --fail-with-body --unix-socket "$sock" -X POST -d "{\"ids\":[\"$prim_id\"]}" "http://skit/v0/archive" -o /dev/null
+get /v0/primitives primitives.json
+get "/v0/primitives?kind=skill&name=deploy" primitive.json
 curl -sS --unix-socket "$sock" "http://skit/v0/sessions/nope/stats" -o "$out/error.json"
 "$work/skit" service status --json > "$out/service-status.json"
 

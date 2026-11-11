@@ -10,6 +10,8 @@ enum Page: Hashable {
     case search
     case stats
     case claude
+    /// What Claude Code is extended with: skills, agents, commands, connectors, hooks, memory.
+    case primitives
     /// Two sessions side by side (File › Compare Sessions…).
     case compare
 }
@@ -95,6 +97,35 @@ enum ClaudeTab: String, CaseIterable, Identifiable {
 final class ClaudeState {
     var tab = ClaudeTab.experiments
     var filter = ""
+}
+
+/// How far back the Primitives page counts uses.
+enum PrimitivesPeriod: Int, CaseIterable, Identifiable {
+    case all = 0, quarter = 90, month = 30, week = 7
+    var id: Int { rawValue }
+    var title: String {
+        switch self {
+        case .all: "Every session kept"
+        case .quarter: "The last 90 days"
+        case .month: "The last 30 days"
+        case .week: "The last 7 days"
+        }
+    }
+    /// The engine's `days`: nil for everything.
+    var days: Int? { self == .all ? nil : rawValue }
+}
+
+/// What the Primitives page of one window shows.
+@Observable
+final class PrimitivesState {
+    /// The engine's kind: "skill", "agent", "command", "connector", "hook", "plugin", "instructions", "memory".
+    var kind = "skill"
+    var period = PrimitivesPeriod.all
+    var filter = ""
+    /// Only what is installed or on offer and was not used in the period.
+    var unusedOnly = false
+    /// The item open on the right, by kind.
+    var selected: [String: String] = [:]
 }
 
 /// The two sessions the Compare page holds side by side.
@@ -306,6 +337,7 @@ final class WindowState {
     var stats = StatsState()
     var compare = CompareState()
     var claude = ClaudeState()
+    var primitives = PrimitivesState()
     var search = SearchState()
     /// The ⌘K palette is open.
     var paletteShown = false

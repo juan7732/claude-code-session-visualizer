@@ -51,6 +51,10 @@ final class AppStore {
     /// Claude Code's own configuration, read when the Claude page shows.
     private(set) var claude: Loadable<ClaudeSnapshot>?
     private(set) var claudeReadAt: Date?
+    /// What Claude Code is extended with and its use, by the days counted (0 for every session kept).
+    private(set) var primitives: [Int: Loadable<PrimitivesReport>] = [:]
+    /// One primitive with the sessions that used it, by `primitiveKey`.
+    private(set) var primitiveDetails: [String: Loadable<PrimitivesReport.Item>] = [:]
     /// Every session added up, by the project it is narrowed to ("" for all).
     private(set) var overviews: [String: Loadable<Overview>] = [:]
     /// The images of each opened session, as a list. Their pictures are kept by the view that draws them (`Pictures`).
@@ -228,6 +232,39 @@ final class AppStore {
             overviews[key] = .loaded(try await client.overview(project: slug))
         } catch {
             overviews[key] = .failed("\(error)")
+        }
+    }
+
+    /// Reads the list again each time the page shows: what is on disk changes without the app knowing.
+    func loadPrimitives(days: Int?) async {
+        let key = days ?? 0
+        if primitives[key] == nil { primitives[key] = .loading }
+        do {
+            let report = try await client.primitives(days: days)
+            if primitives[key] != .loaded(report) {
+                primitives[key] = .loaded(report)
+                // Its items' sessions may have changed with it.
+                primitiveDetails = primitiveDetails.filter { !$0.key.hasPrefix("\(key)\n") }
+            }
+        } catch {
+            primitives[key] = .failed("\(error)")
+        }
+    }
+
+    nonisolated static func primitiveKey(kind: String, name: String, days: Int?) -> String { "\(days ?? 0)\n\(kind)\n\(name)" }
+
+    func loadPrimitive(kind: String, name: String, days: Int?) async {
+        let key = Self.primitiveKey(kind: kind, name: name, days: days)
+        if case .loaded = primitiveDetails[key] { return }
+        primitiveDetails[key] = .loading
+        do {
+            if let item = try await client.primitive(kind: kind, name: name, days: days) {
+                primitiveDetails[key] = .loaded(item)
+            } else {
+                primitiveDetails[key] = .failed("The engine knows nothing by that name any more.")
+            }
+        } catch {
+            primitiveDetails[key] = .failed("\(error)")
         }
     }
 

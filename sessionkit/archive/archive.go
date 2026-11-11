@@ -105,7 +105,16 @@ func (a *Archive) Summary(l catalog.Located) (sum stats.Summary, fresh bool, err
 		return sum, false, err
 	}
 	sum = stats.Compute(s, l.Project.Slug, stats.Options{})
-	return sum, false, a.Store.UpsertSummary(rowFor(l, s, sum))
+	r := rowFor(l, s, sum)
+	// DECISION: an archived row from an earlier schema keeps its number. This
+	// writes the summary only; the segments, files and uses the index holds for
+	// an archived session are Ingest's to write, and it skips a row that says it
+	// is current. Stamping it here left those tables empty after a schema step
+	// whenever `list` ran before `archive` (found 2026-11-10).
+	if row != nil && row.Archived() && row.Schema < store.IndexedVersion {
+		r.Schema = row.Schema
+	}
+	return sum, false, a.Store.UpsertSummary(r)
 }
 
 func (a *Archive) sourceMatches(row *store.SessionRow, l catalog.Located) bool {
@@ -186,6 +195,10 @@ func (a *Archive) Ingest(l catalog.Located, opt Options) (Result, error) {
 		return res, err
 	}
 	if err := a.Store.ReplaceFiles(l.File.ID, fileRows(rel)); err != nil {
+		return res, err
+	}
+	uses, offered := primitiveRows(transcript.PrimitivesOf(s))
+	if err := a.Store.ReplacePrimitives(l.File.ID, uses, offered); err != nil {
 		return res, err
 	}
 	st.Fingerprint = fp

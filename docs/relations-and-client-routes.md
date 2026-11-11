@@ -4,13 +4,14 @@ The UX mocks (`ux-mocks/NOTES.md`, iterations 7 to 13) mined several things from
 They now live in the engine so the CLI, the API and the Swift client agree. Each has a `--json` shape first and a `/v0`
 route that returns the same document.
 
-| What                            | CLI                                                           | Route                                                                  |
-| ------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------- |
-| Relations of a session          | `skit relations <session>`                                    | `GET /v0/sessions/{id}/relations`                                      |
-| Images, list and bytes          | `skit images <session> [--extract N --out file]`              | `GET /v0/sessions/{id}/images`, `/images/{n}`                          |
-| Pin, tags and notes             | `skit annotate <session> [--pin] [--tag t] [--note key=text]` | `GET` and `PATCH /v0/sessions/{id}/annotations`, `GET /v0/annotations` |
-| Claude Code's own configuration | `skit claude [--root dir] [--flags]`                          | `GET /v0/claude?root=`                                                 |
-| Working directory per action    | `cwd` on every action in `skit show --json`                   | same field on `/v0/sessions/{id}`                                      |
+| What                              | CLI                                                           | Route                                                                  |
+| --------------------------------- | ------------------------------------------------------------- | ---------------------------------------------------------------------- |
+| Relations of a session            | `skit relations <session>`                                    | `GET /v0/sessions/{id}/relations`                                      |
+| Images, list and bytes            | `skit images <session> [--extract N --out file]`              | `GET /v0/sessions/{id}/images`, `/images/{n}`                          |
+| Pin, tags and notes               | `skit annotate <session> [--pin] [--tag t] [--note key=text]` | `GET` and `PATCH /v0/sessions/{id}/annotations`, `GET /v0/annotations` |
+| Claude Code's own configuration   | `skit claude [--root dir] [--flags]`                          | `GET /v0/claude?root=`                                                 |
+| What Claude Code is extended with | `skit primitives [kind [name]] [--days N] [--unused]`         | `GET /v0/primitives?kind=&name=&days=&unused=1&root=`                  |
+| Working directory per action      | `cwd` on every action in `skit show --json`                   | same field on `/v0/sessions/{id}`                                      |
 
 Added with M6 (2026-11-10), for the client as well:
 
@@ -80,6 +81,20 @@ Added with M13 (2026-11-10), for Files, Stats, Compare and Claude:
   `CLAUDE.local.md` and `.claude/CLAUDE.md` of every project Claude Code knows, and the notes Claude Code keeps for
   itself under `projects/<slug>/memory/`. Each file says its `kind` (`instructions` or `memory`) and its `project`. As
   before, a file is listed by where it is, how long and how old; what it says is never sent.
+
+Added with M22 (2026-11-10), for the Primitives page (`primitives.md` has the whole of it):
+
+- `skit primitives [kind [name]] [--days N] [--unused] [--root dir]` and
+  `GET /v0/primitives?kind=&name=&days=&unused=1&root=`: skills, agents, commands, connectors, hooks, plugins, and the
+  instructions and memory files. Per kind, how many are known, installed, used and unused; per item, every place it is
+  defined in the order Claude Code prefers, its use in the period (calls, failures, typed or the model's choice, time,
+  by project, by UTC day), how many sessions had it on offer, and Claude Code's own counter. With a kind and a name, the
+  one item also lists the sessions that used it, each with the turn of its first use. An unknown kind is 400, a name
+  nobody knows 404.
+- Index schema 8: tables `uses` and `offered`, filled when a session is archived, so every session is indexed once more.
+  Vectors are keyed by the hash of their text and are not made again.
+- A summary that `list` refreshes no longer marks an archived session as indexed at the current schema: only `archive`
+  does, because only it fills the tables beside the summary.
 
 Added after M13 (2026-11-10), for the file viewer:
 

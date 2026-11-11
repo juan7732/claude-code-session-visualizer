@@ -400,3 +400,83 @@ func TestContext_Compaction(t *testing.T) {
 		t.Fatalf("timeline should number compactions:\n%s", res.Stdout)
 	}
 }
+
+// TestPrimitives_InstalledOfferedAndUsed: a skill defined in a project and used
+// twice (once typed, once by the model), one installed for the user and never
+// used, from the disk and one archived session.
+func TestPrimitives_InstalledOfferedAndUsed(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	work := filepath.Join(h.Home, "work")
+	skill := filepath.Join(work, ".claude", "skills", "deploy")
+	h.WriteFile("../work/.claude/skills/deploy/SKILL.md", "---\nname: deploy\ndescription: Ship the thing\n---\nSteps.")
+	h.WriteFile("skills/tidy/SKILL.md", "---\ndescription: Tidy up\n---\n")
+	h.WriteFile("CLAUDE.md", "never printed")
+	id := "dddddddd-0000-0000-0000-000000000004"
+	q := func(s string) string { b, _ := json.Marshal(s); return string(b) }
+	h.SeedSession("-work", id,
+		`{"type":"attachment","uuid":"at1","sessionId":"`+id+`","cwd":`+q(work)+`,"timestamp":"2026-11-08T11:00:00Z","attachment":{"type":"skill_listing","names":["deploy","tidy"],"isInitial":true}}`,
+		`{"type":"user","uuid":"u1","parentUuid":"at1","sessionId":"`+id+`","cwd":`+q(work)+`,"turnOrigin":"human","timestamp":"2026-11-08T11:00:01Z","message":{"role":"user","content":"<command-message>deploy</command-message>\n<command-name>/deploy</command-name>"}}`,
+		`{"type":"user","uuid":"u1m","parentUuid":"u1","isMeta":true,"timestamp":"2026-11-08T11:00:01.1Z","message":{"role":"user","content":[{"type":"text","text":`+q("Base directory for this skill: "+skill+"\n\nSteps.")+`}]}}`,
+		`{"type":"assistant","uuid":"a1","parentUuid":"u1m","requestId":"r1","timestamp":"2026-11-08T11:00:03Z","message":{"model":"claude-fable-5-1","content":[{"type":"tool_use","id":"toolu_s1","name":"Skill","input":{"skill":"deploy"}},{"type":"tool_use","id":"toolu_m1","name":"mcp__notes__search","input":{"query":"x"}}],"usage":{"input_tokens":10,"output_tokens":5}}}`,
+		`{"type":"user","uuid":"r1a","parentUuid":"a1","timestamp":"2026-11-08T11:00:04Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_s1","content":"Launching skill: deploy"}]}}`,
+		`{"type":"user","uuid":"r1m","parentUuid":"r1a","isMeta":true,"sourceToolUseID":"toolu_s1","timestamp":"2026-11-08T11:00:04.1Z","message":{"role":"user","content":[{"type":"text","text":`+q("Base directory for this skill: "+skill+"\n\nSteps.")+`}]}}`,
+		`{"type":"user","uuid":"r1b","parentUuid":"r1m","timestamp":"2026-11-08T11:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_m1","is_error":true,"content":"no"}]}}`,
+		`{"type":"assistant","uuid":"a2","parentUuid":"r1b","requestId":"r2","timestamp":"2026-11-08T11:00:07Z","message":{"model":"claude-fable-5-1","stop_reason":"end_turn","content":[{"type":"text","text":"Deployed."}],"usage":{"input_tokens":12,"output_tokens":5}}}`)
+	h.Run("archive").AssertOK(t)
+
+	res := h.Run("primitives")
+	res.AssertOK(t)
+	for _, want := range []string{"Primitives  1 session, every session kept", "2 uses in 1 session (1 typed)", "never used · on offer in 1 session",
+		"1 use in 1 session · 1 failed", "user", "project"} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("primitives lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+	if strings.Contains(res.Stdout, "never printed") {
+		t.Errorf("a memory file's text was printed:\n%s", res.Stdout)
+	}
+
+	res = h.Run("primitives", "skills", "deploy", "--json")
+	res.AssertOK(t)
+	var rep struct {
+		Items []struct {
+			Name        string `json:"name"`
+			Description string `json:"description"`
+			Definitions []struct {
+				Scope string `json:"scope"`
+				Where string `json:"where"`
+				Calls int    `json:"calls"`
+			} `json:"definitions"`
+			Usage struct {
+				Calls  int `json:"calls"`
+				ByUser int `json:"by_user"`
+			} `json:"usage"`
+			Sessions []struct {
+				Session string `json:"session"`
+				Turn    int    `json:"turn"`
+			} `json:"sessions"`
+		} `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil || len(rep.Items) != 1 {
+		t.Fatalf("primitives skill deploy --json: %v\n%s", err, res.Stdout)
+	}
+	it := rep.Items[0]
+	// On macOS the temp directory is reached through a symlink; compare what the engine was told.
+	if it.Description != "Ship the thing" || len(it.Definitions) != 1 || it.Definitions[0].Scope != "project" || it.Definitions[0].Where != work ||
+		it.Definitions[0].Calls != 2 || it.Usage.Calls != 2 || it.Usage.ByUser != 1 || len(it.Sessions) != 1 || it.Sessions[0].Session != id || it.Sessions[0].Turn != 0 {
+		t.Fatalf("skill deploy: %+v", it)
+	}
+
+	res = h.Run("primitives", "skill", "--unused", "--json")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, `"name": "tidy"`) || strings.Contains(res.Stdout, `"name": "deploy"`) {
+		t.Fatalf("unused skills:\n%s", res.Stdout)
+	}
+	if res = h.Run("primitives", "skill", "nope"); res.ExitCode == 0 || !strings.Contains(res.Stderr, `no skill named "nope"`) {
+		t.Fatalf("an unknown skill: %d %s", res.ExitCode, res.Stderr)
+	}
+	if res = h.Run("primitives", "widgets"); res.ExitCode == 0 || !strings.Contains(res.Stderr, "unknown kind") {
+		t.Fatalf("an unknown kind: %d %s", res.ExitCode, res.Stderr)
+	}
+}

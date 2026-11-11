@@ -167,3 +167,17 @@ func isText(b []byte, truncated bool) bool {
 	}
 	return false
 }
+
+// primitiveRows is what the index keeps of what a session used and was offered.
+func primitiveRows(p *transcript.Primitives) ([]store.UseRow, []store.OfferRow) {
+	uses := make([]store.UseRow, 0, len(p.Uses))
+	for _, u := range p.Uses {
+		uses = append(uses, store.UseRow{Kind: u.Kind, Name: u.Name, Day: u.Day, Calls: u.Calls, Errors: u.Errors, ByUser: u.ByUser,
+			Seconds: u.Seconds, Tokens: u.OutputTokens, FirstAt: u.FirstAt, LastAt: u.LastAt, Turn: u.Turn, Path: u.Path})
+	}
+	offered := make([]store.OfferRow, 0, len(p.Offered))
+	for _, o := range p.Offered {
+		offered = append(offered, store.OfferRow{Kind: o.Kind, Name: o.Name, BuiltIn: o.BuiltIn})
+	}
+	return uses, offered
+}

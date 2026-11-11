@@ -21,6 +21,7 @@
 //	GET  /v0/sessions/{id}/annotations          pin, tags and notes; PATCH the same path to change them
 //	GET  /v0/annotations                        every annotated session
 //	GET  /v0/claude?root=                       how Claude Code is configured: settings layers, experiments, flags (redacted)
+//	GET  /v0/primitives?kind=&name=&days=&unused=1&root=  skills, agents, commands, connectors, hooks, plugins, memory: where each is defined and how much it is used
 //	GET  /v0/search?q=&mode=&limit=&project=&session=&kind=&tools=&prefix=&all=&min_cosine=&min_z=
 //	                                  mode: keyword (default) | meaning; kind: one or several, comma-separated;
 //	                                  tools=0 leaves out tool calls and results; all=1 turns the meaning gate off
@@ -40,6 +41,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -52,6 +54,7 @@ import (
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/claudeconfig"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/export"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/home"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/primitives"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/search"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/store"
@@ -75,6 +78,9 @@ type Server struct {
 	// archive's new text in the background (EmbedEvery). Nil means this server
 	// cannot search by meaning.
 	Embedder Embedder
+	// ManagedDir is the managed settings directory /v0/primitives also looks
+	// in; "" for none.
+	ManagedDir string
 
 	vectors      search.Vectors // the index's vectors, held between meaning queries
 	embedding    atomic.Bool    // a background pass is running
@@ -124,6 +130,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("PATCH /v0/sessions/{id}/annotations", s.annotate)
 	mux.HandleFunc("GET /v0/annotations", s.annotations)
 	mux.HandleFunc("GET /v0/claude", s.claude)
+	mux.HandleFunc("GET /v0/primitives", s.primitives)
 	mux.HandleFunc("GET /v0/search", s.search)
 	mux.HandleFunc("POST /v0/archive", s.archive)
 	mux.HandleFunc("GET /v0/archive/verify", s.verify)
@@ -168,7 +175,7 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/overview?project=&slug=", "GET /v0/file?path=&session=&text=0", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
 			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}?agent=", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
 			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/time?top=", "GET /v0/sessions/{id}/export?format=markdown&turn=&thinking=", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
-			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=",
+			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=", "GET /v0/primitives?kind=&name=&days=&unused=1&root=",
 			"GET /v0/search?q=&mode=&limit=&project=&session=&kind=&tools=&prefix=&all=&min_cosine=&min_z=", "POST /v0/archive", "GET /v0/archive/verify?id=",
 		},
 	})
@@ -563,6 +570,45 @@ func (s *Server) claude(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, snap)
+}
+
+// primitives lists what Claude Code is extended with and its use: `skit primitives`.
+func (s *Server) primitives(w http.ResponseWriter, r *http.Request) {
+	rep, err := s.Inspect()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	q := r.URL.Query()
+	opt := primitives.Options{Kind: q.Get("kind"), Name: q.Get("name"), Unused: q.Get("unused") == "1" || q.Get("unused") == "true"}
+	if opt.Kind != "" && !slices.Contains(primitives.Kinds, opt.Kind) {
+		writeError(w, http.StatusBadRequest, "unknown kind "+strconv.Quote(opt.Kind)+": one of "+strings.Join(primitives.Kinds, ", "))
+		return
+	}
+	if opt.Name != "" && opt.Kind == "" {
+		writeError(w, http.StatusBadRequest, "name needs a kind")
+		return
+	}
+	if d := q.Get("days"); d != "" {
+		days, err := strconv.Atoi(d)
+		if err != nil || days < 0 {
+			writeError(w, http.StatusBadRequest, "days is a number of days")
+			return
+		}
+		if days > 0 {
+			opt.Since = time.Now().AddDate(0, 0, -days)
+		}
+	}
+	out, err := primitives.Read(s.Archive.Store, primitives.Places{ClaudeDir: rep.ClaudeDir, Managed: s.ManagedDir, Dirs: q["root"]}, opt)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	if opt.Name != "" && len(out.Items) == 0 {
+		writeError(w, http.StatusNotFound, "no "+opt.Kind+" named "+strconv.Quote(opt.Name)+" is installed, on offer or used in an archived session")
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 func (s *Server) search(w http.ResponseWriter, r *http.Request) {

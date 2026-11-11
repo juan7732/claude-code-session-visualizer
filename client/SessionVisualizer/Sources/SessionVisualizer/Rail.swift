@@ -29,6 +29,7 @@ struct Rail: View {
             }
             RailItem(symbol: "magnifyingglass", label: "Search", active: window.page == .search) { window.page = .search }
             RailItem(symbol: "chart.bar", label: "Stats", active: window.page == .stats) { window.page = .stats }
+            RailItem(symbol: "puzzlepiece.extension", label: "Primitives", active: window.page == .primitives) { window.page = .primitives }
             RailItem(symbol: "asterisk", label: "Claude", active: window.page == .claude) { window.page = .claude }
             Spacer()
             RailItem(symbol: "gearshape", label: "Settings", active: false) { openSettings() }

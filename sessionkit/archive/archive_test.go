@@ -10,6 +10,7 @@ import (
 
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/search"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/store"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
 )
 
@@ -215,5 +216,45 @@ func TestSummaryActsAsCache(t *testing.T) {
 	row, _ := a.Store.Session(fixtureID)
 	if row == nil || row.Archived() {
 		t.Fatal("summary-only indexing must not mark the session archived")
+	}
+}
+
+// TestListDoesNotHideAStaleArchive: after a schema step, `list` refreshing a
+// summary must leave an archived session due for indexing, or the tables only
+// Ingest fills (files, uses) stay empty for it.
+func TestListDoesNotHideAStaleArchive(t *testing.T) {
+	_, l := seed(t)
+	a, err := OpenAt(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer a.Close()
+	if _, err := a.Ingest(l, Options{}); err != nil {
+		t.Fatal(err)
+	}
+	count := func(table string) (n int) {
+		a.Store.DB().QueryRow(`SELECT count(*) FROM ` + table).Scan(&n)
+		return n
+	}
+	files := count("files")
+	if files == 0 {
+		t.Fatal("the fixture should touch files")
+	}
+	// As an index from before the step would be: the row at an earlier schema, its tables empty.
+	if _, err := a.Store.DB().Exec(`UPDATE sessions SET schema = ?; DELETE FROM files; DELETE FROM uses; DELETE FROM offered`, store.IndexedVersion-1); err != nil {
+		t.Fatal(err)
+	}
+	if _, fresh, err := a.Summary(l); err != nil || fresh {
+		t.Fatalf("a stale row is read again: fresh=%v err=%v", fresh, err)
+	}
+	if row, _ := a.Store.Session(fixtureID); row.Schema != store.IndexedVersion-1 {
+		t.Fatalf("list stamped an archived row as current (schema %d)", row.Schema)
+	}
+	res, err := a.Ingest(l, Options{})
+	if err != nil || res.Action != "updated" {
+		t.Fatalf("ingest after list: %+v %v", res, err)
+	}
+	if row, _ := a.Store.Session(fixtureID); row.Schema != store.IndexedVersion || count("files") != files {
+		t.Fatalf("after ingest: schema=%d files=%d, want %d and %d", row.Schema, count("files"), store.IndexedVersion, files)
 	}
 }

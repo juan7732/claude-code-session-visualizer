@@ -15,6 +15,7 @@ import (
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/home"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/primitives"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/serve"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/service"
 )
@@ -63,6 +64,7 @@ Try it:  curl --unix-socket ~/.sessionkit/skit.sock http://skit/v0/status`,
 			s := serve.New(cmd.Root().Version, a)
 			s.Logf = logger.Printf
 			s.LogRequests = !quiet
+			s.ManagedDir = primitives.ManagedDir
 			// Meaning search on demand: the sidecar starts with the first
 			// meaning query and is stopped after ten quiet minutes, so the
 			// model is in memory only while someone is searching.

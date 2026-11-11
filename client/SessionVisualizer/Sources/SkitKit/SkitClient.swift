@@ -42,6 +42,7 @@ public struct SkitClient: Sendable {
         "GET /v0/sessions/{id}/images/{n}",
         "GET /v0/overview",
         "GET /v0/claude",
+        "GET /v0/primitives",
         "GET /v0/file",
         "GET /v0/sessions/{id}/compactions/{n}",
         "GET /v0/sessions/{id}/export",
@@ -75,6 +76,17 @@ public struct SkitClient: Sendable {
 
     /// How Claude Code is configured on this Mac: settings by layer, experiments, flags, projects, memory, skills.
     public func claude() async throws -> ClaudeSnapshot { try await get("/v0/claude") }
+
+    /// What Claude Code is extended with and how much it is used, over the last `days` days (nil: every session kept).
+    public func primitives(days: Int? = nil) async throws -> PrimitivesReport {
+        try await get("/v0/primitives" + (days.map { "?days=\($0)" } ?? ""))
+    }
+
+    /// One primitive with the sessions that used it. Nil when the engine knows none by that name.
+    public func primitive(kind: String, name: String, days: Int? = nil) async throws -> PrimitivesReport.Item? {
+        let report: PrimitivesReport = try await get("/v0/primitives?kind=" + Self.escape(kind) + "&name=" + Self.escape(name) + (days.map { "&days=\($0)" } ?? ""))
+        return report.items.first
+    }
 
     /// A file a session touched, as it is now, with the sessions that touched it. `path` is the
     /// path as `session` wrote it, or where the file is on disk.

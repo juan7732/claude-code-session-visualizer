@@ -16,7 +16,7 @@ import Testing
 
     @Test func status() throws {
         let status = try decode(EngineStatus.self, "status.json")
-        #expect(status.sessionsOnDisk == 3)
+        #expect(status.sessionsOnDisk == 4)
         #expect(status.skitHome.hasSuffix(".sessionkit"))
         #expect(status.live.first?.sessionId == id)
         #expect(status.cachedSessions != nil)
@@ -25,7 +25,7 @@ import Testing
     @Test func sessionRows() throws {
         let rows = try decode([SessionSummary].self, "sessions.json")
         let row = try #require(rows.first { $0.id == id })
-        #expect(rows.count == 3)
+        #expect(rows.count == 4)
         #expect(row.requests == 7)
         #expect(row.turns == 2)
         #expect(row.usage.outputTokens > 0)
@@ -224,6 +224,52 @@ import Testing
         #expect(full.flags[0].inExperiment == true && full.flags[1].value.compact == "2.5" && full.flagsCachedAt != nil)
         #expect(full.projects[0].mcpServers == ["notes"] && full.skills[0].uses == 7 && full.skills[0].onDisk == false)
         #expect(full.state?["numStartups"]?.compact == "41" && full.identity?["userID"] == "set")
+    }
+
+    /// `skit primitives`: what is installed where, on offer, and used; then one item with its sessions.
+    @Test func primitivesInstalledOfferedAndUsed() throws {
+        let report = try decode(PrimitivesReport.self, "primitives.json")
+        #expect(report.since == nil && report.sessions >= 2 && !report.lookedIn.isEmpty)
+        #expect(report.kinds.map(\.kind) == ["skill", "agent", "command", "connector", "hook", "plugin", "instructions", "memory"])
+        func item(_ kind: String, _ name: String) throws -> PrimitivesReport.Item { try #require(report.items.first { $0.kind == kind && $0.name == name }) }
+
+        // Defined for the user and again in a project: the user's comes first for a skill.
+        let deploy = try item("skill", "deploy")
+        #expect(deploy.installed && deploy.order == "user-first" && deploy.definitions.map(\.scope) == ["user", "project"])
+        #expect(deploy.definitions[0].calls == 2 && deploy.definitions[1].calls == nil && deploy.definitions[1].where?.hasSuffix("/proj") == true)
+        #expect(deploy.description == "Ship it, for every project" && deploy.definitions[0].modified != nil)
+        #expect(deploy.usage.calls == 2 && deploy.usage.byUser == 1 && deploy.usage.sessions == 1 && deploy.usage.offeredSessions == 1)
+        #expect(deploy.usage.days.map(\.day) == ["2026-11-09"] && deploy.usage.projects.first?.calls == 2 && deploy.lastUsedAt != nil)
+        #expect(deploy.counter?.uses == 5 && deploy.counter?.lastUsedAt != nil && deploy.sessions.isEmpty)
+
+        // Installed, on offer, never used; on offer and nowhere on disk; known to Claude Code's counter alone.
+        let tidy = try item("skill", "tidy")
+        #expect(tidy.installed && tidy.usage.calls == 0 && tidy.usage.offeredSessions == 1 && tidy.lastUsedAt == nil)
+        let bundled = try item("skill", "init")
+        #expect(!bundled.installed && bundled.definitions.isEmpty && bundled.usage.offeredSessions == 1)
+        #expect(try item("skill", "old-skill").counter?.uses == 2)
+        #expect(try item("skill", "anthropic-skills:pdf").definitions.first?.scope == "account")
+
+        let explore = try item("agent", "Explore")
+        #expect(explore.builtIn == true && !explore.installed && explore.usage.calls == 1 && explore.usage.seconds == 30)
+        #expect(try item("agent", "reviewer").definitions.first?.scope == "user")
+        #expect(try item("command", "compact").usage.byUser == 1)
+
+        // A connector is keyed as its tools name it; how it is reached is told, what it is given is not.
+        let notes = try item("connector", "notes")
+        #expect(notes.usage.errors == 1 && notes.definitions.first?.detail == ["transport": "stdio", "program": "notes-mcp"])
+        #expect(try item("connector", "claude_ai_Gmail").title == "claude.ai Gmail")
+        let hook = try item("hook", "PostToolUse:Edit|Write")
+        #expect(hook.order == "merged" && hook.usage.calls == 1 && hook.definitions.first?.detail?["command"] == "gofmt -l .")
+        #expect(report.items.filter { $0.kind == "instructions" }.allSatisfy { $0.name.hasPrefix("/") && $0.usage.calls == 1 })
+        #expect(report.items.filter { $0.kind == "memory" }.count == 2)
+        let skills = try #require(report.kinds.first)
+        #expect(skills.items == 5 && skills.installed == 3 && skills.used == 1 && skills.unused == 3)
+
+        let one = try #require(try decode(PrimitivesReport.self, "primitive.json").items.first)
+        #expect(one.name == "deploy" && one.sessions.count == 1)
+        let use = try #require(one.sessions.first)
+        #expect(use.session.hasPrefix("dddddddd") && use.title == "Deploy to staging" && use.calls == 2 && use.byUser == 1 && use.turn == 0 && use.firstAt < use.lastAt)
     }
 
     /// `skit file`: a file a session touched, as it is now, with the sessions that touched it.

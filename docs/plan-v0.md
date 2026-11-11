@@ -275,8 +275,8 @@ finished, so the bars of a turn tile it. `decisions/0012-the-canvas-is-drawn.md`
 close at full-screen Retina size). Not built: collapsing turns on the Score; compactions on the ruler. Done when: who
 was working at the same time reads at 80 to 160 % zoom.
 
-**M13 Files, Stats, Compare, Claude (built; Juan's pass in the live window pending).** Four pages of lists, tables and
-cards.
+**M13 Files, Stats, Compare, Claude (DONE).** Four pages of lists, tables and cards. Marked done by Juan on 2026-11-10,
+with the file viewer below.
 
 - **Files** (⌘5): every file touched, most written first, with a filter; for one file a strip of the turns that touched
   it and a card per touch with the command or edit around the file's name and what came back. Context: the blocks Claude
@@ -420,9 +420,10 @@ when two do. A session started in a terminal has no editor window: the card says
 the terminal instead. Could ship with M20 or after it. Done when: with two VS Code windows on two workspaces, each
 running a session, the button on each card raises the right one.
 
-**M22 Primitives.** A section of its own on the rail for what Claude Code is extended with: skills, agents (subagent
-definitions), slash commands and prompts, hooks, connectors, plugins, memory and instructions. The Claude page lists
-some of these today (skills with a use count, memory files, connectors by name); this is that, grown up.
+**M22 Primitives (built; Juan's pass in the live window pending).** A section of its own on the rail for what Claude
+Code is extended with: skills, agents (subagent definitions), slash commands and prompts, hooks, connectors, plugins,
+memory and instructions. The Claude page lists some of these today (skills with a use count, memory files, connectors by
+name); this is that, grown up.
 
 - Where each is installed: for the user, for a project, from a plugin; and which one wins when a name is defined twice.
 - How much each is used, from the sessions themselves and not only from Claude Code's own counter: which sessions
@@ -432,6 +433,19 @@ some of these today (skills with a use count, memory files, connectors by name);
 Engine: the relations already record skills and connectors a session reached; agents by kind, slash commands and hooks
 are to be added, with an aggregate across sessions kept in the index as M13 did for activity. Done when: "which of my
 skills did I use this month, in which projects, and which have I never used" is answered from the app and from `skit`.
+
+State, 2026-11-10 (`primitives.md`): built. The engine finds every definition for the user, the account, plugins and
+each project (with the folders up to two levels below it), and lists a name defined twice in the order Claude Code
+prefers. Use is counted from the transcripts, which turned out to say more than expected: besides tool calls, a session
+records the skills, agent types and connectors it had on offer, the folder a skill was loaded from, each memory file
+loaded and each hook that spoke; and a skill typed as a slash command leaves no tool call at all, so neither the tool
+calls nor Claude Code's own counter see all of the use. The index (schema 8) keeps a row per session, primitive and UTC
+day. `skit primitives`, `/v0/primitives` and the Primitives page (rail, between Stats and Claude): a list by kind, most
+used first, with a period, "only what was not used" and a filter; the selected item beside it with its definitions
+(open, reveal), its figures, its use by day and by project, and the sessions that used it, each opening at the turn of
+its first use. There was no mock: the page follows the Files view and the Claude page, and is a first cut for Juan to
+react to. Not built: plugins on a machine that has one (written from the documented layout, tested on a made-up one);
+output styles, the status line and key bindings; a `primitive` kind in Search.
 
 **Not scheduled.** Continue from here (embedded terminal, fork at a turn; needs the feasibility probe in `NOTES.md`).
 Plugins (ergo, git) through the extension points. Image tiers B and C, the hooks installer, HTML export. The pricing

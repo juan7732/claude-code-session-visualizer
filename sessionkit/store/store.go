@@ -19,7 +19,7 @@ import (
 )
 
 // SchemaVersion is bumped with every migration.
-const SchemaVersion = 7
+const SchemaVersion = 8
 
 // IndexedVersion is the last schema that changed what a session's summary or
 // segments hold. A session row records the one it was indexed at, and a row
@@ -28,7 +28,7 @@ const SchemaVersion = 7
 // DECISION: kept apart from SchemaVersion so that a migration which only adds
 // tables (schema 5: chunks and vectors) does not make every session be parsed
 // again for nothing.
-const IndexedVersion = 7
+const IndexedVersion = 8
 
 // Store is an open index.
 type Store struct {
@@ -138,6 +138,16 @@ func (s *Store) migrate() error {
 		}
 		version = 7
 	}
+	if version == 7 {
+		// v8: what each session was offered and used of the things Claude Code is
+		// extended with (skills, agents, commands, connectors, hooks, memory
+		// files), so their use can be added up across sessions. Filled when a
+		// session is archived, so rows from before are indexed again.
+		if _, err := tx.Exec(schemaPrimitives); err != nil {
+			return err
+		}
+		version = 8
+	}
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion)); err != nil {
 		return err
 	}
@@ -194,7 +204,7 @@ END;
 CREATE TRIGGER segments_ad AFTER DELETE ON segments BEGIN
   INSERT INTO fts(fts, rowid, text) VALUES ('delete', old.id, old.text);
 END;
-` + schemaVectors + schemaFiles
+` + schemaVectors + schemaFiles + schemaPrimitives
 
 // schemaVectors is what schema 5 added, shared by a new index and the migration.
 const schemaVectors = `
@@ -226,6 +236,36 @@ CREATE TABLE files(
   PRIMARY KEY(session, path)
 ) WITHOUT ROWID;
 CREATE INDEX files_path ON files(path);
+`
+
+// schemaPrimitives is what schema 8 added: a row per session, primitive and
+// day it was used on, and a row per session and primitive it had on offer.
+const schemaPrimitives = `
+CREATE TABLE uses(
+  session  TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  kind     TEXT NOT NULL,              -- skill | agent | command | connector | hook | instructions | memory
+  name     TEXT NOT NULL,
+  day      TEXT NOT NULL,              -- UTC date of the uses counted in this row
+  calls    INTEGER NOT NULL DEFAULT 0,
+  errors   INTEGER NOT NULL DEFAULT 0,
+  by_user  INTEGER NOT NULL DEFAULT 0, -- of calls, the ones the person typed
+  seconds  REAL NOT NULL DEFAULT 0,
+  tokens   INTEGER NOT NULL DEFAULT 0, -- output tokens (subagents)
+  first_at TEXT,
+  last_at  TEXT,
+  turn     INTEGER NOT NULL DEFAULT -1, -- turn of the first use that day
+  path     TEXT NOT NULL DEFAULT '',   -- where the session found it, when it said
+  PRIMARY KEY(session, kind, name, day)
+) WITHOUT ROWID;
+CREATE INDEX uses_name ON uses(kind, name);
+CREATE TABLE offered(
+  session TEXT NOT NULL REFERENCES sessions(id) ON DELETE CASCADE,
+  kind    TEXT NOT NULL,
+  name    TEXT NOT NULL,
+  builtin INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY(session, kind, name)
+) WITHOUT ROWID;
+CREATE INDEX offered_name ON offered(kind, name);
 `
 
 // SessionRow is one indexed session.
@@ -278,7 +318,15 @@ func SourceFingerprint(size, mtimeNanos int64, subFiles int, subBytes int64) str
 // UpsertSummary writes the indexed summary and source fingerprint, leaving the
 // archive columns alone. Used by list as its cache and by archive before it
 // copies the raw lines.
+//
+// The row is stamped with IndexedVersion, unless r.Schema names an earlier
+// one: a caller that wrote the summary and not what else a session's row
+// stands for says so, and the row stays due for indexing.
 func (s *Store) UpsertSummary(r SessionRow) error {
+	schema := IndexedVersion
+	if r.Schema > 0 && r.Schema < IndexedVersion {
+		schema = r.Schema
+	}
 	_, err := s.db.Exec(`
 INSERT INTO sessions(id, project, source_path, source_size, source_mtime, source_sub, records, first_at, last_at, title,
                      owner_account, owner_org, summary, indexed_at, schema)
@@ -288,7 +336,7 @@ ON CONFLICT(id) DO UPDATE SET project=excluded.project, source_path=excluded.sou
   last_at=excluded.last_at, title=excluded.title, owner_account=excluded.owner_account, owner_org=excluded.owner_org,
   summary=excluded.summary, indexed_at=excluded.indexed_at, schema=excluded.schema`,
 		r.ID, r.Project, r.SourcePath, r.SourceSize, r.SourceMtime, r.SourceSub, r.Records, timeText(r.FirstAt), timeText(r.LastAt),
-		r.Title, r.OwnerAccount, r.OwnerOrg, string(r.Summary), time.Now().UTC().Format(time.RFC3339Nano), IndexedVersion)
+		r.Title, r.OwnerAccount, r.OwnerOrg, string(r.Summary), time.Now().UTC().Format(time.RFC3339Nano), schema)
 	return err
 }
 

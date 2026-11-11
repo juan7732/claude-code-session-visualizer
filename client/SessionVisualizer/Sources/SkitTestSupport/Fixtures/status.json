@@ -7,7 +7,7 @@
     "sessions": 0,
     "archived": 0,
     "segments": 0,
-    "bytes": 82408
+    "bytes": 98888
   },
   "live": [
     {
@@ -19,7 +19,7 @@
       "version": "2.1.319"
     }
   ],
-  "sessions_on_disk": 3,
+  "sessions_on_disk": 4,
   "cached_sessions": 0,
   "vectors": {
     "source": "",

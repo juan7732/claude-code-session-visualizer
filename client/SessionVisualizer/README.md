@@ -35,9 +35,10 @@ camera and takes the pointer; `BraidLayout` and `BraidCanvas` say and draw the B
 the Score), `ArcsMap` (the Summary's map), `TimelineView` (the strip and the playhead in `TimelineStrip`, the rows in
 `Ledger`; `TimelineLayout` holds `TimeAxis`, which cuts idle time and maps moments to points, and what the strip draws),
 `FilesView` (files, injected context, images; `FileViewer` shows a file as it is now with its colours and its history
-across sessions, and holds `FileOpener`), `StatsPage` (every figure is `skit overview`'s), `ComparePage`, `ClaudePage`.
-`SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the palette; `Export`
-writes Markdown through the engine and builds and reads `skit-visualizer://` links.
+across sessions, and holds `FileOpener`), `StatsPage` (every figure is `skit overview`'s), `ComparePage`, `ClaudePage`,
+`PrimitivesPage` (a list by kind and the selected item beside it; every figure is `skit primitives`'s). `SessionModel`
+is what they all read; `Commands` holds every command once, for the menu bar and the palette; `Export` writes Markdown
+through the engine and builds and reads `skit-visualizer://` links.
 
 ## Rules
 
@@ -72,8 +73,9 @@ routes them to it. Opened links are logged (`log stream --predicate 'subsystem =
 ## Snapshots
 
 `--snapshot` renders a page offscreen and exits. It only attaches to a running engine and never installs anything.
-Options: `--page sessions|session:<id>|search|stats|claude`, `--view summary|transcript|canvas|timeline|files`,
-`--appearance light|dark|oled`, `--size 1500x940`, `--socket <path>`, `--flyout`, and inside a session
+Options: `--page sessions|session:<id>|search|stats|claude|primitives`,
+`--view summary|transcript|canvas|timeline|files`, `--appearance light|dark|oled`, `--size 1500x940`, `--socket <path>`,
+`--flyout`, and inside a session
 `--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>`,
 `--tab details|io|note`, `--query <text>` (find in the Transcript, the Summary's search box, or the Search page),
 `--open-calls`, `--fold`, `--palette`, `--set <key>=<value>` (a setting for this picture only), `--scroll-through`, and
@@ -92,13 +94,13 @@ shapes in a dark offscreen capture; in a real window they are dark.
 ## The live exercise
 
 `just client-exercise summary <session id>` (or `transcript <id>`, `timeline <id>`, `canvas <id>`, `files <id>`,
-`search <words>`, `stats all`, `claude flags`, `compare recent`) opens a real window on that page, scrolls it from top
-to bottom with a pointer resting on the page, and quits; on the Timeline it then plays the playhead for a few seconds
-with the ledger following, and on the Canvas it pans and zooms the camera (`canvas <id> -canvas.layout score` for the
-Score). It writes nothing the app remembers. If the scroll stops advancing, the main thread is stuck: the script samples
-the process and exits 1. Run it on a long session after changing how a scrolling page is laid out. The window appears on
-screen for a few seconds. `--scroll-through` does the same offscreen in snapshot mode, which found nothing the day the
-Summary froze: only a live window with a pointer did.
+`search <words>`, `stats all`, `claude flags`, `primitives memory`, `compare recent`) opens a real window on that page,
+scrolls it from top to bottom with a pointer resting on the page, and quits; on the Timeline it then plays the playhead
+for a few seconds with the ledger following, and on the Canvas it pans and zooms the camera
+(`canvas <id> -canvas.layout score` for the Score). It writes nothing the app remembers. If the scroll stops advancing,
+the main thread is stuck: the script samples the process and exits 1. Run it on a long session after changing how a
+scrolling page is laid out. The window appears on screen for a few seconds. `--scroll-through` does the same offscreen
+in snapshot mode, which found nothing the day the Summary froze: only a live window with a pointer did.
 
 ## Toolchain
 

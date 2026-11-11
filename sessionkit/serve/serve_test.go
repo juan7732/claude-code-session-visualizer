@@ -209,6 +209,34 @@ func TestRoutes(t *testing.T) {
 	if code := get(t, h, "/v0/file", &refused); code != 400 {
 		t.Fatalf("file without a path: %d", code)
 	}
+	// And what the session used of Claude Code's extensions is counted.
+	var prims struct {
+		Sessions int `json:"sessions"`
+		Kinds    []struct {
+			Kind string `json:"kind"`
+			Used int    `json:"used"`
+		} `json:"kinds"`
+		Items []struct {
+			Kind, Name string
+			Installed  bool
+			Usage      struct{ Calls, Sessions int }
+			Sessions   []struct{ Session string }
+		} `json:"items"`
+	}
+	if code := get(t, h, "/v0/primitives", &prims); code != 200 || prims.Sessions != 1 || len(prims.Kinds) != 8 || len(prims.Items) != 1 ||
+		prims.Items[0].Kind != "agent" || prims.Items[0].Name != "general-purpose" || prims.Items[0].Installed || prims.Items[0].Usage.Calls != 1 || prims.Items[0].Sessions != nil {
+		t.Fatalf("primitives route: %d %+v", code, prims)
+	}
+	if code := get(t, h, "/v0/primitives?kind=agent&name=general-purpose&days=100000", &prims); code != 200 || len(prims.Kinds) != 1 || len(prims.Items) != 1 ||
+		len(prims.Items[0].Sessions) != 1 || prims.Items[0].Sessions[0].Session != fixtureID {
+		t.Fatalf("one primitive with its sessions: %d %+v", code, prims)
+	}
+	for path, want := range map[string]int{"/v0/primitives?kind=nope": 400, "/v0/primitives?name=Explore": 400, "/v0/primitives?days=soon": 400,
+		"/v0/primitives?kind=skill&name=nope": 404, "/v0/primitives?unused=1": 200} {
+		if code := get(t, h, path, nil); code != want {
+			t.Fatalf("%s: %d, want %d", path, code, want)
+		}
+	}
 }
 
 // TestConcurrentReadsShareOneParse hits every read route of one session from

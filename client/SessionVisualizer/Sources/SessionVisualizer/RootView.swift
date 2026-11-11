@@ -68,6 +68,7 @@ struct RootView: View {
             case .search: SearchPage()
             case .stats: StatsPage()
             case .claude: ClaudePage()
+            case .primitives: PrimitivesPage()
             case .compare: ComparePage()
             }
         }
@@ -80,6 +81,7 @@ struct RootView: View {
         case .search: "Search"
         case .stats: "Stats"
         case .claude: "Claude"
+        case .primitives: "Primitives"
         case .compare: "Compare"
         }
     }
@@ -160,6 +162,17 @@ struct RootView: View {
             window.claude.tab = ClaudeTab(rawValue: id) ?? .experiments
             window.page = .claude
             for _ in 0..<100 where store.claude == nil || store.claude == .loading { try? await Task.sleep(for: .milliseconds(100)) }
+        } else if what == "primitives" {
+            // primitives:<kind>, e.g. primitives:memory, the longest list; each item is opened in turn.
+            window.primitives.kind = id.isEmpty ? "skill" : id
+            window.page = .primitives
+            for _ in 0..<100 where store.primitives[0] == nil || store.primitives[0] == .loading { try? await Task.sleep(for: .milliseconds(100)) }
+            if case .loaded(let report) = store.primitives[0] {
+                for item in report.items.filter({ $0.kind == window.primitives.kind }).prefix(12) {
+                    window.primitives.selected[item.kind] = item.name
+                    try? await Task.sleep(for: .milliseconds(250))
+                }
+            }
         } else if what == "compare" {
             window.showCompare(in: store)
         } else if what == "images" {
@@ -215,6 +228,7 @@ struct RootView: View {
         case .search: "Search"
         case .stats: "Stats"
         case .claude: "Claude"
+        case .primitives: "Primitives"
         case .compare: "Compare"
         case .session(let id): id == window.sessionID ? "the \(target.view.title)" : "the session you came from"
         }

@@ -31,6 +31,7 @@ enum AppActions {
         out.append(AppAction(title: "Go to Sessions") { window.page = .sessions })
         out.append(AppAction(title: "Go to Search", shortcut: "⇧⌘F") { showSearch(window) })
         out.append(AppAction(title: "Go to Stats") { window.page = .stats })
+        out.append(AppAction(title: "Go to Primitives") { window.page = .primitives })
         out.append(AppAction(title: "Compare Sessions…", enabled: store.sessions.count > 1) { window.showCompare(in: store) })
         out.append(AppAction(title: "Find in This Session", shortcut: "⌘F", enabled: id != nil) { find(window) })
         out.append(AppAction(title: "Export Session as Markdown…", shortcut: "⇧⌘E", enabled: session != nil) {

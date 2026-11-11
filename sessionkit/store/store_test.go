@@ -116,7 +116,7 @@ PRAGMA user_version = 1;`); err != nil {
 	}
 }
 
-// TestMigrateFromV4KeepsEverything: schemas 5 to 7 only add, so segments stay, rows
+// TestMigrateFromV4KeepsEverything: schemas 5 to 8 only add, so segments stay, rows
 // keep the version they were indexed at (no session is parsed again), and the
 // new tables work on the migrated index.
 func TestMigrateFromV4KeepsEverything(t *testing.T) {
@@ -126,7 +126,7 @@ func TestMigrateFromV4KeepsEverything(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Schema 4 is the latest schema without what v5 added.
-	v4 := strings.Replace(strings.TrimSuffix(schemaLatest, schemaVectors+schemaFiles), "text    TEXT NOT NULL,\n  chunked INTEGER NOT NULL DEFAULT 0  -- 1 once its chunks are written (possibly none: nothing worth a vector)\n", "text    TEXT NOT NULL\n", 1)
+	v4 := strings.Replace(strings.TrimSuffix(schemaLatest, schemaVectors+schemaFiles+schemaPrimitives), "text    TEXT NOT NULL,\n  chunked INTEGER NOT NULL DEFAULT 0  -- 1 once its chunks are written (possibly none: nothing worth a vector)\n", "text    TEXT NOT NULL\n", 1)
 	if strings.Contains(v4, "chunked") || strings.Contains(v4, "vectors") || strings.Contains(v4, "files(") {
 		t.Fatal("the test's schema 4 still has schema 5 in it")
 	}
