@@ -28,3 +28,4 @@ eval is what keeps these notes honest.
 | `now.md`                         | Sessions at work: what is read, the states, the prompt cache, the editor window               |
 | `primitives.md`                  | Skills, agents, connectors, hooks: how installed, offered and used are counted                |
 | `launch/`                        | Pictures of every page on made-up sessions, the script that takes them, questions and answers |
+| `releasing.md`                   | How a release is made: the tag, the notarised build, the GitHub release, the Homebrew cask    |

@@ -12,7 +12,9 @@
 #                   made once, by the person whose Apple account it is:
 #                     xcrun notarytool store-credentials skit-notary --apple-id … --team-id …
 #                   Its password is never an argument or a variable of this script.
-#   APP_VERSION     the marketing version, as for build.sh.
+#   APP_VERSION     the marketing version. Default: the tag the checkout is on
+#                   (v0.2.0 gives 0.2.0), so that the tag, the app and the zip
+#                   cannot disagree. Off a tag it has to be given.
 #   ALLOW_DIRTY=1   notarise a checkout with uncommitted changes (a trial, not a release).
 #
 # The everyday build (build.sh without SIGN_IDENTITY, `just client-app-install`)
@@ -22,7 +24,6 @@ here=$(cd "$(dirname "$0")" && pwd)
 repo=$(cd "$here/../.." && pwd)
 out=${1:-$here/.build/notarized}
 profile=${NOTARY_PROFILE:-skit-notary}
-version=${APP_VERSION:-0.1.0}
 app="$out/SessionVisualizer.app"
 
 # What is handed out has to be what a commit says it is.
@@ -35,6 +36,19 @@ case "$commit" in
     fi
     ;;
 esac
+
+version=${APP_VERSION:-}
+if [ -z "$version" ]; then
+    tag=$(git -C "$repo" describe --tags --exact-match 2>/dev/null || true)
+    case "$tag" in
+    v[0-9]*) version=${tag#v} ;;
+    *)
+        echo "notarize.sh: the checkout is not on a release tag (vX.Y.Z). Tag it, or name the version with APP_VERSION." >&2
+        exit 1
+        ;;
+    esac
+fi
+echo "SessionVisualizer $version, from $commit"
 
 identity=${SIGN_IDENTITY:-}
 if [ -z "$identity" ]; then
