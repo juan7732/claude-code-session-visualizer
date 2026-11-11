@@ -200,10 +200,10 @@ subagent step, the `/compactions/{n}` detail in the drawer, a ⚙ popover per vi
 
 Engine, for it: `commits` in `/relations`, `in_turns` in stats, `skit export` and `/export`, `/actions/{n}?agent=`
 (`relations-and-client-routes.md`). Still missing: the model's context-window limit (a setting stands in), fork parent
-and child ids ("How it ran" shows the number of branch points). Open after M9: an app icon; a Developer ID, without
-which the app runs only on the Mac that built it; a ⚙ popover per view (the options are Settings tabs). Done when: for
-any session, what it was about, what happened when, and whether X was discussed can be answered from the app in
-/Applications. This closes v0's definition of done, item 6.
+and child ids ("How it ran" shows the number of branch points). Open after M9: an app icon (it came on 2026-11-10:
+Juan's logo, on the Dock's grid); a Developer ID, without which the app runs only on the Mac that built it; a ⚙ popover
+per view (the options are Settings tabs). Done when: for any session, what it was about, what happened when, and whether
+X was discussed can be answered from the app in /Applications. This closes v0's definition of done, item 6.
 
 **M10 Canvas: Braid (DONE).** Mock: `?view=canvas`, layout Braid; lab in `ux-mocks/canvas/`.
 
@@ -226,7 +226,7 @@ Engine: nothing new was needed (`/relations` is memoised since M8; a subagent's 
 Not built: the keyboard inside a strand, dragging a strand aside. Done when: the five questions in `ux-mocks/README.md`
 can be answered on the Braid without leaving it.
 
-**M11 Timeline (built; Juan's pass in the live window pending).** Mock: `?view=timeline` (strip and ledger).
+**M11 Timeline (DONE).** Mock: `?view=timeline` (strip and ledger).
 
 - **The data came first and changed the split.** The mock read the gap after an action's tools as "waiting on subagents,
   tasks, you reading". Measured on real sessions it is the model: a transcript stamps a block when it is complete, so
@@ -250,7 +250,7 @@ built: the ledger's row height as a true time scale (it grows a little with dura
 memory of where the playhead was. Done when: "where did the time go" and "what was happening at this moment" are
 answered for the largest session.
 
-**M12 Canvas: Score (built; Juan's pass in the live window pending).** Mock: Canvas layout Score.
+**M12 Canvas: Score (DONE).** Mock: Canvas layout Score.
 
 - Canvas › Layout is Braid or Score, a switch at the left of the Canvas's bar (and behind the gear, and in Settings).
   Each layout keeps its own camera per session.

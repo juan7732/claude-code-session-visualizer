@@ -29,5 +29,6 @@ that declares it.
 
 **Consequences.** A link works only where the app is installed and only for a session that Mac has: session ids are not
 global addresses, and the archive is local (tenet 2). The app and its helper are built from one commit, so the bundle
-cannot ship a client that asks for routes its own engine lacks. Two things are left open: the app has no icon, and a
-build that other Macs accept needs a Developer ID, which this Mac does not have.
+cannot ship a client that asks for routes its own engine lacks. One thing is left open: a build that other Macs accept
+needs a Developer ID, which this Mac does not have. (The icon came on 2026-11-10: `build.sh` makes `AppIcon.icns` from
+`Resources/AppIcon.png`.)

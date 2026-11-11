@@ -43,6 +43,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Run straight from `swift run` there is no bundle, so say what kind of app this is.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()
+        // And there is no icon: take the drawing from the checkout, so the Dock shows it.
+        if Bundle.main.bundleURL.pathExtension != "app" {
+            var folder = Bundle.main.bundleURL
+            for _ in 0..<5 {
+                folder.deleteLastPathComponent()
+                guard FileManager.default.fileExists(atPath: folder.appendingPathComponent("Package.swift").path) else { continue }
+                if let icon = NSImage(contentsOf: folder.appendingPathComponent("Resources/AppIcon.png")) { NSApp.applicationIconImage = icon }
+                break
+            }
+        }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool { false }

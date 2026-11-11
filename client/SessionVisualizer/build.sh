@@ -34,6 +34,18 @@ cp "$bin/SessionVisualizer" "$app/Contents/MacOS/SessionVisualizer"
 echo "building skit $commit"
 (cd "$repo" && CGO_ENABLED=0 go build -ldflags "-X main.version=$commit" -o "$app/Contents/Helpers/skit" ./cmd/skit)
 
+# The icon: every size the Dock, the Finder and Spotlight ask for, from the one drawing
+# (Resources/AppIcon.png, made from the logo by Scripts/make-icon.swift).
+mkdir -p "$app/Contents/Resources"
+iconset=$(mktemp -d)/AppIcon.iconset
+mkdir -p "$iconset"
+for size in 16 32 128 256 512; do
+    sips -z $size $size "$here/Resources/AppIcon.png" --out "$iconset/icon_${size}x${size}.png" >/dev/null
+    sips -z $((size * 2)) $((size * 2)) "$here/Resources/AppIcon.png" --out "$iconset/icon_${size}x${size}@2x.png" >/dev/null
+done
+iconutil -c icns "$iconset" -o "$app/Contents/Resources/AppIcon.icns"
+rm -rf "$(dirname "$iconset")"
+
 cat > "$app/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -43,6 +55,8 @@ cat > "$app/Contents/Info.plist" <<PLIST
 	<string>en</string>
 	<key>CFBundleExecutable</key>
 	<string>SessionVisualizer</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>dev.sessionkit.SessionVisualizer</string>
 	<key>CFBundleInfoDictionaryVersion</key>

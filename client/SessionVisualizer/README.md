@@ -26,6 +26,7 @@ just client-app-install   the same, copied into /Applications
 | `Tests/SessionVisualizerTests` | The app's state without its windows: the store, the session model, Markdown blocks, selection.     |
 | `Scripts/record-fixtures.sh`   | Serves the `synthetic-basics` fixture from a throwaway home and records the routes the tests read. |
 | `build.sh`                     | Builds and signs the app bundle (ADR 0011). `SIGN_IDENTITY` picks the identity; ad hoc without it. |
+| `Resources/`                   | The logo as it was given, and the icon made from it (`swift Scripts/make-icon.swift`).             |
 
 The views, by file: `SessionsView` (home), `SummaryView` (the dashboard, search in this session, the digest, the hours
 grid), `TranscriptView` and `TranscriptRows`, `Drawer` (the inspector under both), `SearchPage` (the Finder),
