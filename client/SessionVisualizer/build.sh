@@ -9,6 +9,8 @@
 #                  Unset, the app is signed ad hoc: it runs on the Mac that
 #                  built it, and Gatekeeper refuses it on any other.
 #   APP_VERSION    the marketing version (default 0.1.0).
+#   DEVELOPER_DIR  which Xcode or Command Line Tools to build with, as for any
+#                  Apple tool; no `sudo xcode-select` needed (Scripts/swiftpm.sh).
 #
 # The app registers the skit-visualizer:// scheme (Copy Link). On first launch
 # it installs the background agent for the skit inside it, unless an agent is
@@ -24,8 +26,9 @@ commit=$(git -C "$repo" describe --tags --always --dirty 2>/dev/null || echo dev
 build=$(git -C "$repo" rev-list --count HEAD 2>/dev/null || echo 1)
 
 echo "building the client (release)"
-(cd "$here" && swift build -c release --product SessionVisualizer)
-bin=$(cd "$here" && swift build -c release --show-bin-path)
+# Through swiftpm.sh, which picks the build system and, where needed, the SDK.
+(cd "$here" && Scripts/swiftpm.sh build -c release --product SessionVisualizer)
+bin=$(cd "$here" && Scripts/swiftpm.sh build -c release --show-bin-path)
 
 rm -rf "$app"
 mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers"

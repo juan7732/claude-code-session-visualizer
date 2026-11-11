@@ -112,3 +112,18 @@ offscreen in snapshot mode, which found nothing the day the Summary froze: only 
 Swift 6.2 or later. Xcode does not have to be the selected toolchain: the Command Line Tools build and run the app.
 Their copy of the Testing framework is off the default search paths, which `just client-test` adds. With Xcode selected
 (`xcode-select -s /Applications/Xcode.app`), plain `swift test` works.
+
+Every recipe and script runs SwiftPM through `Scripts/swiftpm.sh`, and so should you, for two reasons that came with
+Swift 6.4 (the tools of 27):
+
+- **The build system.** SwiftPM's new default stamps the binary as built with the macOS 14 SDK (the deployment target),
+  and macOS then draws the app with that year's title bar and buttons. It also puts products outside `.build/debug`. The
+  script asks for the older build system for as long as SwiftPM has it.
+- **The SDK, with the Command Line Tools alone.** In the macOS 27 SDK `@State` is a macro whose plugin ships only with
+  Xcode, so the tools fail on every view ("plugin for module 'SwiftUIMacros' not found"). The script builds against the
+  macOS 26 SDK the tools also carry, or says what to do when there is none.
+
+`DEVELOPER_DIR` picks the tools for one command, with no `sudo xcode-select`:
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer just client-app-install`. Checked on 2026-11-11 with the
+Command Line Tools 26.6 (Swift 6.3) and Xcode 27.2 (Swift 6.4); the fallback for the Command Line Tools 27 was run with
+Xcode's compiler against the 26.5 SDK, not on a Mac that has those tools alone.

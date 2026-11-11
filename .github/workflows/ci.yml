@@ -57,14 +57,14 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: Build
-        run: swift build
+        run: Scripts/swiftpm.sh build
         working-directory: client/SessionVisualizer
       - name: Contract and unit tests against the engine in this commit
         run: |
           set -euo pipefail
           dir=$(mktemp -d)
           client/SessionVisualizer/Scripts/record-fixtures.sh "$dir"
-          cd client/SessionVisualizer && SKIT_FIXTURES="$dir" swift test
+          cd client/SessionVisualizer && SKIT_FIXTURES="$dir" Scripts/swiftpm.sh test
   integration:
     name: Integration (docker)
     runs-on: ubuntu-latest

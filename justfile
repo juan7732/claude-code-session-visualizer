@@ -133,7 +133,7 @@ clt_dev := "/Library/Developer/CommandLineTools/Library/Developer"
 
 # Build the SessionVisualizer app (debug)
 client-build:
-    cd {{client}} && swift build
+    cd {{client}} && Scripts/swiftpm.sh build
 
 # Run the app from the build directory
 client-run: client-build
@@ -150,9 +150,9 @@ client-test:
         # Command Line Tools before 27 shipped Testing without its Foundation overlay module.
         [ -e $fw/_Testing_Foundation.framework/Modules/_Testing_Foundation.swiftmodule ] || \
             set -- "$@" -Xswiftc -Xfrontend -Xswiftc -disable-cross-import-overlays
-        exec swift test "$@"
+        exec Scripts/swiftpm.sh test "$@"
     fi
-    exec swift test
+    exec Scripts/swiftpm.sh test
 
 # Record the /v0 responses the contract tests decode, from this checkout's engine
 client-fixtures:

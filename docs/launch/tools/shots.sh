@@ -59,7 +59,7 @@ chmod +x "$work/bin/ps" "$work/bin/lsof"
 
 echo "building the engine and the app"
 (cd "$repo" && CGO_ENABLED=0 go build -ldflags "-X main.version=1.0.0" -o "$work/skit" ./cmd/skit)
-(cd "$repo/client/SessionVisualizer" && swift build >/dev/null)
+(cd "$repo/client/SessionVisualizer" && Scripts/swiftpm.sh build >/dev/null)
 app="$repo/client/SessionVisualizer/.build/debug/SessionVisualizer"
 
 sock="$home/.sessionkit/skit.sock"

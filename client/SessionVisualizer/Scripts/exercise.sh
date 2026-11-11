@@ -19,7 +19,7 @@ set -eu
 here=$(cd "$(dirname "$0")/.." && pwd)
 view=$1; id=$2; shift 2
 log=$(mktemp)
-(cd "$here" && swift build >/dev/null)
+(cd "$here" && Scripts/swiftpm.sh build >/dev/null)
 SKIT_EXERCISE="$view:$id" SKIT_EXERCISE_HOVER=1 "$here/.build/debug/SessionVisualizer" "$@" 2>"$log" &
 pid=$!
 last=""; same=0; ticks=0

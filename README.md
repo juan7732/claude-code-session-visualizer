@@ -116,6 +116,9 @@ just client-app-install   # builds the app, with skit inside, into /Applications
 just install              # optional: skit for your terminal, in ~/go/bin
 ```
 
+If Xcode is installed but is not the selected toolchain, point at it for that one command, with no `sudo` needed:
+`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer just client-app-install`.
+
 Open SessionVisualizer from /Applications. The first run walks through what it reads and keeps, then starts the archiver
 when you press the button. The sessions Claude Code still has are archived soon after.
 

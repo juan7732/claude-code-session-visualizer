@@ -431,8 +431,10 @@ private struct QuietRow: View {
         .accessibilityElement(children: .combine)
     }
 
-    /// Diagonal lines: the same hatch as the strip's idle bands.
-    private struct Hatch: Shape {
+    /// Diagonal lines: the same hatch as the strip's idle bands. Nonisolated: a
+    /// Shape's path is asked for off the main actor, and Swift 6.4 refuses the
+    /// conformance of a type that is main-actor isolated by the module's default.
+    nonisolated private struct Hatch: Shape {
         func path(in rect: CGRect) -> Path {
             var path = Path()
             var x = -rect.height

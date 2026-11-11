@@ -525,7 +525,8 @@ private struct Legend: View {
         }
     }
 
-    private struct Line: Shape {
+    // Nonisolated for the same reason as the Ledger's Hatch: Swift 6.4 and a Shape's path.
+    nonisolated private struct Line: Shape {
         func path(in rect: CGRect) -> Path {
             var path = Path()
             path.move(to: CGPoint(x: 0, y: rect.midY))
