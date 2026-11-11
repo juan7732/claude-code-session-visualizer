@@ -68,32 +68,11 @@ private struct SummarySettings: View {
 }
 
 private struct CanvasSettings: View {
-    @AppStorage(SettingsKey.canvasBackground) private var background = "dots"
-    @AppStorage(SettingsKey.canvasMinimap) private var minimap = "left"
-    @AppStorage(SettingsKey.canvasLegend) private var legend = true
-    @AppStorage(SettingsKey.canvasNotes) private var resultNotes = true
-
     var body: some View {
         Form {
-            Section("The chain") {
-                Toggle("What came back, on the arrows", isOn: $resultNotes)
-                Text("Between two steps, the first line of what the tools returned: what shaped the next step.")
-                    .font(.footnote).foregroundStyle(.secondary)
-            }
-            Section("Around it") {
-                Picker("Background", selection: $background) {
-                    Text("Dots").tag("dots")
-                    Text("Lines").tag("lines")
-                    Text("Grid").tag("grid")
-                    Text("Blank").tag("blank")
-                }
-                Picker("Minimap", selection: $minimap) {
-                    Text("Left").tag("left")
-                    Text("Right").tag("right")
-                    Text("Off").tag("off")
-                }
-                Toggle("Legend", isOn: $legend)
-                Text("The same options are behind the gear on the Canvas. Where each session's canvas was left is remembered.")
+            Section("The canvas") {
+                CanvasOptions()
+                Text("The same options are behind the gear on the Canvas. Where each session's canvas was left is remembered, for each layout.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

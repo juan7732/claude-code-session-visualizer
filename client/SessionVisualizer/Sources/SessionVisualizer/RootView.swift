@@ -159,6 +159,21 @@ struct RootView: View {
         try? await Task.sleep(for: .milliseconds(1500))
         FileHandle.standardError.write(Data("exercise: \(what) of \(id) is up\n".utf8))
         if let shown = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) { await Snapshot.scrollThrough(shown) }
+        if what == "canvas" {
+            // The canvas has no scroll view: the camera pans through it, a notch a frame, then zooms out and back.
+            for _ in 0..<100 where window.canvas.cameraFor == nil { try? await Task.sleep(for: .milliseconds(50)) }
+            let sideways = window.canvas.score
+            for tick in 0..<240 {
+                if tick < 160 {
+                    if sideways { window.canvas.camera.x -= 45 } else { window.canvas.camera.y -= 45 }
+                } else {
+                    window.canvas.zoom(by: tick < 200 ? 0.95 : 1 / 0.95)
+                }
+                if tick % 8 == 0 { FileHandle.standardError.write(Data("scroll-through: camera \(tick) of 240\n".utf8)) }
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            FileHandle.standardError.write(Data("scroll-through: panned and zoomed the \(sideways ? "Score" : "Braid")\n".utf8))
+        }
         if what == "timeline" {
             // Then the playhead plays for a few seconds with the ledger following it.
             window.timeline.playing = true

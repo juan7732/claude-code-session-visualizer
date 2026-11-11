@@ -1,5 +1,6 @@
 #!/bin/sh
 # Opens a real window on one view of a session, scrolls it from top to bottom
+# (the Canvas: pans and zooms its camera; `canvas <id> -canvas.layout score` for the Score)
 # with a pointer resting on the page, and says whether the window kept up.
 #
 #   Scripts/exercise.sh <summary|transcript|canvas|timeline> <session id> [app arguments...]

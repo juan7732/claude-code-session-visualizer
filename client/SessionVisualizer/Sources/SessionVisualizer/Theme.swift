@@ -173,6 +173,11 @@ enum SettingsKey {
     static let timelineSpeed = "timeline.speed"
     /// The ledger scrolls to the playhead as it plays or is dragged.
     static let timelineFollow = "timeline.follow"
-    /// Where a session's canvas was left: one camera per session.
-    static func canvasCamera(_ sessionID: String) -> String { "canvas.camera." + sessionID }
+    /// "braid" (reading order) or "score" (time-true staves).
+    static let canvasLayout = "canvas.layout"
+    /// The Score's time scale, in canvas points a second, and whether files that kept coming back have rows.
+    static let scoreScale = "canvas.score.scale"
+    static let scoreFiles = "canvas.score.files"
+    /// Where a session's canvas was left: one camera per session and layout.
+    static func canvasCamera(_ sessionID: String, score: Bool = false) -> String { (score ? "canvas.camera.score." : "canvas.camera.") + sessionID }
 }

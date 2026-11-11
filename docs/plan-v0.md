@@ -250,9 +250,29 @@ built: the ledger's row height as a true time scale (it grows a little with dura
 memory of where the playhead was. Done when: "where did the time go" and "what was happening at this moment" are
 answered for the largest session.
 
-**M12 Canvas: Score.** Mock: Canvas layout Score. Staves on M10's camera with M11's doubly warped time axis: action
-bars, tool lanes, subagent strands with spawn and hand-back arrows, background pills, hot-file rows, ruler, gutter,
-legend. Engine: nothing new. Done when: who was working at the same time reads at 80 to 160 % zoom.
+**M12 Canvas: Score (built; Juan's pass in the live window pending).** Mock: Canvas layout Score.
+
+- Canvas › Layout is Braid or Score, a switch at the left of the Canvas's bar (and behind the gear, and in Settings).
+  Each layout keeps its own camera per session.
+- Time runs left to right on M11's `TimeAxis` at a scale, warped twice: idle gaps over 90 s are hatched bands labelled
+  with how long, and no two moments are closer than 14 points. Both warps are the same for every row, so what stands
+  above what happened at the same time.
+- Rows: You (a chip where each turn began), Agent (a bar per action: solid while the model worked, light while its tools
+  ran, empty while it waited after speaking; under it the tool calls, one lane for each that ran at once, red outline
+  when one failed, dashed when it started something that outlived it), one row per subagent running at once (its steps
+  along the bottom, an arrow from the call that spawned it and a dashed one into the action that used it), Background (a
+  dashed pill from launch to where it was last read, tied to both), and a row for each of up to eight files touched
+  three times or more (a square per touch, filled when written).
+- Over the canvas, fixed: a ruler with a pill per turn and how far into the session the view is, and the rows' names.
+  From far away a turn is one bar; closer its actions; closer still their words. The pointer says what any bar is.
+- Fit Rows (the default view: every row, from the start), All, Focus, the minimap, find (matches ringed, the rest
+  faded), selection, the drawer, the context menu and links as on the Braid. Time scale (Tight, Normal, Wide) and the
+  file rows are options.
+
+Engine: nothing new. The action bars follow M11's reading of a span: the model's part starts when the action before it
+finished, so the bars of a turn tile it. `decisions/0012-the-canvas-is-drawn.md` has the frame times (8 to 10 ms up
+close at full-screen Retina size). Not built: collapsing turns on the Score; compactions on the ruler. Done when: who
+was working at the same time reads at 80 to 160 % zoom.
 
 **M13 Files, Stats, Compare, Claude.** Four pages of lists, tables and cards. Each ships on its own, in this order.
 

@@ -29,12 +29,12 @@ just client-app-install   the same, copied into /Applications
 
 The views, by file: `SessionsView` (home), `SummaryView` (the dashboard, search in this session, the digest, the hours
 grid), `TranscriptView` and `TranscriptRows`, `Drawer` (the inspector under both), `SearchPage` (the Finder),
-`PaletteView` (⌘K), `CanvasView` (the Braid: `BraidLayout` says what each node says and where it is, `BraidCanvas` is
-the AppKit view that draws it and takes the pointer, ADR 0012), `ArcsMap` (the Summary's map), `TimelineView` (the strip
-and the playhead in `TimelineStrip`, the rows in `Ledger`; `TimelineLayout` holds `TimeAxis`, which cuts idle time and
-maps moments to points, and what the strip draws). `SessionModel` is what they all read; `Commands` holds every command
-once, for the menu bar and the palette; `Export` writes Markdown through the engine and builds and reads
-`skit-visualizer://` links.
+`PaletteView` (⌘K), `CanvasView` (two layouts on one camera, ADR 0012: `CanvasBase` is the AppKit view that holds the
+camera and takes the pointer; `BraidLayout` and `BraidCanvas` say and draw the Braid, `ScoreLayout` and `ScoreCanvas`
+the Score), `ArcsMap` (the Summary's map), `TimelineView` (the strip and the playhead in `TimelineStrip`, the rows in
+`Ledger`; `TimelineLayout` holds `TimeAxis`, which cuts idle time and maps moments to points, and what the strip draws).
+`SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the palette; `Export`
+writes Markdown through the engine and builds and reads `skit-visualizer://` links.
 
 ## Rules
 
@@ -78,8 +78,9 @@ on the Search page `--mode meaning`, `--kind <kind>` (chosen after the first res
 (every session's hits shown), and on the Canvas `--zoom 0.3`, `--fit all|width`, `--collapse`. The offscreen window
 never takes the keyboard, and a snapshot neither reads nor writes where a session's canvas was left.
 
-`--measure-canvas <session id> [--size 1728x1000]` builds the Braid of a session and prints what a frame costs along a
-pan at each level of detail and through a zoom (use a release build: `swift build -c release`).
+`--measure-canvas <session id> [--score] [--size 1728x1000]` builds the Braid (or the Score) of a session and prints
+what a frame costs along a pan at each level of detail and through a zoom (use a release build:
+`swift build -c release`).
 
 `--measure <session id>` prints how long each step of opening a session takes (fetch, decode, build), twice: once as
 found and once with the session in the engine's memory. One known limit: the toolbar's glass controls draw as white
@@ -87,12 +88,13 @@ shapes in a dark offscreen capture; in a real window they are dark.
 
 ## The live exercise
 
-`just client-exercise summary <session id>` (or `transcript <id>`, `timeline <id>`, `search <words>`) opens a real
-window on that page, scrolls it from top to bottom with a pointer resting on the page, and quits; on the Timeline it
-then plays the playhead for a few seconds with the ledger following. If the scroll stops advancing, the main thread is
-stuck: the script samples the process and exits 1. Run it on a long session after changing how a scrolling page is laid
-out. The window appears on screen for a few seconds. `--scroll-through` does the same offscreen in snapshot mode, which
-found nothing the day the Summary froze: only a live window with a pointer did.
+`just client-exercise summary <session id>` (or `transcript <id>`, `timeline <id>`, `canvas <id>`, `search <words>`)
+opens a real window on that page, scrolls it from top to bottom with a pointer resting on the page, and quits; on the
+Timeline it then plays the playhead for a few seconds with the ledger following, and on the Canvas it pans and zooms the
+camera (`canvas <id> -canvas.layout score` for the Score). It writes nothing the app remembers. If the scroll stops
+advancing, the main thread is stuck: the script samples the process and exits 1. Run it on a long session after changing
+how a scrolling page is laid out. The window appears on screen for a few seconds. `--scroll-through` does the same
+offscreen in snapshot mode, which found nothing the day the Summary froze: only a live window with a pointer did.
 
 ## Toolchain
 

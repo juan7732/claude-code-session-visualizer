@@ -13,6 +13,8 @@ nonisolated enum CanvasFont {
     nonisolated(unsafe) static let small = make(11, .regular)
     nonisolated(unsafe) static let smallBold = make(11, .semibold)
     nonisolated(unsafe) static let strand = make(11.5, .regular)
+    /// On a tool call's bar in the Score: eleven points tall, so the words are small.
+    nonisolated(unsafe) static let tiny = make(9, .medium)
     nonisolated(unsafe) static let mono = makeMono(10)
     nonisolated(unsafe) static let note = makeMono(10.5)
     nonisolated(unsafe) static let turn = CTFontCreateWithName("AvenirNext-Bold" as CFString, 12, nil)

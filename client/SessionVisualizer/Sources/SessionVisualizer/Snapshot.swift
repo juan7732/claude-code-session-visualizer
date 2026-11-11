@@ -132,7 +132,7 @@ enum Measure {
     }
 }
 
-/// `SessionVisualizer --measure-canvas <session id> [--socket path] [--size 1500x900]`: what a
+/// `SessionVisualizer --measure-canvas <session id> [--score] [--socket path] [--size 1500x900]`: what a
 /// frame of the Canvas costs. Builds the Braid of the session, then draws it
 /// offscreen along a pan at each level of detail and through a zoom, and prints
 /// milliseconds per frame. A frame at 60 a second has 16.7 ms.
@@ -163,6 +163,10 @@ enum MeasureCanvas {
             print(String(format: "layout, every turn collapsed            %7.1f ms   %d nodes, %.0f points tall", ms(t), collapsed.nodes.count, collapsed.bounds.height))
 
             _ = NSApplication.shared
+            if arguments.contains("--score") {
+                measureScore(model: model, size: size)
+                exit(0)
+            }
             let view = BraidCanvasNSView(frame: CGRect(origin: .zero, size: size))
             view.content = content
             view.layout = layout
@@ -208,10 +212,49 @@ enum MeasureCanvas {
     }
 }
 
+extension MeasureCanvas {
+    /// `--measure-canvas <id> --score`: the Score's layout and frames, along a pan through time at each level of detail.
+    static func measureScore(model: SessionModel, size: CGSize) {
+        func ms(_ start: Date) -> Double { Date().timeIntervalSince(start) * 1000 }
+        var t = Date()
+        let layout = ScoreLayout(model: model)
+        print(String(format: "score layout (axis, rows, every label broken into lines)  %7.1f ms   %d nodes, %d edges, %d idle bands, %.0f × %.0f points",
+                     ms(t), layout.nodes.count, layout.edges.count, layout.bands.count, layout.bounds.width, layout.bounds.height))
+        let view = ScoreCanvasNSView(frame: CGRect(origin: .zero, size: size))
+        view.layout = layout
+        let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = view
+        guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+            print("measure: no bitmap")
+            exit(1)
+        }
+        print(String(format: "drawing %d × %d pixels, light and dark:", bitmap.pixelsWide, bitmap.pixelsHigh))
+        for palette in [Palette.light, Palette.dark] {
+            view.colors = CanvasColors(palette)
+            for (name, scale) in [("near, 130 %, a pan through the session", 1.3), ("near, 80 %", 0.8), ("mid, 50 %", 0.5), ("far, 25 %", 0.25), ("far, 8 %", 0.08)] {
+                var times: [Double] = []
+                for frame in 0..<180 {
+                    view.camera = Camera(x: 130 - max(0, layout.bounds.width * scale - size.width) * CGFloat(frame) / 179, y: 70, scale: scale)
+                    t = Date()
+                    view.cacheDisplay(in: view.bounds, to: bitmap)
+                    times.append(ms(t))
+                }
+                times.sort()
+                print(String(format: "  %@  median %5.1f ms   95th %5.1f ms   worst %5.1f ms", name.padding(toLength: 44, withPad: " ", startingAt: 0),
+                             times[times.count / 2], times[times.count * 95 / 100], times[times.count - 1]))
+            }
+        }
+    }
+}
+
 enum Snapshot {
     /// This process renders one picture and exits: it reads and writes none of
     /// what a person's own windows remember (where a canvas was left).
     static let active = CommandLine.arguments.contains("--snapshot")
+    /// A run that is not a person's: a snapshot, or the live exercise. It writes
+    /// nothing a person's own windows remember (the exercise pans a canvas, and
+    /// once left its camera in the real settings).
+    static let keepsNothing = active || ProcessInfo.processInfo.environment["SKIT_EXERCISE"] != nil
 
     static func run(_ request: SnapshotRequest) -> Never {
         let app = NSApplication.shared

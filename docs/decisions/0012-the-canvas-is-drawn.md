@@ -36,3 +36,20 @@ trackpad. The cost of this choice: the cards are not accessibility elements and 
 (the accessibility pass was declined on 2026-11-09; the Transcript shows the same session as real views). If frames ever
 cost too much, the next step is to keep the drawn cards as images per level of detail, not to change the approach. The
 Score (M12) and the Timeline (M11) can draw on the same view with a different layout.
+
+**The Score, on the same view (M12, 2026-11-10).** The camera, the events, the background, the glyph cache and the
+selection rings moved into a base class (`CanvasNSView`); the Braid and the Score are subclasses that say what is drawn
+under the camera, what stays put over it (the Score's ruler and row names) and what is under a point. The Score has no
+content step: its layout is made whole, off the main thread, in 7 to 14 ms, and again when the time scale changes.
+Measured the same way with `--measure-canvas <id> --score`, a pan through the whole session:
+
+| Session                                                | near, 130 %    | near, 80 %    | mid, 50 %    | far, 25 %    |
+| ------------------------------------------------------ | -------------- | ------------- | ------------ | ------------ |
+| 165 turns, 346 actions, 129 idle bands, 3456 × 2000 px | 10.1 / 12.0 ms | 9.8 / 10.9 ms | 7.7 / 9.0 ms | 6.0 / 6.5 ms |
+| 31 turns, 255 actions, 498 tool calls, 3456 × 2000 px  | 8.0 / 10.5 ms  | 7.7 / 9.3 ms  | 5.8 / 6.7 ms | 4.3 / 4.6 ms |
+| 27 turns, 2 subagents, 7 background tasks, 3456 × 2000 | 10.0 / 11.4 ms | 9.7 / 10.6 ms | 7.2 / 7.9 ms | 5.1 / 5.5 ms |
+
+Inside a 60-a-second frame, not inside a 120-a-second one (8.3 ms) up close. What it took to get there: the hatch of
+every idle band in one path, cut to the band by arithmetic and not by a clip; plain lines for dashes that are under a
+pixel; steps of the background colour for the fades behind the ruler and the row names, where gradients cost a fifth of
+the frame. What is left is about a third nodes, a third bands, a fifth the overlays.
