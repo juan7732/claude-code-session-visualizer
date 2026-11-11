@@ -37,6 +37,12 @@
         "expires_at": "2026-11-09T10:00:40Z",
         "seconds_left": 0
       },
+      "host": {
+        "kind": "terminal",
+        "app": "Terminal",
+        "app_path": "/System/Applications/Utilities/Terminal.app",
+        "sure": true
+      },
       "bytes": 4944
     },
     {
@@ -64,6 +70,16 @@
         "ttl_seconds": 0,
         "last_request_at": "2026-11-08T11:00:06Z",
         "seconds_left": 0
+      },
+      "host": {
+        "kind": "editor",
+        "app": "Visual Studio Code",
+        "app_path": "/Applications/Visual Studio Code.app",
+        "open": "/fixture/home/proj",
+        "folders": [
+          "/fixture/home/proj"
+        ],
+        "sure": true
       },
       "bytes": 1882
     },

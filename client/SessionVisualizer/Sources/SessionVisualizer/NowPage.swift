@@ -112,9 +112,19 @@ private struct NowCard: View {
                 }
                 Spacer()
                 if let project = session.project, !project.isEmpty {
-                    Button("Open") { window.open(session: session.id, view: .summary) }
-                        .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.accent)
-                        .help("Open this session")
+                    Button("Details") { window.open(session: session.id, view: .summary) }
+                        .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(palette.muted)
+                        .help("Open this session here: its summary, transcript, canvas, timeline and files")
+                }
+                // Back to where the work is: the editor's window, or the terminal.
+                if let host = session.host {
+                    Button {
+                        HostOpener.open(host)
+                    } label: {
+                        Label(HostContent.title(host), systemImage: "arrow.up.forward.app")
+                    }
+                    .buttonStyle(.plain).font(.system(size: 12, weight: .semibold)).foregroundStyle(palette.accent)
+                    .help(HostContent.help(host))
                 }
             }
         }
@@ -131,7 +141,11 @@ private struct NowCard: View {
         }
         .onHover { hover = $0 }
         .contextMenu {
-            Button("Open") { window.open(session: session.id, view: .summary) }
+            if let host = session.host {
+                Button(HostContent.title(host)) { HostOpener.open(host) }
+                Divider()
+            }
+            Button("Open Its Summary") { window.open(session: session.id, view: .summary) }
             Button("Open the Transcript at Its End") { window.open(session: session.id, view: .transcript) }
             if let cwd = session.cwd {
                 Divider()
@@ -158,9 +172,10 @@ private struct NowCard: View {
             .frame(height: 4)
             HStack(spacing: 6) {
                 Image(systemName: state.level == .cold ? "snowflake" : "flame").font(.system(size: 10.5)).foregroundStyle(tint)
-                Text(state.text).font(.system(size: 12)).monospacedDigit().foregroundStyle(state.level == .soon ? palette.warn : palette.ink2).lineLimit(1)
+                // The time is what is read at a glance; what it is worth yields when the card is narrow.
+                Text(state.text).font(.system(size: 12)).monospacedDigit().foregroundStyle(state.level == .soon ? palette.warn : palette.ink2).lineLimit(1).layoutPriority(1)
                 Spacer(minLength: 4)
-                Text(state.note).font(.system(size: 11.5)).foregroundStyle(palette.muted).lineLimit(1)
+                Text(state.note).font(.system(size: 11.5)).foregroundStyle(palette.muted).lineLimit(1).minimumScaleFactor(0.85)
             }
         }
         .help(NowContent.cacheHelp(cache))
@@ -311,7 +326,7 @@ nonisolated enum NowContent {
 
     /// The cache at `now`: how full the bar is, what it says, and what is at stake.
     static func cache(_ cache: NowReport.Cache, now: Date, lead: Int) -> (level: CacheLevel, fraction: Double, text: String, note: String) {
-        let context = Format.tokens(cache.contextTokens) + " of context"
+        let context = Format.tokens(cache.contextTokens) + " context"
         guard let expires = cache.expiresAt, cache.ttlSeconds > 0 else {
             return (.unknown, 0, "Cache: lifetime not known", context)
         }
@@ -320,13 +335,13 @@ nonisolated enum NowContent {
             return (.cold, 0, "Cache expired \(elapsed(from: expires, to: now)) ago", "the next prompt pays for " + Format.tokens(cache.contextTokens))
         }
         let level: CacheLevel = left <= Double(lead) * 60 ? .soon : .warm
-        // Said in full: "100% read" alone did not say of what, or from where.
-        let read = "\(Int((cache.hitRatio * 100).rounded()))% of the last request from cache"
-        return (level, min(1, left / Double(cache.ttlSeconds)), "Cache warm for \(elapsed(from: now, to: expires))", read + " · " + context)
+        // "100% read" alone did not say from where; of what (the last request's input) is in the tooltip.
+        let read = "\(Int((cache.hitRatio * 100).rounded()))% from cache"
+        return (level, min(1, left / Double(cache.ttlSeconds)), "Warm for \(elapsed(from: now, to: expires))", read + " · " + context)
     }
 
     static func cacheHelp(_ cache: NowReport.Cache) -> String {
-        var lines = ["The last request read \(Format.tokens(cache.readTokens)) tokens from the prompt cache, wrote \(Format.tokens(cache.writtenTokens)) to it and sent \(Format.tokens(cache.uncachedTokens)) uncached."]
+        var lines = ["\(Int((cache.hitRatio * 100).rounded()))% from cache: of everything the last request sent to the model, that much was read from the prompt cache at a fraction of the price. The context is all of it: what the next prompt pays for in full once the cache is gone.", "The last request read \(Format.tokens(cache.readTokens)) tokens from the prompt cache, wrote \(Format.tokens(cache.writtenTokens)) to it and sent \(Format.tokens(cache.uncachedTokens)) uncached."]
         if let expires = cache.expiresAt {
             lines.append("It was sent at \(cache.lastRequestAt.formatted(date: .omitted, time: .standard)) and wrote entries that live \(cache.ttlSeconds >= 3600 ? "an hour" : "five minutes"), so the cache lasts until \(expires.formatted(date: .omitted, time: .standard)). Every request pushes that back.")
         } else {

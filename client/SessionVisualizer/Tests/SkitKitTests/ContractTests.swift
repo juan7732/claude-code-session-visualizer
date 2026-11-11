@@ -235,15 +235,20 @@ import Testing
         let blocked = try session("cccccccc")
         #expect(blocked.state == .blocked && blocked.running && blocked.waitingFor == "approve Bash" && blocked.name == "work-1" && blocked.entrypoint == "claude-vscode")
         #expect(blocked.pid != nil && blocked.processStatus == "waiting" && blocked.cwd == "/Users/me/work" && blocked.since > blocked.lastAt)
+        // It runs in an editor's window, found from its process; the window's folder is what brings it forward.
+        let window = try #require(blocked.host)
+        #expect(window.kind == "editor" && window.app == "Visual Studio Code" && window.appPath == "/Applications/Visual Studio Code.app" && window.sure)
+        #expect(window.open?.hasSuffix("/proj") == true && window.folders == [window.open ?? ""])
         // A process at work whose transcript ends on what the person typed.
         let working = try session("dddddddd")
         #expect(working.state == .model && working.running && working.title == "Deploy to staging" && working.tools.isEmpty && working.model == "claude-fable-5-1")
+        #expect(working.host?.kind == "terminal" && working.host?.app == "Terminal" && working.host?.open == nil && working.host?.folders.isEmpty == true)
         let cache = try #require(working.cache)
         #expect(cache.ttlSeconds == 3600 && cache.readTokens == 900 && cache.writtenTokens == 86 && cache.uncachedTokens == 14 && cache.contextTokens == 1000 && cache.hitRatio == 0.9)
         #expect(cache.expiresAt == cache.lastRequestAt.addingTimeInterval(3600) && cache.secondsLeft == 0)
         // No process: closed, with what it last said; and a transcript nothing was asked in.
         let closed = try session("aaaaaaaa")
-        #expect(closed.state == .closed && !closed.running && closed.pid == nil && closed.title == "Synthetic basics" && closed.said?.isEmpty == false)
+        #expect(closed.state == .closed && !closed.running && closed.pid == nil && closed.host == nil && closed.title == "Synthetic basics" && closed.said?.isEmpty == false)
         #expect(closed.cache?.expiresAt == nil && closed.cache?.ttlSeconds == 0, "its requests' usage does not say how long their writes live")
         let empty = try session("bbbbbbbb")
         #expect(empty.state == .closed && empty.cache == nil && empty.lastPrompt == nil && (empty.title ?? "").isEmpty)

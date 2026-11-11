@@ -69,16 +69,38 @@ public struct NowReport: Codable, Sendable, Equatable {
         public var lastAt: Date
         public var model: String?
         public var cache: Cache?
+        /// The editor window or the terminal a running session is in, when the engine found it.
+        public var host: Host?
         public var bytes: Int?
 
         enum CodingKeys: String, CodingKey {
-            case id, project, cwd, title, running, name, entrypoint, pid, state, since, tools, said, model, cache, bytes
+            case id, project, cwd, title, running, name, entrypoint, pid, state, since, tools, said, model, cache, host, bytes
             case workDir = "work_dir"
             case processStatus = "process_status"
             case waitingFor = "waiting_for"
             case subagentsRunning = "subagents_running"
             case lastPrompt = "last_prompt"
             case lastAt = "last_at"
+        }
+    }
+
+    /// Where a running session's process lives.
+    public struct Host: Codable, Sendable, Equatable {
+        /// "editor" (the extension, or `claude` in the editor's own terminal) or "terminal".
+        public var kind: String
+        /// The application's name, and its bundle when the process tree showed one.
+        public var app: String
+        public var appPath: String?
+        /// What to open with the application to bring that window forward: a workspace file or a
+        /// folder. Nil when the window cannot be named; opening the application is then all there is.
+        public var open: String?
+        @EmptyWhenNull public var folders: [String]
+        /// False when the window was chosen because it has the session's folder open, not found from its process.
+        public var sure: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case kind, app, open, folders, sure
+            case appPath = "app_path"
         }
     }
 

@@ -78,7 +78,10 @@ export HOME="$work/home"
 export TZ=UTC
 unset SKIT_HOME CLAUDE_CONFIG_DIR
 sock="$work/s.sock"
-"$work/skit" serve --socket "$sock" --no-watch --quiet 2>"$work/serve.log" &
+# The server asks ps and lsof where a running session's process lives. It finds stand-ins first,
+# so a recording says the same wherever it is made (they are written further down).
+mkdir -p "$work/bin"
+PATH="$work/bin:$PATH" "$work/skit" serve --socket "$sock" --no-watch --quiet 2>"$work/serve.log" &
 pid=$!
 trap 'kill $pid 2>/dev/null; rm -rf "$work"' EXIT
 for _ in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do [ -S "$sock" ] && break; sleep 0.1; done
@@ -116,8 +119,29 @@ get /v0/primitives primitives.json
 mkdir -p "$home/.claude/sessions"
 printf '{"pid":%s,"sessionId":"%s","cwd":"/Users/me/work","name":"work-1","status":"waiting","waitingFor":"approve Bash","entrypoint":"claude-vscode","kind":"interactive","startedAt":1794300000000,"updatedAt":1794300060000,"statusUpdatedAt":1794300060000}\n' "$pid" "$out_id" > "$home/.claude/sessions/$pid.json"
 printf '{"pid":%s,"sessionId":"%s","cwd":"%s","name":"proj-2","status":"busy","entrypoint":"cli","kind":"interactive","startedAt":1794300000000,"updatedAt":1794300090000,"statusUpdatedAt":1794300090000}\n' "$$" "$prim_id" "$proj" > "$home/.claude/sessions/$$.json"
+# Where they run: the first is the extension's, a child of the editor process that listens on the
+# port of a window's lock file; the second descends from a terminal.
+mkdir -p "$home/.claude/ide"
+printf '{"pid":%s,"workspaceFolders":["%s"],"ideName":"Visual Studio Code","authToken":"never-recorded"}\n' "$pid" "$proj" > "$home/.claude/ide/4455.lock"
+cat > "$work/bin/ps" <<SH
+#!/bin/sh
+case "\$*" in
+  *"comm="*"-p $pid") echo "900 /Users/me/.vscode/extensions/anthropic.claude-code/resources/native-binary/claude" ;;
+  *"comm="*"-p 900") echo "1 /Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)" ;;
+  *"comm="*"-p $$") echo "901 /usr/local/bin/claude" ;;
+  *"comm="*"-p 901") echo "902 /bin/zsh" ;;
+  *"comm="*"-p 902") echo "1 /System/Applications/Utilities/Terminal.app/Contents/MacOS/Terminal" ;;
+  *"command="*) echo "claude" ;;
+  *) exit 1 ;;
+esac
+SH
+cat > "$work/bin/lsof" <<SH
+#!/bin/sh
+case "\$*" in *"-p 900"*) printf 'p900\\nn127.0.0.1:4455\\n' ;; *) exit 1 ;; esac
+SH
+chmod +x "$work/bin/ps" "$work/bin/lsof"
 get "/v0/now?minutes=600" now.json
-rm -rf "$home/.claude/sessions"
+rm -rf "$home/.claude/sessions" "$home/.claude/ide"
 get "/v0/primitives?kind=skill&name=deploy" primitive.json
 curl -sS --unix-socket "$sock" "http://skit/v0/sessions/nope/stats" -o "$out/error.json"
 "$work/skit" service status --json > "$out/service-status.json"

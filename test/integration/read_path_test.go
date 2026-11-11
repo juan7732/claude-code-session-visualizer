@@ -513,7 +513,7 @@ func TestNow_WhatSessionsAreDoing(t *testing.T) {
 	res := h.Run("now")
 	res.AssertOK(t)
 	for _, want := range []string{"Now  2 sessions at work in the last 60 minutes", "Running the tests", "running Bash Run every test, for 1m", "work-1",
-		"cache  90% of the last request read · context 1k · expires in 58m", "closed 19m", "said   Hello.", "asked  Run the tests"} {
+		"cache  90% of the last request read from it · context 1k · expires in 58m", "closed 19m", "said   Hello.", "asked  Run the tests"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("now lacks %q:\n%s", want, res.Stdout)
 		}
@@ -549,5 +549,66 @@ func TestNow_WhatSessionsAreDoing(t *testing.T) {
 	// A window that the closed one fell out of.
 	if res = h.Run("now", "--minutes", "5", "--json"); !strings.Contains(res.Stdout, busy) || strings.Contains(res.Stdout, closed) {
 		t.Fatalf("a five-minute window:\n%s", res.Stdout)
+	}
+}
+
+// TestNow_WhichEditorWindow: a session's process is a child of the editor
+// process that listens on the port of one window's lock file, so that window's
+// workspace is what `now` says to open. ps and lsof are shims: the process
+// tree is a Mac's, wherever the suite runs.
+func TestNow_WhichEditorWindow(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	id := "abababab-0000-0000-0000-000000000007"
+	now := time.Now().UTC()
+	h.SeedSession("-work", id,
+		`{"type":"user","uuid":"u1","sessionId":"`+id+`","cwd":"/work/alpha","turnOrigin":"human","timestamp":"`+now.Add(-time.Minute).Format(time.RFC3339Nano)+`","message":{"role":"user","content":"Hello"}}`,
+		`{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"`+now.Add(-50*time.Second).Format(time.RFC3339Nano)+`","message":{"model":"claude-fable-5-1","stop_reason":"end_turn","content":[{"type":"text","text":"Hello."}],"usage":{"input_tokens":1,"output_tokens":1}}}`)
+	pid := os.Getpid()
+	h.WriteFile(fmt.Sprintf("sessions/%d.json", pid), fmt.Sprintf(`{"pid":%d,"sessionId":%q,"cwd":"/work/alpha","name":"alpha-1","status":"idle","entrypoint":"claude-vscode","startedAt":1,"updatedAt":%d,"statusUpdatedAt":%d}`,
+		pid, id, now.UnixMilli(), now.UnixMilli()))
+	workspace := filepath.Join(h.Home, "pair.code-workspace")
+	h.WriteFile("../pair.code-workspace", `{"folders":[{"path":"/work/alpha"},{"path":"/work/beta"}]}`)
+	h.WriteFile("ide/4001.lock", fmt.Sprintf(`{"pid":%d,"workspaceFolders":["/work/alpha","/work/beta"],"ideName":"Visual Studio Code","authToken":"never-printed"}`, pid))
+	h.WriteFile("ide/4002.lock", fmt.Sprintf(`{"pid":%d,"workspaceFolders":["/work/alpha"],"ideName":"Visual Studio Code"}`, pid))
+	h.WriteFile("../Library/Application Support/Code/User/globalStorage/storage.json",
+		`{"windowsState":{"openedWindows":[{"folder":"file:///work/alpha"},{"workspaceIdentifier":{"id":"x","configURIPath":"file://`+workspace+`"}}]}}`)
+	// The session's process (the test's) has parent 7001, an extension host that listens on 4001.
+	h.Shim("ps", fmt.Sprintf(`case "$*" in
+  *"comm="*"-p %d") echo "7001 /Users/me/.vscode/extensions/anthropic.claude-code/resources/native-binary/claude" ;;
+  *"comm="*"-p 7001") echo "7000 /Applications/Visual Studio Code.app/Contents/Frameworks/Code Helper (Plugin).app/Contents/MacOS/Code Helper (Plugin)" ;;
+  *"command="*) echo "claude --verbose TERM=xterm" ;;
+  *) exit 1 ;;
+esac`, pid))
+	h.Shim("lsof", `case "$*" in *"-p 7001"*) printf 'p7001\nf23\nn127.0.0.1:50123\nf24\nn127.0.0.1:4001\n' ;; *) exit 1 ;; esac`)
+
+	res := h.Run("now", "--json")
+	res.AssertOK(t)
+	var rep struct {
+		Sessions []struct {
+			State string `json:"state"`
+			Host  *struct {
+				Kind    string   `json:"kind"`
+				App     string   `json:"app"`
+				AppPath string   `json:"app_path"`
+				Open    string   `json:"open"`
+				Folders []string `json:"folders"`
+				Sure    bool     `json:"sure"`
+			} `json:"host"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil || len(rep.Sessions) != 1 || rep.Sessions[0].Host == nil {
+		t.Fatalf("now --json: %v\n%s", err, res.Stdout)
+	}
+	host := rep.Sessions[0].Host
+	// Two windows have /work/alpha open; the process says which one it is.
+	if host.Kind != "editor" || host.App != "Visual Studio Code" || host.AppPath != "/Applications/Visual Studio Code.app" || !host.Sure ||
+		host.Open != workspace || len(host.Folders) != 2 || strings.Contains(res.Stdout, "never-printed") {
+		t.Fatalf("host: %+v\n%s", host, res.Stdout)
+	}
+	res = h.Run("now")
+	res.AssertOK(t)
+	if !strings.Contains(res.Stdout, "in Visual Studio Code, window pair.code-workspace") {
+		t.Fatalf("now:\n%s", res.Stdout)
 	}
 }

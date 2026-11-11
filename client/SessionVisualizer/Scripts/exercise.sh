@@ -7,6 +7,7 @@
 #   Scripts/exercise.sh search <words>
 #   Scripts/exercise.sh images <session id> | stats all | claude <experiments|settings|flags|projects|memory|state> | compare recent
 #   Scripts/exercise.sh now <minutes>
+#   Scripts/exercise.sh host <session id>     does what "Open in VS Code" does for that running session, and quits
 #   Scripts/exercise.sh primitives <skill|agent|command|connector|hook|plugin|instructions|memory>
 #
 # A snapshot cannot show a freeze: it draws one frame offscreen. This runs the

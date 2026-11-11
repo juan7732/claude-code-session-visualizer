@@ -90,6 +90,9 @@ Added with M20 (2026-11-11), for the Now page (`now.md` has the whole of it):
   tool calls that are out, what it last said and was last asked, the process that has it open (name, entrypoint, pid,
   status), and its prompt `cache`: what the last request read and wrote, the lifetime of the last write, when it expires
   and the seconds left. Made to be asked every few seconds: only the end of a transcript that changed is read.
+- With M21, a running session in `/v0/now` also has `host`: the editor (`kind: "editor"`) with what to `open` so the
+  window that runs the session comes forward, its folders, and `sure` (found from the session's process, or chosen by
+  its folder); or the terminal application it descends from.
 - `live` on `/v0/status` gained what Claude Code writes beside a process's status: `waitingFor`, `entrypoint`, `kind`,
   `startedAt`, `updatedAt`, `statusUpdatedAt`.
 

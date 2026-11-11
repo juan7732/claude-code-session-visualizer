@@ -3,6 +3,7 @@ package cli
 import (
 	"fmt"
 	"io"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -27,9 +28,13 @@ last said), or closed. It reads the files Claude Code keeps about its running
 processes and the last records of each transcript, never a whole transcript.
 
 The cache line says how much of the last request's input was read from the
-prompt cache and when the cache expires: the time the last request was sent
+prompt cache (the rest was sent and paid for in full) and when the cache expires: the time the last request was sent
 plus the lifetime of what it wrote (five minutes or an hour). After that, the
 next prompt pays for the whole context again.
+
+For a running session it also says where it runs: the editor and which of its
+windows (found from the session's process, not guessed from its folder), or
+the terminal application.
 
 A permission prompt that is waiting is not in a transcript: it shows only when
 Claude Code marks the process as waiting. Otherwise it reads as a tool that
@@ -112,8 +117,22 @@ func printNow(w io.Writer, rep *now.Report) {
 			}
 		}
 		fmt.Fprintf(w, "  %s\n", strings.Join(where, " · "))
+		if h := s.Host; h != nil {
+			line := "in " + h.App
+			switch {
+			case h.Kind == "terminal":
+			case h.Open != "":
+				line += ", window " + filepath.Base(h.Open)
+			default:
+				line += ", a window that cannot be named"
+			}
+			if h.Kind == "editor" && !h.Sure {
+				line += " (chosen by its folder)"
+			}
+			fmt.Fprintf(w, "  %s\n", line)
+		}
 		if c := s.Cache; c != nil {
-			line := fmt.Sprintf("cache  %.0f%% of the last request read · context %s", c.HitRatio*100, stats.FormatTokens(c.ContextTokens))
+			line := fmt.Sprintf("cache  %.0f%% of the last request read from it · context %s", c.HitRatio*100, stats.FormatTokens(c.ContextTokens))
 			switch {
 			case c.ExpiresAt == nil:
 				line += " · lifetime not known"

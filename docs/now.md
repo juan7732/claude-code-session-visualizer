@@ -91,10 +91,10 @@ reminders, and the mark on Refresh). The clocks on the cards count by themselves
 ## The page
 
 A card per session: a colour and a line for the state with a running clock, the title, what is running or what was last
-said, what was last asked, and the cache as a bar that empties, green until the reminder time, amber inside it, grey
-with "the next prompt pays for 513k" once expired. Running sessions come first, in the order their processes started, so
-cards do not trade places as sessions take turns writing; closed ones follow, the latest first. The window is an hour,
-four hours or a day.
+said, what was last asked, and the cache as a bar that empties ("Warm for 58m · 100% from cache · 620k context"), green
+until the reminder time, amber inside it, grey with "the next prompt pays for 513k" once expired. Running sessions come
+first, in the order their processes started, so cards do not trade places as sessions take turns writing; closed ones
+follow, the latest first. The window is an hour, four hours or a day.
 
 **Reminders.** A card's bell asks for one notification when that session's cache has five minutes left (2, 5, 10 or 15:
 Settings › General › Now). The app keeps one pending notification per session and moves it each time the engine reports
@@ -104,7 +104,51 @@ a later end. Notifications need the installed app; run from the build directory 
 read again. The app reads a session once when it is opened; the button carries a dot when the session in front has moved
 on since (the engine's `last_at` is later than the document's).
 
+## Back to the editor (M21)
+
+A running session carries `host`: where its process lives, so a card can take the person back to it.
+
+```json
+"host": { "kind": "editor", "app": "Visual Studio Code", "app_path": "/Applications/Visual Studio Code.app",
+          "open": "/Users/me/ws/tools.code-workspace", "folders": ["/Users/me/ws/tools", "…"], "sure": true }
+```
+
+**Which window**, as measured with two VS Code windows on two workspaces (2026-11-11):
+
+- Each window's Claude Code extension listens on a port and writes `~/.claude/ide/<port>.lock` with that window's
+  workspace folders and the editor's name. (The file also holds a token, which is never read out.)
+- A session of the extension is a child process of that window's extension host, and the extension host is the process
+  that listens on that port. So: the session's parent, the ports it listens on, the lock with one of them. That is
+  exact, and it does not look at folders: two windows can have the same folder open.
+- `claude` run in the editor's own terminal is told the port in `CLAUDE_CODE_SSE_PORT`; its parents are a terminal host
+  all windows share. A port no lock has is a leftover and is ignored.
+- Only when neither says: the window that has the session's folder open (the deepest folder wins), and `sure` is false.
+
+**What brings it forward.** An editor asked to open a workspace it already has open raises that window instead of making
+another: checked, both ways, with the two windows. For a window on one folder that folder is opened. For a window on
+several, the workspace file is needed (opening one of its folders would make a new window on that folder alone): the
+editor's own record of its open windows (`~/Library/Application Support/Code/User/globalStorage/storage.json`) is
+searched for the workspace that lists exactly the lock's folders, then the folders' own directories for a
+`.code-workspace` file that does. When none is found `open` is empty and only the application can be brought forward.
+
+**A terminal.** A session whose nearest ancestor inside an application bundle is not an editor has `kind: "terminal"`
+and that application. The application can be brought forward; which of its windows or tabs runs the session cannot be
+told from outside. A process with no such ancestor (under a multiplexer, started by a daemon) has no host, unless an
+editor window has its folder open.
+
+The engine asks `ps` (parent and executable, environment) and `lsof` (listening ports): once per session process, kept
+for half a minute. Both ship with macOS; skit is built without cgo, so the system calls behind them are out of reach.
+Without `lsof` the answer falls back to the folder and says so.
+
+In the app: "Open in VS Code" (or "Show Terminal") on each card of a running session, in the card's menu, in an open
+session's More menu, in Session › Open in VS Code (⌥⌘E) and in the palette. The app opens `open` with `app_path`; the
+engine launches nothing. A card's "Details" is what "Open" was: the session in this app.
+
 ## Limits
+
+- Only Visual Studio Code was there to measure. Cursor, Windsurf, VSCodium and VS Code Insiders are VS Code's kin and
+  are handled the same way from their own folder of state; none was tried.
+- A terminal's own window or tab is not raised, only its application.
 
 - **A permission prompt in VS Code may read as a tool running.** It shows as `blocked` only if Claude Code marks the
   process as waiting while the editor's own dialog is open, which was not verified: the session this was built in runs

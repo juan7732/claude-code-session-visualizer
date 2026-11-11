@@ -75,10 +75,10 @@ import Testing
         func cache(_ id: String) throws -> NowReport.Cache { try #require(report.sessions.first { $0.id == id }?.cache) }
         let toolCache = try cache("tool"), youCache = try cache("you"), oldCache = try cache("closed-old"), laterCache = try cache("later")
         let warm = NowContent.cache(toolCache, now: now, lead: 5)
-        #expect(warm.level == .warm && warm.text == "Cache warm for 59m 40s" && warm.note == "90% of the last request from cache · 412k of context" && abs(warm.fraction - 3580.0 / 3600) < 0.001)
+        #expect(warm.level == .warm && warm.text == "Warm for 59m 40s" && warm.note == "90% from cache · 412k context" && abs(warm.fraction - 3580.0 / 3600) < 0.001)
         // Inside the last minutes; and the same cache a little later.
         let soon = NowContent.cache(youCache, now: now, lead: 5)
-        #expect(soon.level == .soon && soon.text == "Cache warm for 50s" && abs(soon.fraction - 50.0 / 300) < 0.001)
+        #expect(soon.level == .soon && soon.text == "Warm for 50s" && abs(soon.fraction - 50.0 / 300) < 0.001)
         #expect(NowContent.cache(youCache, now: now.addingTimeInterval(60), lead: 5).level == .cold)
         let cold = NowContent.cache(oldCache, now: now, lead: 5)
         #expect(cold.level == .cold && cold.fraction == 0 && cold.text == "Cache expired 45m 10s ago" && cold.note == "the next prompt pays for 513k")
@@ -115,6 +115,26 @@ import Testing
         let none = try Self.report(#"{"at":"2026-11-10T13:30:00Z","window_minutes":60,"running_outside_window":0,"sessions":[]}"#)
         reminders.sync(none)
         #expect(!reminders.isOn("tool") && reminders.scheduled.isEmpty)
+    }
+
+    @Test func backToWhereASessionRuns() throws {
+        func host(_ json: String) throws -> NowReport.Host { try JSONDecoder.skit().decode(NowReport.Host.self, from: Data(json.utf8)) }
+        let window = try host(#"{"kind":"editor","app":"Visual Studio Code","app_path":"/Applications/Visual Studio Code.app","open":"/w/pair.code-workspace","folders":["/w/a","/w/b"],"sure":true}"#)
+        #expect(HostContent.title(window) == "Open in VS Code" && HostContent.target(window) == "/w/pair.code-workspace")
+        #expect(HostContent.help(window) == "Brings the VS Code window that runs this session to the front (pair.code-workspace).")
+        // Chosen by its folder: said so.
+        let guessed = try host(#"{"kind":"editor","app":"Cursor","open":"/w/a","folders":["/w/a"],"sure":false}"#)
+        #expect(HostContent.title(guessed) == "Open in Cursor" && HostContent.help(guessed).contains("did not say which window"))
+        // A window on several folders that no workspace file names: the application is all that can be raised.
+        let unnamed = try host(#"{"kind":"editor","app":"Visual Studio Code","folders":["/w/a","/w/b"],"sure":true}"#)
+        #expect(HostContent.target(unnamed) == nil && HostContent.help(unnamed).contains("cannot be raised by itself"))
+        // A terminal: its application comes forward; a folder is never opened in it.
+        let terminal = try host(#"{"kind":"terminal","app":"Terminal","app_path":"/System/Applications/Utilities/Terminal.app","open":"/w/a","sure":true}"#)
+        #expect(HostContent.title(terminal) == "Show Terminal" && HostContent.target(terminal) == nil && HostContent.help(terminal).contains("cannot be told from outside"))
+        #expect(terminal.folders.isEmpty && HostContent.short("Visual Studio Code - Insiders") == "VS Code Insiders" && HostContent.short("iTerm2") == "iTerm2")
+        // An application that is not on this Mac is not opened.
+        let missing = try host(#"{"kind":"terminal","app":"No Such Terminal","app_path":"/Applications/No Such Terminal.app","sure":true}"#)
+        #expect(HostOpener.application(missing) == nil && !HostOpener.open(missing))
     }
 
     /// The app reads a session once; the engine's look at what is at work says when it has moved on, and Refresh reads it again.

@@ -88,6 +88,8 @@ type Session struct {
 	LastAt time.Time `json:"last_at"`
 	Model  string    `json:"model,omitempty"`
 	Cache  *Cache    `json:"cache,omitempty"`
+	// Host is the editor window or the terminal a running session is in, when it could be found.
+	Host *Host `json:"host,omitempty"`
 	// Bytes is the transcript's size.
 	Bytes int64 `json:"bytes"`
 }
@@ -139,9 +141,19 @@ type Options struct {
 type Reader struct {
 	// Alive reports whether a process runs; nil asks the system.
 	Alive func(pid int) bool
+	// Processes answers what finding a session's window needs; nil asks ps and lsof.
+	Processes Processes
 
 	mu    sync.Mutex
 	tails map[string]cached
+	hosts map[int]hostEntry
+}
+
+func (r *Reader) aliveFunc() func(int) bool {
+	if r.Alive != nil {
+		return r.Alive
+	}
+	return processRuns
 }
 
 type cached struct {
@@ -162,10 +174,7 @@ func (r *Reader) Read(rep *catalog.Report, opt Options) (*Report, error) {
 	}
 	out := &Report{At: now.UTC(), WindowMinutes: int(window / time.Minute), Sessions: []Session{}}
 
-	alive := r.Alive
-	if alive == nil {
-		alive = processRuns
-	}
+	alive := r.aliveFunc()
 	// One process per session: when two files name the same session (a process
 	// that died without clearing its file), the one that runs and moved last wins.
 	live := map[string]catalog.LiveSession{}
@@ -219,6 +228,7 @@ func (r *Reader) Read(rep *catalog.Report, opt Options) (*Report, error) {
 				s.Cwd = proc.Cwd
 			}
 			s.Subagents = unfinishedSubagents(strings.TrimSuffix(l.File.Path, ".jsonl"), now)
+			s.Host = r.hostOf(rep.ClaudeDir, proc.PID, proc.StartedAt, proc.Cwd, now)
 		}
 		if s.Cwd == "" {
 			s.Cwd = s.WorkDir
@@ -238,7 +248,8 @@ func (r *Reader) Read(rep *catalog.Report, opt Options) (*Report, error) {
 		}
 		at := millis(proc.StatusUpdatedAt)
 		out.Sessions = append(out.Sessions, Session{ID: id, Cwd: proc.Cwd, Running: true, Name: proc.Name, Entrypoint: proc.Entrypoint,
-			PID: proc.PID, Process: proc.Status, State: processState(proc.Status), WaitingFor: proc.WaitingFor, Since: at, LastAt: at})
+			PID: proc.PID, Process: proc.Status, State: processState(proc.Status), WaitingFor: proc.WaitingFor, Since: at, LastAt: at,
+			Host: r.hostOf(rep.ClaudeDir, proc.PID, proc.StartedAt, proc.Cwd, now)})
 	}
 	sort.SliceStable(out.Sessions, func(i, j int) bool {
 		a, b := out.Sessions[i], out.Sessions[j]
@@ -247,7 +258,7 @@ func (r *Reader) Read(rep *catalog.Report, opt Options) (*Report, error) {
 		}
 		return a.ID < b.ID
 	})
-	r.forget(keep)
+	r.forget(keep, live)
 	return out, nil
 }
 
@@ -350,13 +361,23 @@ func (r *Reader) tailOf(path string, size int64, mtime time.Time) (*tail, error)
 	return t, nil
 }
 
-// forget drops the tails of transcripts that left the window.
-func (r *Reader) forget(keep map[string]bool) {
+// forget drops the tails of transcripts that left the window, and what was
+// found of processes that are gone.
+func (r *Reader) forget(keep map[string]bool, live map[string]catalog.LiveSession) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	for path := range r.tails {
 		if !keep[path] {
 			delete(r.tails, path)
+		}
+	}
+	running := map[int]bool{}
+	for _, l := range live {
+		running[l.PID] = true
+	}
+	for pid := range r.hosts {
+		if !running[pid] {
+			delete(r.hosts, pid)
 		}
 	}
 }

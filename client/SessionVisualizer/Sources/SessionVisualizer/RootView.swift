@@ -191,6 +191,16 @@ struct RootView: View {
                     try? await Task.sleep(for: .milliseconds(250))
                 }
             }
+        } else if what == "host" {
+            // host:<session id>: what a card's "Open in VS Code" does, for a running session, and nothing else.
+            window.page = .now
+            store.nowMinutes = 1440
+            await store.loadNow()
+            let host = store.nowSession(id)?.host
+            let opened = host.map { HostOpener.open($0) } ?? false
+            FileHandle.standardError.write(Data("scroll-through: host of \(id): \(host.map { HostContent.title($0) + " → " + (HostContent.target($0) ?? "the application") } ?? "none") opened=\(opened)\n".utf8))
+            try? await Task.sleep(for: .milliseconds(1500))
+            exit(0)
         } else if what == "now" {
             // now:<minutes>, e.g. now:1440 for every session of the last day.
             store.nowMinutes = Int(id) ?? 60
@@ -390,6 +400,11 @@ struct SessionActions: View {
     var id: String
 
     var body: some View {
+        // A session that is running: back to the window or the terminal it runs in.
+        if let host = store.nowSession(id)?.host {
+            Button(HostContent.title(host)) { HostOpener.open(host) }
+            Divider()
+        }
         Button(store.annotation(id).pinned ? "Unpin" : "Pin") { Task { await store.togglePin(id) } }
         Button("Open in New Window") { openWindow(value: id) }
         Divider()

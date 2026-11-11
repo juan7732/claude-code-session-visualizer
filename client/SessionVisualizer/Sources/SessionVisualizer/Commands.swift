@@ -31,6 +31,9 @@ enum AppActions {
         out.append(AppAction(title: "Go to Sessions") { window.page = .sessions })
         out.append(AppAction(title: "Go to Search", shortcut: "⇧⌘F") { showSearch(window) })
         out.append(AppAction(title: "Go to Now") { window.page = .now })
+        if let host = id.flatMap({ store.nowSession($0)?.host }) {
+            out.append(AppAction(title: HostContent.title(host), shortcut: "⌥⌘E") { HostOpener.open(host) })
+        }
         out.append(AppAction(title: "Refresh", shortcut: "⌘R", enabled: !store.reloading) { refresh(window, store) })
         out.append(AppAction(title: "Go to Stats") { window.page = .stats })
         out.append(AppAction(title: "Go to Primitives") { window.page = .primitives })
@@ -193,7 +196,10 @@ struct AppCommands: Commands {
             Divider()
         }
         CommandMenu("Session") {
-            Button("Continue in Claude") {}.disabled(true) // not scheduled
+            // Where the session runs now, when it does (M21). Continuing a closed one is not scheduled.
+            let host = sessionID.flatMap { store.nowSession($0)?.host }
+            Button(host.map { HostContent.title($0) } ?? "Open in Its Editor") { if let host { HostOpener.open(host) } }
+                .keyboardShortcut("e", modifiers: [.command, .option]).disabled(host == nil)
             Button("Fork from Here…") {}.disabled(true)
             Divider()
             Button("Open in New Window") { if let sessionID { openWindow(value: sessionID) } }.disabled(sessionID == nil)
