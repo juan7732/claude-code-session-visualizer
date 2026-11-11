@@ -137,7 +137,7 @@ struct StatsPage: View {
     }
 
     /// "Google Slides update presentation" for a connector's tool, the name as it is otherwise.
-    static func toolName(_ name: String) -> String {
+    nonisolated static func toolName(_ name: String) -> String {
         guard name.hasPrefix("mcp__") else { return name }
         return name.dropFirst(5).replacingOccurrences(of: "claude_ai_", with: "").replacingOccurrences(of: "__", with: " · ").replacingOccurrences(of: "_", with: " ")
     }

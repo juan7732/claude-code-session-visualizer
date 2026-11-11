@@ -78,11 +78,19 @@ private struct NowCard: View {
     @State private var hover = false
 
     var body: some View {
-        let tint = color(session.state)
+        // Two readings at two distances. The edge says whose move it is (at work, yours, closed) and
+        // holds still; the line beside it says what kind of work, and changes hue with it.
+        let edge = color(session)
+        let activity = NowContent.activity(session)
+        let tint = activity.map(hue) ?? edge
         VStack(alignment: .leading, spacing: 10) {
             HStack(spacing: 7) {
-                Circle().fill(tint).frame(width: 8, height: 8)
-                    .opacity(session.state == .model || session.state == .tool ? (Int(now.timeIntervalSinceReferenceDate) % 2 == 0 ? 1 : 0.45) : 1)
+                if let activity {
+                    Image(systemName: NowContent.symbol(activity)).font(.system(size: 11.5, weight: .semibold)).foregroundStyle(tint).frame(width: 15)
+                        .opacity(Int(now.timeIntervalSinceReferenceDate) % 2 == 0 ? 1 : 0.5)
+                } else {
+                    Circle().fill(tint).frame(width: 8, height: 8)
+                }
                 Text(NowContent.headline(session)).font(.system(size: 12.5, weight: .semibold)).foregroundStyle(tint).lineLimit(1)
                 Text(NowContent.elapsed(from: session.since, to: now) + (session.state == .closed ? " ago" : "")).font(.system(size: 12.5)).monospacedDigit().foregroundStyle(palette.muted)
                 Spacer(minLength: 4)
@@ -90,7 +98,8 @@ private struct NowCard: View {
             }
             Text(NowContent.title(session)).font(.system(size: 15, weight: .semibold)).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
             if let detail = NowContent.detail(session) {
-                Text(detail).font(.system(size: 12.5, design: session.state == .tool ? .monospaced : .default)).foregroundStyle(palette.ink2)
+                Text(detail).font(.system(size: 12.5, design: session.state == .tool || session.state == .model ? .monospaced : .default))
+                    .foregroundStyle(session.state == .model ? palette.muted : palette.ink2)
                     .lineLimit(3).frame(maxWidth: .infinity, alignment: .leading)
             }
             if let asked = session.lastPrompt, !asked.isEmpty {
@@ -137,7 +146,7 @@ private struct NowCard: View {
         .overlay(alignment: .leading) {
             // The edge says who has the next move.
             UnevenRoundedRectangle(topLeadingRadius: Metric.radius, bottomLeadingRadius: Metric.radius, style: .continuous)
-                .fill(tint.opacity(session.state == .closed ? 0.35 : 1)).frame(width: 4)
+                .fill(edge.opacity(session.state == .closed ? 0.35 : 1)).frame(width: 4)
         }
         .onHover { hover = $0 }
         .contextMenu {
@@ -181,14 +190,27 @@ private struct NowCard: View {
         .help(NowContent.cacheHelp(cache))
     }
 
-    private func color(_ state: NowReport.State) -> Color {
-        switch state {
-        case .model: palette.accent
-        case .tool: palette.tool
+    /// Whose move it is.
+    private func color(_ session: NowReport.Session) -> Color {
+        switch session.state {
+        case .model, .background: palette.accent
+        case .tool: session.maybeWaitingForPermission == true ? palette.warn : palette.accent
         case .blocked: palette.err
-        case .background: palette.plug
         case .you: palette.warn
         case .closed, .unknown: palette.muted
+        }
+    }
+
+    /// What kind of work: a hue a kind. Amber and red are kept for "your move".
+    private func hue(_ activity: NowContent.Activity) -> Color {
+        switch activity {
+        case .thinking, .skill: palette.accent
+        case .command, .other: palette.tool
+        case .reading, .searching: Color(hex: 0x1F9BB3)
+        case .editing: Color(hex: 0x3F7FE0)
+        case .web, .connector: palette.plug
+        case .subagent: Color(hex: 0x8E5BD9)
+        case .permission: palette.warn
         }
     }
 }
@@ -208,7 +230,7 @@ nonisolated enum NowContent {
     /// How many running sessions have the next move with the person: the rail's count.
     static func needsYou(_ now: Loadable<NowReport>?) -> Int {
         guard case .loaded(let report) = now else { return 0 }
-        return report.sessions.filter { $0.running && ($0.state == .you || $0.state == .blocked) }.count
+        return report.sessions.filter { $0.running && ($0.state == .you || $0.state == .blocked || $0.maybeWaitingForPermission == true) }.count
     }
 
     static func count(_ n: Int, _ noun: String) -> String { "\(n) \(noun)\(n == 1 ? "" : "s")" }
@@ -251,14 +273,86 @@ nonisolated enum NowContent {
         }
     }
 
+    /// The kind of work a session at work is doing, for its icon and its hue.
+    enum Activity: Equatable { case thinking, command, reading, searching, editing, web, connector, subagent, skill, other, permission }
+
+    /// Nil for a session that is not at work (your move, or closed).
+    static func activity(_ session: NowReport.Session) -> Activity? {
+        switch session.state {
+        case .model: return .thinking
+        case .tool:
+            if session.maybeWaitingForPermission == true { return .permission }
+            return session.tools.first.map { kind(of: $0.name) } ?? .other
+        default: return nil
+        }
+    }
+
+    static func kind(of tool: String) -> Activity {
+        switch tool {
+        case "Bash": .command
+        case "Read": .reading
+        case "Glob", "Grep", "LS", "ToolSearch": .searching
+        case "Edit", "MultiEdit", "Write", "NotebookEdit": .editing
+        case "Agent", "Task": .subagent
+        case "Skill": .skill
+        case _ where tool.hasPrefix("Web"): .web
+        case _ where tool.hasPrefix("mcp__"): .connector
+        default: .other
+        }
+    }
+
+    static func symbol(_ activity: Activity) -> String {
+        switch activity {
+        case .thinking: "ellipsis.bubble"
+        case .command: "terminal"
+        case .reading: "doc.text"
+        case .searching: "doc.text.magnifyingglass"
+        case .editing: "pencil.line"
+        case .web: "globe"
+        case .connector: "puzzlepiece.extension"
+        case .subagent: "person.2"
+        case .skill: "sparkles"
+        case .other: "wrench.adjustable"
+        case .permission: "hand.raised"
+        }
+    }
+
+    /// One call, in a few words: "Reading a file", "Running a command", "Using Google Slides".
+    static func doing(_ tool: String) -> String {
+        switch tool {
+        case "Bash": return "Running a command"
+        case "Read": return "Reading a file"
+        case "Glob", "Grep", "LS": return "Searching the files"
+        case "Edit", "MultiEdit", "NotebookEdit": return "Editing a file"
+        case "Write": return "Writing a file"
+        case "Agent", "Task": return "A subagent is running"
+        case "Skill": return "Loading a skill"
+        case "ToolSearch": return "Looking for a tool"
+        case "WebFetch": return "Reading a web page"
+        case "WebSearch": return "Searching the web"
+        default: break
+        }
+        if tool.hasPrefix("mcp__") {
+            let server = tool.dropFirst(5).components(separatedBy: "__").first ?? ""
+            return "Using " + server.replacingOccurrences(of: "claude_ai_", with: "").replacingOccurrences(of: "_", with: " ")
+        }
+        return "Running " + tool
+    }
+
     /// What it is doing, in a few words.
     static func headline(_ session: NowReport.Session) -> String {
         switch session.state {
-        case .model: return "The model is working"
+        case .model: return session.lastTool == nil ? "Thinking" : "Thinking it over"
         case .tool:
             guard let first = session.tools.first else { return "A tool is running" }
-            if session.tools.count > 1 { return "Running \(session.tools.count) tools" }
-            return first.name == "Agent" || first.name == "Task" ? "A subagent is running" : "Running " + toolName(first.name)
+            if session.tools.count > 1 {
+                // Several calls of one kind read as that kind; a mix is just several calls.
+                let kinds = Set(session.tools.map { kind(of: $0.name) })
+                return kinds.count == 1 ? doing(first.name) + " (\(session.tools.count) at once)" : "Running \(session.tools.count) tools"
+            }
+            // A guess, and worded as one: the engine cannot see a permission prompt in an editor.
+            if session.maybeWaitingForPermission == true { return doing(first.name) + ", or waiting for your permission" }
+            return doing(first.name)
         case .blocked:
             return session.waitingFor.flatMap { $0.isEmpty ? nil : "Needs you: " + $0 } ?? "Needs you inside a turn"
         case .background:
@@ -284,7 +378,12 @@ nonisolated enum NowContent {
         case .you, .closed, .background:
             if let said = session.said, !said.isEmpty { return plain(said) }
             return session.cache == nil && (session.lastPrompt ?? "").isEmpty ? "Nothing has been asked in it yet." : nil
-        case .model, .unknown:
+        case .model:
+            // While the model works: the call it has just had back.
+            guard let last = session.lastTool else { return nil }
+            return "after " + [last.name.hasPrefix("mcp__") ? toolName(last.name) : last.name, last.summary ?? ""].filter { !$0.isEmpty }.joined(separator: "  ")
+                + (last.failed == true ? "  (it failed)" : "")
+        case .unknown:
             return nil
         }
     }

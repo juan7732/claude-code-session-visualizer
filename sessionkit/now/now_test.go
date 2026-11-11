@@ -302,3 +302,51 @@ func TestRequestTimeWithoutCopies(t *testing.T) {
 		t.Errorf("copies no longer kept: last request at %v", c.LastRequestAt)
 	}
 }
+
+// TestWhatTheTranscriptSaysOfWaiting: a call that is a question to the person
+// is "blocked" whatever the process says; a file tool that has been out for a
+// while is suspected of waiting for a permission; and the last call that came
+// back is told while the model works.
+func TestWhatTheTranscriptSaysOfWaiting(t *testing.T) {
+	h := newHome(t)
+	r := &Reader{Alive: func(int) bool { return true }}
+	tool := func(id, name string) string {
+		return fmt.Sprintf(`{"type":"tool_use","id":%q,"name":%q,"input":{"file_path":"/w/a.go"}}`, id, name)
+	}
+	h.session("blocked", 62, prompt("u1", 0, "x"), request(1), answer("a1", 60, "tool_use", tool("q1", "AskUserQuestion"), hour))
+	h.process(1, "blocked", "busy", "", 0)
+	h.session("again", 62, prompt("u1", 0, "x"), request(1), answer("a1", 60, "tool_use", tool("p1", "ExitPlanMode"), hour))
+	h.process(2, "again", "busy", "", 0)
+	h.session("tool", 62, prompt("u1", 0, "x"), request(1), answer("a1", 60, "tool_use", tool("e1", "Edit"), hour))
+	h.process(3, "tool", "busy", "", 0)
+	// A shell command may take as long as it likes.
+	h.session("model", 62, prompt("u1", 0, "x"), request(1), answer("a1", 60, "tool_use", bash("b1"), hour))
+	h.process(4, "model", "busy", "", 0)
+	// A call that came back with an error, and the model at work on it.
+	failed := fmt.Sprintf(`{"type":"user","uuid":"r1","timestamp":%q,"message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"b1","is_error":true,"content":"exit 1"}]}}`, at(70))
+	h.session("you", 70, prompt("u1", 0, "x"), request(1), answer("a1", 60, "tool_use", bash("b1"), hour), failed)
+	h.process(5, "you", "busy", "", 0)
+
+	by := h.read(r, 65, Options{})
+	if s := by["blocked"]; s.State != StateBlocked || s.WaitingFor != "an answer to its question" || !s.Since.Equal(base.Add(60*time.Second)) || len(s.Tools) != 1 {
+		t.Errorf("a question to the person: %+v", s)
+	}
+	if s := by["again"]; s.State != StateBlocked || s.WaitingFor != "your word on its plan" {
+		t.Errorf("a plan to approve: %+v", s)
+	}
+	if s := by["tool"]; s.State != StateTool || s.MaybePermission {
+		t.Errorf("an edit out for five seconds: %+v", s)
+	}
+	by = h.read(r, 75, Options{})
+	if s := by["tool"]; s.State != StateTool || !s.MaybePermission {
+		t.Errorf("an edit out for fifteen seconds: %+v", s)
+	}
+	if s := by["model"]; s.State != StateTool || s.MaybePermission {
+		t.Errorf("a command out for fifteen seconds: %+v", s)
+	}
+	s := by["you"]
+	if s.State != StateModel || s.LastTool == nil || s.LastTool.Name != "Bash" || !s.LastTool.Failed || s.LastTool.Summary != "Run the tests" ||
+		s.LastTool.EndedAt == nil || !s.LastTool.EndedAt.Equal(base.Add(70*time.Second)) || !s.LastTool.Since.Equal(base.Add(60*time.Second)) {
+		t.Errorf("the call that came back last: %+v %+v", s, s.LastTool)
+	}
+}

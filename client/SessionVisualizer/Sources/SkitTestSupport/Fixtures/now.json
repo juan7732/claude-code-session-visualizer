@@ -24,6 +24,13 @@
       "process_status": "busy",
       "state": "model",
       "since": "2026-11-10T08:00:00Z",
+      "last_tool": {
+        "id": "toolu_p4",
+        "name": "Read",
+        "summary": "/fixture/home/.claude/projects/-fixture-proj/memory/a-note.md",
+        "since": "2026-11-09T09:00:35Z",
+        "ended_at": "2026-11-09T09:00:37Z"
+      },
       "last_at": "2026-11-10T08:00:00Z",
       "model": "claude-fable-5-1",
       "cache": {
@@ -59,6 +66,13 @@
       "state": "blocked",
       "since": "2026-11-10T08:41:00Z",
       "waiting_for": "approve Bash",
+      "last_tool": {
+        "id": "toolu_c1",
+        "name": "Bash",
+        "summary": "Commit the guide",
+        "since": "2026-11-08T11:00:04Z",
+        "ended_at": "2026-11-08T11:00:05Z"
+      },
       "last_at": "2026-11-08T11:00:06Z",
       "model": "claude-fable-5-1",
       "cache": {
@@ -92,6 +106,13 @@
       "running": false,
       "state": "closed",
       "since": "2026-11-08T10:01:03.5Z",
+      "last_tool": {
+        "id": "toolu_04",
+        "name": "Edit",
+        "summary": "/xxx/y.go",
+        "since": "2026-11-08T10:00:09Z",
+        "ended_at": "2026-11-08T10:00:09.5Z"
+      },
       "said": "Xxxxxxx xxxxxxx.",
       "last_prompt": "Xxxxxxxx.",
       "last_at": "2026-11-08T10:01:03.5Z",

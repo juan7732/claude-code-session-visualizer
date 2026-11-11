@@ -62,6 +62,11 @@ public struct NowReport: Codable, Sendable, Equatable {
         public var waitingFor: String?
         /// The calls running now, oldest first.
         @EmptyWhenNull public var tools: [Tool]
+        /// The call that came back last: what the model is looking at while it works.
+        public var lastTool: Tool?
+        /// The calls that are out answer at once as a rule and have been out for a while: the engine
+        /// suspects a permission prompt nobody answered. A guess, to be worded as one.
+        public var maybeWaitingForPermission: Bool?
         public var subagentsRunning: Int?
         /// The first line of what the agent last said when it stopped.
         public var said: String?
@@ -76,6 +81,8 @@ public struct NowReport: Codable, Sendable, Equatable {
         enum CodingKeys: String, CodingKey {
             case id, project, cwd, title, running, name, entrypoint, pid, state, since, tools, said, model, cache, host, bytes
             case workDir = "work_dir"
+            case lastTool = "last_tool"
+            case maybeWaitingForPermission = "maybe_waiting_for_permission"
             case processStatus = "process_status"
             case waitingFor = "waiting_for"
             case subagentsRunning = "subagents_running"
@@ -104,12 +111,19 @@ public struct NowReport: Codable, Sendable, Equatable {
         }
     }
 
-    /// A tool call that has not come back.
+    /// A tool call: one that has not come back, or the last one that did (`endedAt`, `failed`).
     public struct Tool: Codable, Sendable, Equatable, Identifiable {
         public var id: String
         public var name: String
         public var summary: String?
         public var since: Date
+        public var endedAt: Date?
+        public var failed: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case id, name, summary, since, failed
+            case endedAt = "ended_at"
+        }
     }
 
     /// The prompt cache as the session's last request left it.

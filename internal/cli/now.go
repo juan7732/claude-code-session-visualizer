@@ -95,6 +95,9 @@ func printNow(w io.Writer, rep *now.Report) {
 				names = append(names, strings.TrimSpace(t.Name+" "+truncate(t.Summary, 50)))
 			}
 			state = fmt.Sprintf("running %s, for %s", strings.Join(names, "; "), ago(s.Since))
+			if s.MaybePermission {
+				state += " (a file tool answers at once: it is probably waiting for your permission)"
+			}
 		case now.StateBlocked:
 			state = "waiting for you inside a turn"
 			if s.WaitingFor != "" {

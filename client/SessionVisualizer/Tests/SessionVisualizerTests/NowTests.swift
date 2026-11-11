@@ -32,8 +32,9 @@ import Testing
         func session(_ id: String) throws -> NowReport.Session { try #require(report.sessions.first { $0.id == id }) }
         let tool = try session("tool"), model = try session("model"), you = try session("you"), blocked = try session("blocked")
         let background = try session("background"), closed = try session("closed-new"), later = try session("later")
-        #expect(NowContent.headline(tool) == "Running Bash" && NowContent.detail(tool) == "Bash  Run the tests")
-        #expect(NowContent.headline(model) == "The model is working" && NowContent.detail(model) == nil)
+        #expect(NowContent.headline(tool) == "Running a command" && NowContent.detail(tool) == "Bash  Run the tests" && NowContent.activity(tool) == .command)
+        #expect(NowContent.headline(model) == "Thinking" && NowContent.detail(model) == nil && NowContent.activity(model) == .thinking)
+        #expect(NowContent.activity(you) == nil && NowContent.activity(blocked) == nil && NowContent.activity(closed) == nil)
         // What it last said, without Markdown's marks.
         #expect(NowContent.headline(you) == "Waiting for you" && NowContent.detail(you) == "See the plan and make test.")
         #expect(NowContent.headline(blocked) == "Needs you: approve Bash" && NowContent.detail(blocked) == "Bash")
@@ -41,11 +42,32 @@ import Testing
         #expect(NowContent.headline(closed) == "Closed" && NowContent.detail(closed) == "Nothing has been asked in it yet.")
         // A state from a newer engine is shown, not refused.
         #expect(later.state == .unknown && NowContent.headline(later) == "At work")
-        var agents = tool
-        agents.tools[0].name = "Agent"
-        #expect(NowContent.headline(agents) == "A subagent is running")
-        agents.tools.append(agents.tools[0])
-        #expect(NowContent.headline(agents) == "Running 2 tools")
+        // The kind of work changes the words, the icon and the hue.
+        var doing = tool
+        for (name, words, kind) in [("Read", "Reading a file", NowContent.Activity.reading), ("Grep", "Searching the files", .searching), ("Edit", "Editing a file", .editing),
+                                    ("Write", "Writing a file", .editing), ("Agent", "A subagent is running", .subagent), ("WebSearch", "Searching the web", .web),
+                                    ("mcp__claude_ai_Google_Slides__update", "Using Google Slides", .connector), ("Skill", "Loading a skill", .skill), ("NewTool", "Running NewTool", .other)] {
+            doing.tools[0].name = name
+            #expect(NowContent.headline(doing) == words && NowContent.activity(doing) == kind, "\(name)")
+        }
+        // Several calls at once: one kind is that kind, a mix is a number.
+        doing.tools[0].name = "Read"
+        doing.tools.append(doing.tools[0])
+        #expect(NowContent.headline(doing) == "Reading a file (2 at once)")
+        doing.tools[1].name = "Bash"
+        #expect(NowContent.headline(doing) == "Running 2 tools" && NowContent.activity(doing) == .reading)
+        // A file tool that has been out too long: a guess at a permission prompt, said as one, and counted as the person's move.
+        var waiting = tool
+        waiting.tools[0].name = "Edit"
+        waiting.maybeWaitingForPermission = true
+        #expect(NowContent.headline(waiting) == "Editing a file, or waiting for your permission" && NowContent.activity(waiting) == .permission)
+        #expect(NowContent.symbol(.permission) == "hand.raised" && NowContent.symbol(.command) == "terminal")
+        // While the model works, the call it has just had back.
+        var after = model
+        after.lastTool = tool.tools[0]
+        #expect(NowContent.headline(after) == "Thinking it over" && NowContent.detail(after) == "after Bash  Run the tests")
+        after.lastTool?.failed = true
+        #expect(NowContent.detail(after) == "after Bash  Run the tests  (it failed)")
         #expect(NowContent.toolName("mcp__claude_ai_Google_Slides__update") == "Google Slides · update")
 
         #expect(NowContent.title(tool) == "Fixing the build" && NowContent.title(model) == "model" && NowContent.place(tool) == "work · VS Code" && NowContent.place(model).hasSuffix("terminal"))

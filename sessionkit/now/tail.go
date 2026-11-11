@@ -32,8 +32,10 @@ type tail struct {
 	model      string
 	// lastAt is the time of the last record of the conversation.
 	lastAt time.Time
-	// pending are tool calls with no result yet, oldest first.
-	pending []Tool
+	// pending are tool calls with no result yet, oldest first; lastTool is the
+	// call whose result came back last.
+	pending  []Tool
+	lastTool *Tool
 	// ended is true when the last word is the agent's and it stopped: the turn
 	// is over. said is that word's text, endedAt its time.
 	ended   bool
@@ -138,6 +140,9 @@ func summarise(recs []*transcript.Record) *tail {
 				if i, ok := pending[b.ToolUseID]; ok {
 					t.pending[i].done = true
 					delete(pending, b.ToolUseID)
+					done, ended := t.pending[i], r.Timestamp
+					done.EndedAt, done.Failed = &ended, b.IsError
+					t.lastTool = &done
 				}
 			}
 		case "assistant":

@@ -75,8 +75,14 @@ type Session struct {
 	Since time.Time `json:"since"`
 	// WaitingFor is Claude Code's word for what a blocked session waits for.
 	WaitingFor string `json:"waiting_for,omitempty"`
-	// Tools are the calls running now, oldest first.
-	Tools []Tool `json:"tools,omitempty"`
+	// Tools are the calls running now, oldest first. LastTool is the call that
+	// came back last: what the model is looking at while it works.
+	Tools    []Tool `json:"tools,omitempty"`
+	LastTool *Tool  `json:"last_tool,omitempty"`
+	// MaybePermission is true when the calls that are out are of a kind that
+	// answers at once (reading or editing a file) and have been out for a
+	// while: the likeliest reason is a permission prompt nobody answered.
+	MaybePermission bool `json:"maybe_waiting_for_permission,omitempty"`
 	// Subagents is how many subagents of the session have not finished.
 	Subagents int `json:"subagents_running,omitempty"`
 	// Said is the first line of what the agent last said when it stopped;
@@ -94,12 +100,15 @@ type Session struct {
 	Bytes int64 `json:"bytes"`
 }
 
-// Tool is a tool call that has not come back.
+// Tool is a tool call: one that has not come back (Session.Tools), or the
+// last one that did (Session.LastTool, with when it ended and whether it failed).
 type Tool struct {
-	ID      string    `json:"id"`
-	Name    string    `json:"name"`
-	Summary string    `json:"summary,omitempty"`
-	Since   time.Time `json:"since"`
+	ID      string     `json:"id"`
+	Name    string     `json:"name"`
+	Summary string     `json:"summary,omitempty"`
+	Since   time.Time  `json:"since"`
+	EndedAt *time.Time `json:"ended_at,omitempty"`
+	Failed  bool       `json:"failed,omitempty"`
 	done    bool
 }
 
@@ -233,7 +242,7 @@ func (r *Reader) Read(rep *catalog.Report, opt Options) (*Report, error) {
 		if s.Cwd == "" {
 			s.Cwd = s.WorkDir
 		}
-		decide(&s, t, proc, running)
+		decide(&s, t, proc, running, now)
 		s.Cache = cacheOf(t, now)
 		out.Sessions = append(out.Sessions, s)
 	}
@@ -270,8 +279,9 @@ func (r *Reader) Read(rep *catalog.Report, opt Options) (*Report, error) {
 // Claude Code at different moments, so they can disagree for an instant, and
 // for longer after a turn was interrupted (the transcript then ends on a call
 // that will never come back).
-func decide(s *Session, t *tail, proc catalog.LiveSession, running bool) {
+func decide(s *Session, t *tail, proc catalog.LiveSession, running bool, now time.Time) {
 	last := s.LastAt
+	s.LastTool = t.lastTool
 	switch {
 	case !running:
 		s.State, s.Since = StateClosed, last
@@ -291,8 +301,12 @@ func decide(s *Session, t *tail, proc catalog.LiveSession, running bool) {
 		if s.Subagents > 0 {
 			s.State = StateBackground
 		}
+	case asksThePerson(t.pending) != "":
+		// A call that is itself a question to the person: the transcript says it waits for them.
+		s.State, s.Since, s.WaitingFor, s.Tools = StateBlocked, t.pending[0].Since, asksThePerson(t.pending), t.pending
 	case len(t.pending) > 0:
 		s.State, s.Since, s.Tools = StateTool, t.pending[0].Since, t.pending
+		s.MaybePermission = allQuick(t.pending) && now.Sub(t.pending[0].Since) >= permissionAfter
 	default:
 		// Busy with no call out: the model is being asked. When the transcript
 		// says the turn ended, a new one has begun that is not written yet.
@@ -301,6 +315,44 @@ func decide(s *Session, t *tail, proc catalog.LiveSession, running bool) {
 			s.Since = later(millis(proc.StatusUpdatedAt), last)
 		}
 	}
+}
+
+// asksThePerson says what a pending call waits for when the call is a
+// question to the person, "" otherwise.
+func asksThePerson(pending []Tool) string {
+	for _, p := range pending {
+		switch p.Name {
+		case "AskUserQuestion":
+			return "an answer to its question"
+		case "ExitPlanMode":
+			return "your word on its plan"
+		}
+	}
+	return ""
+}
+
+// permissionAfter is how long a call that answers at once may be out before
+// a permission prompt is suspected.
+const permissionAfter = 10 * time.Second
+
+// quickTools read or change a file and come back within a moment.
+var quickTools = map[string]bool{"Read": true, "Edit": true, "MultiEdit": true, "Write": true, "NotebookEdit": true, "Glob": true, "Grep": true, "LS": true}
+
+// allQuick reports whether every pending call is of a kind that answers at once.
+//
+// DECISION: a guess, and named as one. A permission prompt that is open is in
+// no file when the session runs in an editor (Juan, 2026-11-11: the card never
+// said "needs you"): the process stays "busy" and the transcript shows a call
+// that is out. For a shell command that is all that can be said. For a file
+// tool it is not: these return in well under a second, so one that has been
+// out for ten is almost surely waiting to be allowed.
+func allQuick(pending []Tool) bool {
+	for _, p := range pending {
+		if !quickTools[p.Name] {
+			return false
+		}
+	}
+	return len(pending) > 0
 }
 
 func processState(status string) string {

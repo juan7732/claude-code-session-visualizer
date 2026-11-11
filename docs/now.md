@@ -49,6 +49,19 @@ On this Mac, 17 transcripts, one of them a session running at the time:
 | `you`        | the turn is over (`said`: the first line of what it last said) | when it stopped              |
 | `closed`     | no process has the session open; it can be resumed             | its last record              |
 
+Two things the transcript does say about waiting, added after Juan's pass (2026-11-11), who never saw "needs you" on a
+card while VS Code was asking him for a permission:
+
+- A call that is itself a question to the person, `AskUserQuestion` or `ExitPlanMode`, makes the session `blocked` with
+  `waiting_for` "an answer to its question" or "your word on its plan", whatever the process says.
+- `maybe_waiting_for_permission`: the calls that are out only read or edit files, which answer within a moment, and have
+  been out for ten seconds. The likeliest reason is a permission prompt. It is a guess and is worded as one ("Editing a
+  file, or waiting for your permission"); the state stays `tool`. Nothing of the kind can be said of a shell command,
+  which may take as long as it likes.
+
+`last_tool` is the call whose result came back last, with when it ended and whether it failed: what the model is looking
+at while the state is `model`.
+
 The process is believed for whether work is going on, the transcript for what the work is. They are written by different
 parts of Claude Code, and after a turn was interrupted they disagree for good: the transcript ends on a call that will
 never come back, and the process is idle. That reads as `you`, since the moment the process went idle. Busy with a
@@ -89,6 +102,12 @@ The app asks every 3 seconds while the Now page shows and every 10 seconds other
 reminders, and the mark on Refresh). The clocks on the cards count by themselves between two answers.
 
 ## The page
+
+A card reads at two distances. Its left edge says whose move it is and holds still: indigo while the session is at work,
+amber when the move is the person's, red when it is blocked inside a turn, grey when closed. The line at the top says
+what kind of work, with an icon and a hue of its own that change with it: thinking, running a command, reading or
+searching files, editing a file, on the web or a connector, a subagent. Amber and red are never used for a kind of work.
+While the model thinks, the card keeps the call it has just had back ("after Bash …").
 
 A card per session: a colour and a line for the state with a running clock, the title, what is running or what was last
 said, what was last asked, and the cache as a bar that empties ("Warm for 58m · 100% from cache · 620k context"), green
@@ -150,9 +169,10 @@ engine launches nothing. A card's "Details" is what "Open" was: the session in t
   are handled the same way from their own folder of state; none was tried.
 - A terminal's own window or tab is not raised, only its application.
 
-- **A permission prompt in VS Code may read as a tool running.** It shows as `blocked` only if Claude Code marks the
-  process as waiting while the editor's own dialog is open, which was not verified: the session this was built in runs
-  in a mode that does not ask. In a terminal the dialog is Claude Code's own, and it does.
+- **A permission prompt in VS Code is not seen as such.** Claude Code does not mark the process as waiting while the
+  editor's own dialog is open (Juan's pass, 2026-11-11). For a file tool the engine guesses after ten seconds
+  (`maybe_waiting_for_permission`); a shell command that waits to be allowed reads as a command that is running. In a
+  terminal the dialog is Claude Code's own, and the process says it waits.
 - Background shell commands are not counted: a session that stopped with one still running reads as `you`.
 - A subagent that wrote nothing for half an hour is not counted as running: one that was interrupted never gets its
   `finished`.

@@ -424,22 +424,22 @@ the app asks every 3 seconds while the page shows. With it, Refresh (⌘R) by th
 with a dot when the open session has moved on since it was read. Not built: background shell commands as a state; an
 open session's page following a running session by itself; a card's button to the editor window (M21).
 
-**M21 Back to the editor (built; Juan's pass pending).** From a card of M20 (and from any live session's page), "Open in
-VS Code" brings the window that is running that session to the front, so the work continues where it was left. To settle
-first: how to tell which window that is. Claude Code records the process and its entry point for a running session; the
-editor's window for a workspace folder can be raised by opening that folder with `code`, which is right when one window
-has the folder and not when two do. A session started in a terminal has no editor window: the card says so and offers
-the folder in Finder or the terminal instead. Could ship with M20 or after it. Done when: with two VS Code windows on
-two workspaces, each running a session, the button on each card raises the right one.
+**M21 Back to the editor (DONE).** From a card of M20 (and from any live session's page), "Open in VS Code" brings the
+window that is running that session to the front, so the work continues where it was left. To settle first: how to tell
+which window that is. Claude Code records the process and its entry point for a running session; the editor's window for
+a workspace folder can be raised by opening that folder with `code`, which is right when one window has the folder and
+not when two do. A session started in a terminal has no editor window: the card says so and offers the folder in Finder
+or the terminal instead. Could ship with M20 or after it. Done when: with two VS Code windows on two workspaces, each
+running a session, the button on each card raises the right one.
 
-State, 2026-11-11 (`now.md`, "Back to the editor"): built. Which window is told exactly, not by folder: a window's
-extension writes a lock file named by the port it listens on, a session is a child of the process that listens there,
-and `claude` in the editor's terminal is told the port. An editor asked to open the workspace a window is already on
-raises that window, so the engine says what to open (the workspace file for a window on several folders, found in the
-editor's own record of its windows) and the app opens it. Tried with the app's own code on two VS Code windows on two
-workspaces, each running a session: each card's action raised the right one. A terminal session brings its terminal
-application forward; its window or tab cannot be told. On each card, in an open session's menus (⌥⌘E) and in the
-palette. Not tried: editors other than VS Code.
+State, 2026-11-11 (`now.md`, "Back to the editor"): built, and marked done by Juan the same day. Which window is told
+exactly, not by folder: a window's extension writes a lock file named by the port it listens on, a session is a child of
+the process that listens there, and `claude` in the editor's terminal is told the port. An editor asked to open the
+workspace a window is already on raises that window, so the engine says what to open (the workspace file for a window on
+several folders, found in the editor's own record of its windows) and the app opens it. Tried with the app's own code on
+two VS Code windows on two workspaces, each running a session: each card's action raised the right one. A terminal
+session brings its terminal application forward; its window or tab cannot be told. On each card, in an open session's
+menus (⌥⌘E) and in the palette. Not tried: editors other than VS Code.
 
 **M22 Primitives (DONE).** A section of its own on the rail for what Claude Code is extended with: skills, agents
 (subagent definitions), slash commands and prompts, hooks, connectors, plugins, memory and instructions. The Claude page
