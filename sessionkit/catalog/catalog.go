@@ -71,13 +71,23 @@ type SessionFile struct {
 }
 
 // LiveSession is a running Claude Code process, from <claude>/sessions/<pid>.json.
+//
+// Status is "busy", "idle" or "waiting"; WaitingFor says for what when Claude
+// Code wrote it (a dialog, an answer it asked for). The times are Unix
+// milliseconds, as Claude Code writes them.
 type LiveSession struct {
-	PID       int    `json:"pid"`
-	SessionID string `json:"sessionId"`
-	Cwd       string `json:"cwd"`
-	Name      string `json:"name"`
-	Status    string `json:"status"`
-	Version   string `json:"version"`
+	PID             int    `json:"pid"`
+	SessionID       string `json:"sessionId"`
+	Cwd             string `json:"cwd"`
+	Name            string `json:"name"`
+	Status          string `json:"status"`
+	Version         string `json:"version"`
+	WaitingFor      string `json:"waitingFor,omitempty"`
+	Kind            string `json:"kind,omitempty"`       // interactive, or a background kind
+	Entrypoint      string `json:"entrypoint,omitempty"` // claude-vscode, cli…
+	StartedAt       int64  `json:"startedAt,omitempty"`
+	UpdatedAt       int64  `json:"updatedAt,omitempty"`
+	StatusUpdatedAt int64  `json:"statusUpdatedAt,omitempty"`
 }
 
 // Totals summarises the report.

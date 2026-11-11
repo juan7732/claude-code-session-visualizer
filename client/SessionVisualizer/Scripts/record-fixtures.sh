@@ -67,7 +67,7 @@ cat > "$home/.claude/projects/-Users-me-work/$prim_id.jsonl" <<JSONL
 {"type":"user","uuid":"r2m","parentUuid":"r2a","isMeta":true,"sourceToolUseID":"toolu_p3","timestamp":"2026-11-09T09:00:36.1Z","message":{"role":"user","content":[{"type":"text","text":"Base directory for this skill: $home/.claude/skills/deploy\n\nSteps."}]}}
 {"type":"user","uuid":"r2b","parentUuid":"r2m","timestamp":"2026-11-09T09:00:37Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"toolu_p4","content":"A note."}]}}
 {"type":"attachment","uuid":"at5","parentUuid":"r2b","timestamp":"2026-11-09T09:00:37.5Z","attachment":{"type":"hook_additional_context","hookName":"PostToolUse:Edit","hookEvent":"PostToolUse","content":["ok"]}}
-{"type":"assistant","uuid":"a3","parentUuid":"r2b","requestId":"r3","timestamp":"2026-11-09T09:00:40Z","message":{"model":"claude-fable-5-1","stop_reason":"end_turn","content":[{"type":"text","text":"Deployed to staging."}],"usage":{"input_tokens":14,"output_tokens":6}}}
+{"type":"assistant","uuid":"a3","parentUuid":"r2b","requestId":"r3","timestamp":"2026-11-09T09:00:40Z","message":{"model":"claude-fable-5-1","stop_reason":"end_turn","content":[{"type":"text","text":"Deployed to staging."}],"usage":{"input_tokens":14,"output_tokens":6,"cache_read_input_tokens":900,"cache_creation_input_tokens":86,"cache_creation":{"ephemeral_1h_input_tokens":86,"ephemeral_5m_input_tokens":0}}}}
 {"type":"user","uuid":"u2","parentUuid":"a3","timestamp":"2026-11-10T08:00:00Z","message":{"role":"user","content":"<command-name>/compact</command-name>\n<command-message>compact</command-message>"}}
 {"type":"ai-title","aiTitle":"Deploy to staging","sessionId":"$prim_id"}
 JSONL
@@ -111,6 +111,13 @@ get "/v0/file?path=/xxx/y.go&session=$id" file.json
 get "/v0/search?q=xxxx&kind=prompt&limit=50" search-prompts.json
 curl -sS --fail-with-body --unix-socket "$sock" -X POST -d "{\"ids\":[\"$prim_id\"]}" "http://skit/v0/archive" -o /dev/null
 get /v0/primitives primitives.json
+# Two running processes, as Claude Code records them: this server stands in for one that waits
+# for a permission, this script for one that is at work. The other sessions are closed.
+mkdir -p "$home/.claude/sessions"
+printf '{"pid":%s,"sessionId":"%s","cwd":"/Users/me/work","name":"work-1","status":"waiting","waitingFor":"approve Bash","entrypoint":"claude-vscode","kind":"interactive","startedAt":1794300000000,"updatedAt":1794300060000,"statusUpdatedAt":1794300060000}\n' "$pid" "$out_id" > "$home/.claude/sessions/$pid.json"
+printf '{"pid":%s,"sessionId":"%s","cwd":"%s","name":"proj-2","status":"busy","entrypoint":"cli","kind":"interactive","startedAt":1794300000000,"updatedAt":1794300090000,"statusUpdatedAt":1794300090000}\n' "$$" "$prim_id" "$proj" > "$home/.claude/sessions/$$.json"
+get "/v0/now?minutes=600" now.json
+rm -rf "$home/.claude/sessions"
 get "/v0/primitives?kind=skill&name=deploy" primitive.json
 curl -sS --unix-socket "$sock" "http://skit/v0/sessions/nope/stats" -o "$out/error.json"
 "$work/skit" service status --json > "$out/service-status.json"
@@ -127,6 +134,24 @@ for name in ("annotation.json", "annotations.json"):
     for a in ([doc] if "pinned" in doc else doc.values()):
         a["updated_at"] = "2026-11-10T12:00:00.123456789Z"
     p.write_text(json.dumps(doc, indent=2) + "\n")
+# The files this script made a moment ago carry the moment in their "modified".
+def pin(v):
+    if isinstance(v, dict):
+        return {k: ("2026-11-10T12:00:00Z" if k == "modified" and isinstance(x, str) else pin(x)) for k, x in v.items()}
+    return [pin(x) for x in v] if isinstance(v, list) else v
+for name in ("claude.json", "primitives.json", "primitive.json"):
+    p = out / name
+    p.write_text(json.dumps(pin(json.loads(p.read_text())), indent=2) + "\n")
+# "Now" is told from the clock, the files' times and two process ids: pin them.
+p = out / "now.json"
+doc = json.loads(p.read_text())
+doc["at"] = "2026-11-10T12:00:00Z"
+pids = {}
+for s in doc["sessions"]:
+    if "pid" in s: s["pid"] = pids.setdefault(s["pid"], 4242 + len(pids))
+    if not s.get("cache") and not s.get("running"): s["last_at"] = s["since"] = "2026-11-10T11:59:00Z"  # a transcript with no record: the file's own time
+doc["sessions"].sort(key=lambda s: (s["last_at"], s["id"]), reverse=True)
+p.write_text(json.dumps(doc, indent=2) + "\n")
 p = out / "status.json"
 doc = json.loads(p.read_text()); doc["uptime"] = "0s"; doc["live"] = [{"pid": 4242, "sessionId": "aaaaaaaa-0000-0000-0000-000000000001", "cwd": "/Users/me/work", "name": "work-1", "status": "busy", "version": "2.1.319"}]
 p.write_text(json.dumps(doc, indent=2) + "\n")

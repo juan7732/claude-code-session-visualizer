@@ -1,1 +1,104 @@
-{"claude_dir":"/fixture/home/.claude","layers":[{"name":"user","path":"/fixture/home/.claude/settings.json","exists":true,"modified":"2026-11-11T05:23:15.76774687Z","settings":{"hooks":{"PostToolUse":[{"hooks":[{"command":"gofmt -l .","type":"command"}],"matcher":"Edit|Write"}]}}},{"name":"user local","path":"/fixture/home/.claude/settings.local.json","exists":false}],"effective":[{"key":"hooks.PostToolUse","value":[{"hooks":[{"command":"gofmt -l .","type":"command"}],"matcher":"Edit|Write"}],"from":"user"}],"experiments":[],"flags":[],"projects":[],"connectors":["claude.ai Gmail","notes"],"memory":[{"path":"/fixture/home/.claude/CLAUDE.md","bytes":17,"lines":2,"modified":"2026-11-11T05:23:15.76735795Z","kind":"instructions"},{"path":"/fixture/home/.claude/projects/-fixture-proj/memory/MEMORY.md","bytes":22,"lines":1,"modified":"2026-11-11T05:23:15.767547785Z","kind":"memory","project":"-fixture-proj"},{"path":"/fixture/home/.claude/projects/-fixture-proj/memory/a-note.md","bytes":8,"lines":1,"modified":"2026-11-11T05:23:15.767644036Z","kind":"memory","project":"-fixture-proj"}],"skills":[{"name":"deploy","path":"/fixture/home/.claude/skills/deploy/SKILL.md","uses":5,"on_disk":true},{"name":"old-skill","uses":2,"on_disk":false},{"name":"tidy","path":"/fixture/home/.claude/skills/tidy/SKILL.md","on_disk":true}],"state":{},"identity":{"machineID":"not set","oauthAccount":"not set","userID":"not set"}}
+{
+  "claude_dir": "/fixture/home/.claude",
+  "layers": [
+    {
+      "name": "user",
+      "path": "/fixture/home/.claude/settings.json",
+      "exists": true,
+      "modified": "2026-11-10T12:00:00Z",
+      "settings": {
+        "hooks": {
+          "PostToolUse": [
+            {
+              "hooks": [
+                {
+                  "command": "gofmt -l .",
+                  "type": "command"
+                }
+              ],
+              "matcher": "Edit|Write"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "name": "user local",
+      "path": "/fixture/home/.claude/settings.local.json",
+      "exists": false
+    }
+  ],
+  "effective": [
+    {
+      "key": "hooks.PostToolUse",
+      "value": [
+        {
+          "hooks": [
+            {
+              "command": "gofmt -l .",
+              "type": "command"
+            }
+          ],
+          "matcher": "Edit|Write"
+        }
+      ],
+      "from": "user"
+    }
+  ],
+  "experiments": [],
+  "flags": [],
+  "projects": [],
+  "connectors": [
+    "claude.ai Gmail",
+    "notes"
+  ],
+  "memory": [
+    {
+      "path": "/fixture/home/.claude/CLAUDE.md",
+      "bytes": 17,
+      "lines": 2,
+      "modified": "2026-11-10T12:00:00Z",
+      "kind": "instructions"
+    },
+    {
+      "path": "/fixture/home/.claude/projects/-fixture-proj/memory/MEMORY.md",
+      "bytes": 22,
+      "lines": 1,
+      "modified": "2026-11-10T12:00:00Z",
+      "kind": "memory",
+      "project": "-fixture-proj"
+    },
+    {
+      "path": "/fixture/home/.claude/projects/-fixture-proj/memory/a-note.md",
+      "bytes": 8,
+      "lines": 1,
+      "modified": "2026-11-10T12:00:00Z",
+      "kind": "memory",
+      "project": "-fixture-proj"
+    }
+  ],
+  "skills": [
+    {
+      "name": "deploy",
+      "path": "/fixture/home/.claude/skills/deploy/SKILL.md",
+      "uses": 5,
+      "on_disk": true
+    },
+    {
+      "name": "old-skill",
+      "uses": 2,
+      "on_disk": false
+    },
+    {
+      "name": "tidy",
+      "path": "/fixture/home/.claude/skills/tidy/SKILL.md",
+      "on_disk": true
+    }
+  ],
+  "state": {},
+  "identity": {
+    "machineID": "not set",
+    "oauthAccount": "not set",
+    "userID": "not set"
+  }
+}

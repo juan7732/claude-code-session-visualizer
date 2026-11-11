@@ -20,6 +20,7 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.oled) private var oled = false
     @AppStorage(SettingsKey.sidebar) private var sidebar = true
     @AppStorage(SettingsKey.fileOpener) private var chosen: String?
+    @AppStorage(SettingsKey.nowReminderMinutes) private var reminderMinutes = 5
 
     var body: some View {
         Form {
@@ -36,6 +37,13 @@ private struct GeneralSettings: View {
                     Text("Other…").tag("other")
                 }
                 Text("What the Open button on a file uses: in the Files view, the inspector and the Claude page.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Now") {
+                Picker("Remind me when a cache has", selection: $reminderMinutes) {
+                    ForEach([2, 5, 10, 15], id: \.self) { Text("\($0) minutes left").tag($0) }
+                }
+                Text("For the sessions whose bell is on, on the Now page. After a session's prompt cache expires, its next prompt pays for the whole context again.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Appearance") {

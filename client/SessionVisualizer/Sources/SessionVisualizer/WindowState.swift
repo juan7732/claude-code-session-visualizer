@@ -10,6 +10,8 @@ enum Page: Hashable {
     case search
     case stats
     case claude
+    /// The sessions at work and what each is doing at this moment.
+    case now
     /// What Claude Code is extended with: skills, agents, commands, connectors, hooks, memory.
     case primitives
     /// Two sessions side by side (File › Compare Sessions…).

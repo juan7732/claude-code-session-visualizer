@@ -209,6 +209,27 @@ func TestRoutes(t *testing.T) {
 	if code := get(t, h, "/v0/file", &refused); code != 400 {
 		t.Fatalf("file without a path: %d", code)
 	}
+	// The session was just written and no process has it open: at work lately, and closed.
+	var at struct {
+		Window   int `json:"window_minutes"`
+		Sessions []struct {
+			ID, State, Title string
+			Running          bool
+			Cache            *struct {
+				ContextTokens int `json:"context_tokens"`
+			}
+		}
+	}
+	if code := get(t, h, "/v0/now", &at); code != 200 || at.Window != 60 || len(at.Sessions) != 1 || at.Sessions[0].ID != fixtureID ||
+		at.Sessions[0].State != "closed" || at.Sessions[0].Running || at.Sessions[0].Title != "Synthetic basics" || at.Sessions[0].Cache == nil {
+		t.Fatalf("now route: %d %+v", code, at)
+	}
+	if code := get(t, h, "/v0/now?minutes=5", &at); code != 200 || at.Window != 5 {
+		t.Fatalf("now with a window: %d %+v", code, at)
+	}
+	if code := get(t, h, "/v0/now?minutes=soon", nil); code != 400 {
+		t.Fatalf("now with a bad window: %d", code)
+	}
 	// And what the session used of Claude Code's extensions is counted.
 	var prims struct {
 		Sessions int `json:"sessions"`
@@ -247,7 +268,7 @@ func TestConcurrentReadsShareOneParse(t *testing.T) {
 	h := s.Handler()
 	base := "/v0/sessions/" + fixtureID
 	paths := []string{base, base + "/stats", base + "/turns/0", base + "/actions/3", base + "/actions/0/context", base + "/compactions/0",
-		base + "/relations", base + "/time", base + "/images", "/v0/sessions", "/v0/overview", "/v0/status", "/v0/search?q=Bash", "/v0/archive/verify"}
+		base + "/relations", base + "/time", base + "/images", "/v0/sessions", "/v0/overview", "/v0/now", "/v0/status", "/v0/search?q=Bash", "/v0/archive/verify"}
 	var imgs []map[string]any
 	get(t, h, base+"/images", &imgs)
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import UserNotifications
 
 @main
 enum Main {
@@ -39,7 +40,10 @@ struct SessionVisualizerApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
+    private let presenter = NotificationPresenter()
+
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if CacheReminders.available { UNUserNotificationCenter.current().delegate = presenter }
         // Run straight from `swift run` there is no bundle, so say what kind of app this is.
         NSApp.setActivationPolicy(.regular)
         NSApp.activate()

@@ -27,6 +27,7 @@ struct Rail: View {
                         .transition(.opacity)
                 }
             }
+            RailItem(symbol: "bolt", label: "Now", active: window.page == .now, badge: NowContent.needsYou(store.now)) { window.page = .now }
             RailItem(symbol: "magnifyingglass", label: "Search", active: window.page == .search) { window.page = .search }
             RailItem(symbol: "chart.bar", label: "Stats", active: window.page == .stats) { window.page = .stats }
             RailItem(symbol: "puzzlepiece.extension", label: "Primitives", active: window.page == .primitives) { window.page = .primitives }

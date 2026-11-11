@@ -6,6 +6,7 @@
 //	GET  /v0                          route list
 //	GET  /v0/status                   version, Claude Code data dir, index counts, live sessions
 //	GET  /v0/sessions?project=&limit= list rows (archive.ListRow)
+//	GET  /v0/now?minutes=             sessions at work: what each is doing at this moment, and its prompt cache (now.Report)
 //	GET  /v0/overview?project=&slug=  every session added up: totals, by project, by day, tools, models, time (stats.Overview)
 //	GET  /v0/sessions/{id}            session document (archive.SessionDoc)
 //	GET  /v0/sessions/{id}/stats      stats.Summary with the context curve
@@ -54,6 +55,7 @@ import (
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/claudeconfig"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/export"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/home"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/now"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/primitives"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/search"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
@@ -78,6 +80,9 @@ type Server struct {
 	// archive's new text in the background (EmbedEvery). Nil means this server
 	// cannot search by meaning.
 	Embedder Embedder
+	// Now reads what the sessions at work are doing; it keeps what it read of
+	// each transcript's tail between requests.
+	Now now.Reader
 	// ManagedDir is the managed settings directory /v0/primitives also looks
 	// in; "" for none.
 	ManagedDir string
@@ -114,6 +119,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v0/status", s.status)
 	mux.HandleFunc("GET /v0/sessions", s.sessions)
 	mux.HandleFunc("GET /v0/overview", s.overview)
+	mux.HandleFunc("GET /v0/now", s.now)
 	mux.HandleFunc("GET /v0/file", s.file)
 	mux.HandleFunc("GET /v0/sessions/{id}", s.session)
 	mux.HandleFunc("GET /v0/sessions/{id}/stats", s.sessionStats)
@@ -172,7 +178,7 @@ func (s *Server) routes(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"version": s.Version,
 		"routes": []string{
-			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/overview?project=&slug=", "GET /v0/file?path=&session=&text=0", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
+			"GET /v0/status", "GET /v0/sessions?project=&limit=", "GET /v0/now?minutes=", "GET /v0/overview?project=&slug=", "GET /v0/file?path=&session=&text=0", "GET /v0/sessions/{id}", "GET /v0/sessions/{id}/stats",
 			"GET /v0/sessions/{id}/turns/{n}", "GET /v0/sessions/{id}/actions/{n}?agent=", "GET /v0/sessions/{id}/actions/{n}/context?full=1", "GET /v0/sessions/{id}/compactions/{n}?full=1",
 			"GET /v0/sessions/{id}/relations", "GET /v0/sessions/{id}/time?top=", "GET /v0/sessions/{id}/export?format=markdown&turn=&thinking=", "GET /v0/sessions/{id}/images", "GET /v0/sessions/{id}/images/{n}",
 			"GET /v0/sessions/{id}/annotations", "PATCH /v0/sessions/{id}/annotations", "GET /v0/annotations", "GET /v0/claude?root=", "GET /v0/primitives?kind=&name=&days=&unused=1&root=",
@@ -215,6 +221,31 @@ func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, rows)
+}
+
+// now says what the sessions at work are doing: `skit now`. It is asked every
+// few seconds while a client shows it, and reads only what changed.
+func (s *Server) now(w http.ResponseWriter, r *http.Request) {
+	opt := now.Options{Known: s.Archive.Known}
+	if m := r.URL.Query().Get("minutes"); m != "" {
+		minutes, err := strconv.Atoi(m)
+		if err != nil || minutes <= 0 {
+			writeError(w, http.StatusBadRequest, "minutes is a number of minutes")
+			return
+		}
+		opt.Window = time.Duration(minutes) * time.Minute
+	}
+	rep, err := s.Inspect()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	out, err := s.Now.Read(rep, opt)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, out)
 }
 
 // overview adds every session up: `skit overview`.

@@ -43,6 +43,7 @@ public struct SkitClient: Sendable {
         "GET /v0/overview",
         "GET /v0/claude",
         "GET /v0/primitives",
+        "GET /v0/now",
         "GET /v0/file",
         "GET /v0/sessions/{id}/compactions/{n}",
         "GET /v0/sessions/{id}/export",
@@ -76,6 +77,11 @@ public struct SkitClient: Sendable {
 
     /// How Claude Code is configured on this Mac: settings by layer, experiments, flags, projects, memory, skills.
     public func claude() async throws -> ClaudeSnapshot { try await get("/v0/claude") }
+
+    /// The sessions at work in the last `minutes` (nil: the engine's hour) and what each is doing now.
+    public func now(minutes: Int? = nil) async throws -> NowReport {
+        try await get("/v0/now" + (minutes.map { "?minutes=\($0)" } ?? ""))
+    }
 
     /// What Claude Code is extended with and how much it is used, over the last `days` days (nil: every session kept).
     public func primitives(days: Int? = nil) async throws -> PrimitivesReport {

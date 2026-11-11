@@ -20,6 +20,8 @@ skit stats <id> [--context]    tokens once per request (subagents rolled in), mo
 skit file <path> [--session id] a file some session touched: there or gone, and every session that read or wrote it;
                                --text prints it. Only files a session touched are ever read
 skit overview [-p text]        every session added up from the index: totals, by project, by day, tools, models, time
+skit now [--minutes N]         sessions at work: what each is doing at this moment (the model, a tool, waiting for you),
+                               and when its prompt cache expires; reads the end of each transcript, never all of it
 skit primitives [kind [name]]  skills, agents, commands, connectors, hooks, plugins, memory files: where each is defined,
                                how much the archived sessions used it, what is there and never used; --days N, --unused
 skit time <id> [--top N]       where the wall time went: waiting for you or for background work against in turns; in turns

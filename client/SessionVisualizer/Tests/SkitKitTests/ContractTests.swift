@@ -226,6 +226,29 @@ import Testing
         #expect(full.state?["numStartups"]?.compact == "41" && full.identity?["userID"] == "set")
     }
 
+    /// `skit now`: the sessions at work, each with what it is doing and its prompt cache.
+    @Test func sessionsAtWorkNow() throws {
+        let report = try decode(NowReport.self, "now.json")
+        #expect(report.windowMinutes == 600 && report.sessions.count == 4 && report.runningOutsideWindow == 0)
+        func session(_ prefix: String) throws -> NowReport.Session { try #require(report.sessions.first { $0.id.hasPrefix(prefix) }) }
+        // A process that waits inside a turn; Claude Code's own words say for what.
+        let blocked = try session("cccccccc")
+        #expect(blocked.state == .blocked && blocked.running && blocked.waitingFor == "approve Bash" && blocked.name == "work-1" && blocked.entrypoint == "claude-vscode")
+        #expect(blocked.pid != nil && blocked.processStatus == "waiting" && blocked.cwd == "/Users/me/work" && blocked.since > blocked.lastAt)
+        // A process at work whose transcript ends on what the person typed.
+        let working = try session("dddddddd")
+        #expect(working.state == .model && working.running && working.title == "Deploy to staging" && working.tools.isEmpty && working.model == "claude-fable-5-1")
+        let cache = try #require(working.cache)
+        #expect(cache.ttlSeconds == 3600 && cache.readTokens == 900 && cache.writtenTokens == 86 && cache.uncachedTokens == 14 && cache.contextTokens == 1000 && cache.hitRatio == 0.9)
+        #expect(cache.expiresAt == cache.lastRequestAt.addingTimeInterval(3600) && cache.secondsLeft == 0)
+        // No process: closed, with what it last said; and a transcript nothing was asked in.
+        let closed = try session("aaaaaaaa")
+        #expect(closed.state == .closed && !closed.running && closed.pid == nil && closed.title == "Synthetic basics" && closed.said?.isEmpty == false)
+        #expect(closed.cache?.expiresAt == nil && closed.cache?.ttlSeconds == 0, "its requests' usage does not say how long their writes live")
+        let empty = try session("bbbbbbbb")
+        #expect(empty.state == .closed && empty.cache == nil && empty.lastPrompt == nil && (empty.title ?? "").isEmpty)
+    }
+
     /// `skit primitives`: what is installed where, on offer, and used; then one item with its sessions.
     @Test func primitivesInstalledOfferedAndUsed() throws {
         let report = try decode(PrimitivesReport.self, "primitives.json")

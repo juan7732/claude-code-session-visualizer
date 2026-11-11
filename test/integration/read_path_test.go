@@ -4,10 +4,12 @@ package integration
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/juan7732/claude-code-session-visualizer/test/integration/harness"
 )
@@ -478,5 +480,74 @@ func TestPrimitives_InstalledOfferedAndUsed(t *testing.T) {
 	}
 	if res = h.Run("primitives", "widgets"); res.ExitCode == 0 || !strings.Contains(res.Stderr, "unknown kind") {
 		t.Fatalf("an unknown kind: %d %s", res.ExitCode, res.Stderr)
+	}
+}
+
+// TestNow_WhatSessionsAreDoing: one session a live process has open with a tool
+// out, one that ended and was closed; and the cache's end, counted from the
+// last request.
+func TestNow_WhatSessionsAreDoing(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	now := time.Now().UTC()
+	at := func(ago time.Duration) string { return now.Add(-ago).Format(time.RFC3339Nano) }
+	busy, closed := "eeeeeeee-0000-0000-0000-000000000005", "ffffffff-0000-0000-0000-000000000006"
+	usage := `"usage":{"input_tokens":10,"output_tokens":5,"cache_read_input_tokens":900,"cache_creation_input_tokens":90,"cache_creation":{"ephemeral_1h_input_tokens":90,"ephemeral_5m_input_tokens":0}}`
+	h.SeedSession("-work", busy,
+		`{"type":"user","uuid":"u1","sessionId":"`+busy+`","cwd":"/work","turnOrigin":"human","timestamp":"`+at(90*time.Second)+`","message":{"role":"user","content":"Run the tests"}}`,
+		`{"type":"last-prompt","lastPrompt":"Run the tests","sessionId":"`+busy+`"}`,
+		`{"type":"ai-title","aiTitle":"Running the tests","sessionId":"`+busy+`"}`,
+		`{"type":"api-request","id":"ar1","timestamp":"`+at(80*time.Second)+`"}`,
+		`{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"`+at(60*time.Second)+`","message":{"model":"claude-fable-5-1","stop_reason":"tool_use","content":[{"type":"tool_use","id":"toolu_n1","name":"Bash","input":{"command":"go test ./...","description":"Run every test"}}],`+usage+`}}`)
+	old := h.SeedSession("-work", closed,
+		`{"type":"user","uuid":"u1","sessionId":"`+closed+`","cwd":"/work","turnOrigin":"human","timestamp":"`+at(20*time.Minute)+`","message":{"role":"user","content":"Say hello"}}`,
+		`{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"`+at(19*time.Minute)+`","message":{"model":"claude-fable-5-1","stop_reason":"end_turn","content":[{"type":"text","text":"Hello."}],`+usage+`}}`)
+	// A session is in the window by when its transcript was last written.
+	if err := os.Chtimes(old, now.Add(-19*time.Minute), now.Add(-19*time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	// The test's own process stands in for Claude Code's: it runs for as long as the test does.
+	h.WriteFile(fmt.Sprintf("sessions/%d.json", os.Getpid()), fmt.Sprintf(`{"pid":%d,"sessionId":%q,"cwd":"/work","name":"work-1","status":"busy","entrypoint":"cli","updatedAt":%d,"statusUpdatedAt":%d}`,
+		os.Getpid(), busy, now.UnixMilli(), now.Add(-90*time.Second).UnixMilli()))
+
+	res := h.Run("now")
+	res.AssertOK(t)
+	for _, want := range []string{"Now  2 sessions at work in the last 60 minutes", "Running the tests", "running Bash Run every test, for 1m", "work-1",
+		"cache  90% of the last request read · context 1k · expires in 58m", "closed 19m", "said   Hello.", "asked  Run the tests"} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("now lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+	res = h.Run("now", "--json")
+	res.AssertOK(t)
+	var rep struct {
+		Sessions []struct {
+			ID      string `json:"id"`
+			State   string `json:"state"`
+			Running bool   `json:"running"`
+			PID     int    `json:"pid"`
+			Tools   []struct {
+				Name string `json:"name"`
+			} `json:"tools"`
+			Cache struct {
+				TTL  int `json:"ttl_seconds"`
+				Left int `json:"seconds_left"`
+			} `json:"cache"`
+		} `json:"sessions"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &rep); err != nil || len(rep.Sessions) != 2 {
+		t.Fatalf("now --json: %v\n%s", err, res.Stdout)
+	}
+	first, second := rep.Sessions[0], rep.Sessions[1]
+	if first.ID != busy || first.State != "tool" || !first.Running || first.PID != os.Getpid() || len(first.Tools) != 1 || first.Tools[0].Name != "Bash" ||
+		first.Cache.TTL != 3600 || first.Cache.Left < 3500 || first.Cache.Left > 3520 {
+		t.Fatalf("the running session: %+v", first)
+	}
+	if second.ID != closed || second.State != "closed" || second.Running || second.Cache.Left < 2400 || second.Cache.Left > 2470 {
+		t.Fatalf("the closed session: %+v", second)
+	}
+	// A window that the closed one fell out of.
+	if res = h.Run("now", "--minutes", "5", "--json"); !strings.Contains(res.Stdout, busy) || strings.Contains(res.Stdout, closed) {
+		t.Fatalf("a five-minute window:\n%s", res.Stdout)
 	}
 }

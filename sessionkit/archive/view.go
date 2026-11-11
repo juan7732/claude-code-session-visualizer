@@ -251,3 +251,21 @@ func Document(r Resolved) SessionDoc {
 	return SessionDoc{Session: r.Session, Project: r.Project, ArchivedOnly: r.ArchivedOnly,
 		Summary: stats.Compute(r.Session, r.Project, stats.Options{Context: true})}
 }
+
+// Known says what the index holds of a session that names it: its title and
+// the directory it started in. Both are empty for a session never listed.
+func (a *Archive) Known(id string) (title, cwd string) {
+	row, err := a.Store.Session(id)
+	if err != nil || row == nil {
+		return "", ""
+	}
+	var sum struct {
+		Cwd string `json:"cwd"`
+	}
+	_ = json.Unmarshal(row.Summary, &sum)
+	// A session Claude Code never titled is "titled" by its id in the index: that names nothing.
+	if row.Title == id {
+		return "", sum.Cwd
+	}
+	return row.Title, sum.Cwd
+}

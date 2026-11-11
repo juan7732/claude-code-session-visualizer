@@ -1,0 +1,97 @@
+{
+  "at": "2026-11-10T12:00:00Z",
+  "window_minutes": 600,
+  "sessions": [
+    {
+      "id": "bbbbbbbb-0000-0000-0000-000000000002",
+      "project": "-Users-me-work",
+      "running": false,
+      "state": "closed",
+      "since": "2026-11-10T11:59:00Z",
+      "last_at": "2026-11-10T11:59:00Z",
+      "bytes": 139
+    },
+    {
+      "id": "dddddddd-0000-0000-0000-000000000004",
+      "project": "-Users-me-work",
+      "cwd": "/fixture/home/proj",
+      "work_dir": "/fixture/home/proj",
+      "title": "Deploy to staging",
+      "running": true,
+      "name": "proj-2",
+      "entrypoint": "cli",
+      "pid": 4242,
+      "process_status": "busy",
+      "state": "model",
+      "since": "2026-11-10T08:00:00Z",
+      "last_at": "2026-11-10T08:00:00Z",
+      "model": "claude-fable-5-1",
+      "cache": {
+        "read_tokens": 900,
+        "written_tokens": 86,
+        "uncached_tokens": 14,
+        "hit_ratio": 0.9,
+        "context_tokens": 1000,
+        "ttl_seconds": 3600,
+        "last_request_at": "2026-11-09T09:00:40Z",
+        "expires_at": "2026-11-09T10:00:40Z",
+        "seconds_left": 0
+      },
+      "bytes": 4944
+    },
+    {
+      "id": "cccccccc-0000-0000-0000-000000000003",
+      "project": "-Users-me-work",
+      "cwd": "/Users/me/work",
+      "work_dir": "/Users/me/work",
+      "title": "Read the docs, then commit.",
+      "running": true,
+      "name": "work-1",
+      "entrypoint": "claude-vscode",
+      "pid": 4243,
+      "process_status": "waiting",
+      "state": "blocked",
+      "since": "2026-11-10T08:41:00Z",
+      "waiting_for": "approve Bash",
+      "last_at": "2026-11-08T11:00:06Z",
+      "model": "claude-fable-5-1",
+      "cache": {
+        "read_tokens": 0,
+        "written_tokens": 0,
+        "uncached_tokens": 14,
+        "hit_ratio": 0,
+        "context_tokens": 14,
+        "ttl_seconds": 0,
+        "last_request_at": "2026-11-08T11:00:06Z",
+        "seconds_left": 0
+      },
+      "bytes": 1882
+    },
+    {
+      "id": "aaaaaaaa-0000-0000-0000-000000000001",
+      "project": "-Users-me-work",
+      "cwd": "/Users/xxxx/work",
+      "work_dir": "/Users/xxxx/work/sub",
+      "title": "Synthetic basics",
+      "running": false,
+      "state": "closed",
+      "since": "2026-11-08T10:01:03.5Z",
+      "said": "Xxxxxxx xxxxxxx.",
+      "last_prompt": "Xxxxxxxx.",
+      "last_at": "2026-11-08T10:01:03.5Z",
+      "model": "claude-fable-5-1",
+      "cache": {
+        "read_tokens": 0,
+        "written_tokens": 900,
+        "uncached_tokens": 3,
+        "hit_ratio": 0,
+        "context_tokens": 903,
+        "ttl_seconds": 0,
+        "last_request_at": "2026-11-08T10:00:00.02Z",
+        "seconds_left": 0
+      },
+      "bytes": 11148
+    }
+  ],
+  "running_outside_window": 0
+}

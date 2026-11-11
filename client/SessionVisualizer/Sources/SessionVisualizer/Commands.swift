@@ -30,6 +30,8 @@ enum AppActions {
         out.append(AppAction(title: "Forward", shortcut: "⌘]", enabled: window.canGoForward) { window.goForward() })
         out.append(AppAction(title: "Go to Sessions") { window.page = .sessions })
         out.append(AppAction(title: "Go to Search", shortcut: "⇧⌘F") { showSearch(window) })
+        out.append(AppAction(title: "Go to Now") { window.page = .now })
+        out.append(AppAction(title: "Refresh", shortcut: "⌘R", enabled: !store.reloading) { refresh(window, store) })
         out.append(AppAction(title: "Go to Stats") { window.page = .stats })
         out.append(AppAction(title: "Go to Primitives") { window.page = .primitives })
         out.append(AppAction(title: "Compare Sessions…", enabled: store.sessions.count > 1) { window.showCompare(in: store) })
@@ -61,6 +63,13 @@ enum AppActions {
         out.append(AppAction(title: "Archive Now", enabled: id != nil) { if let id { Task { await store.archiveNow(id) } } })
         out.append(AppAction(title: "Settings…", shortcut: "⌘,", run: openSettings))
         return out
+    }
+
+    /// Refresh (⌘R): the sessions, and the page in front read again.
+    static func refresh(_ window: WindowState, _ store: AppStore) {
+        let page = window.page
+        let pair = [window.compare.first, window.compare.second].compactMap { $0 }
+        Task { await store.reload(page: page, compare: pair) }
     }
 
     static func showSearch(_ window: WindowState) {
@@ -152,6 +161,9 @@ struct AppCommands: Commands {
                     .keyboardShortcut(KeyEquivalent(Character("\(index + 1)")))
                     .disabled(sessionID == nil)
             }
+            Divider()
+            Button("Refresh") { if let window { AppActions.refresh(window, store) } }
+                .keyboardShortcut("r").disabled(window == nil || store.reloading)
             Divider()
             Button(sidebar ? "Hide Sidebar" : "Show Sidebar") { sidebar.toggle() }
                 .keyboardShortcut("s", modifiers: [.command, .control])

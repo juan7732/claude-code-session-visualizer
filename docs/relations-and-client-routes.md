@@ -10,6 +10,7 @@ route that returns the same document.
 | Images, list and bytes            | `skit images <session> [--extract N --out file]`              | `GET /v0/sessions/{id}/images`, `/images/{n}`                          |
 | Pin, tags and notes               | `skit annotate <session> [--pin] [--tag t] [--note key=text]` | `GET` and `PATCH /v0/sessions/{id}/annotations`, `GET /v0/annotations` |
 | Claude Code's own configuration   | `skit claude [--root dir] [--flags]`                          | `GET /v0/claude?root=`                                                 |
+| Sessions at work, now             | `skit now [--minutes N]`                                      | `GET /v0/now?minutes=`                                                 |
 | What Claude Code is extended with | `skit primitives [kind [name]] [--days N] [--unused]`         | `GET /v0/primitives?kind=&name=&days=&unused=1&root=`                  |
 | Working directory per action      | `cwd` on every action in `skit show --json`                   | same field on `/v0/sessions/{id}`                                      |
 
@@ -81,6 +82,16 @@ Added with M13 (2026-11-10), for Files, Stats, Compare and Claude:
   `CLAUDE.local.md` and `.claude/CLAUDE.md` of every project Claude Code knows, and the notes Claude Code keeps for
   itself under `projects/<slug>/memory/`. Each file says its `kind` (`instructions` or `memory`) and its `project`. As
   before, a file is listed by where it is, how long and how old; what it says is never sent.
+
+Added with M20 (2026-11-11), for the Now page (`now.md` has the whole of it):
+
+- `skit now [--minutes N]` and `GET /v0/now?minutes=`: every session whose transcript was written in the window, the
+  latest first, each with its `state` (`model`, `tool`, `blocked`, `background`, `you`, `closed`) and since when, the
+  tool calls that are out, what it last said and was last asked, the process that has it open (name, entrypoint, pid,
+  status), and its prompt `cache`: what the last request read and wrote, the lifetime of the last write, when it expires
+  and the seconds left. Made to be asked every few seconds: only the end of a transcript that changed is read.
+- `live` on `/v0/status` gained what Claude Code writes beside a process's status: `waitingFor`, `entrypoint`, `kind`,
+  `startedAt`, `updatedAt`, `statusUpdatedAt`.
 
 Added with M22 (2026-11-10), for the Primitives page (`primitives.md` has the whole of it):
 

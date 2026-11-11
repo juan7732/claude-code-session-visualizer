@@ -51,12 +51,17 @@ struct RootView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(10))
                 await store.refresh()
+                // Cheap (the engine reads only what changed): keeps the rail's count, the reminders and "moved on" current.
+                await store.loadNow()
             }
         }
         .frame(minWidth: 760, minHeight: 480)
         // Last, so the toolbar's own views (the find field) see the window's state too.
         .environment(window)
     }
+
+    /// The session in front has moved on since its document was read.
+    private var behind: Bool { window.sessionID.map { store.isBehind($0) } ?? false }
 
     @ViewBuilder private var page: some View {
         if store.engine != .ready {
@@ -68,6 +73,7 @@ struct RootView: View {
             case .search: SearchPage()
             case .stats: StatsPage()
             case .claude: ClaudePage()
+            case .now: NowPage()
             case .primitives: PrimitivesPage()
             case .compare: ComparePage()
             }
@@ -81,6 +87,7 @@ struct RootView: View {
         case .search: "Search"
         case .stats: "Stats"
         case .claude: "Claude"
+        case .now: "Now"
         case .primitives: "Primitives"
         case .compare: "Compare"
         }
@@ -109,6 +116,17 @@ struct RootView: View {
             }
             .disabled(!window.canGoForward)
             .help("Forward (⌘])")
+            // The app reads a session once. Refresh reads it again; the dot says there is something new to read.
+            Button {
+                AppActions.refresh(window, store)
+            } label: {
+                Label("Refresh", systemImage: "arrow.clockwise")
+                    .overlay(alignment: .topTrailing) {
+                        if behind { Circle().fill(palette.accent).frame(width: 6, height: 6).offset(x: 3, y: -2) }
+                    }
+            }
+            .disabled(store.reloading)
+            .help(behind ? "This session has moved on since it was read. Refresh (⌘R)" : "Refresh (⌘R)")
         }
         if let id = window.sessionID {
             ToolbarItem(placement: .principal) {
@@ -173,6 +191,11 @@ struct RootView: View {
                     try? await Task.sleep(for: .milliseconds(250))
                 }
             }
+        } else if what == "now" {
+            // now:<minutes>, e.g. now:1440 for every session of the last day.
+            store.nowMinutes = Int(id) ?? 60
+            window.page = .now
+            for _ in 0..<100 where store.now == nil || store.now == .loading { try? await Task.sleep(for: .milliseconds(100)) }
         } else if what == "compare" {
             window.showCompare(in: store)
         } else if what == "images" {
@@ -228,6 +251,7 @@ struct RootView: View {
         case .search: "Search"
         case .stats: "Stats"
         case .claude: "Claude"
+        case .now: "Now"
         case .primitives: "Primitives"
         case .compare: "Compare"
         case .session(let id): id == window.sessionID ? "the \(target.view.title)" : "the session you came from"

@@ -1,1 +1,627 @@
-{"sessions":4,"kinds":[{"kind":"skill","items":5,"installed":3,"used":1,"unused":3},{"kind":"agent","items":3,"installed":1,"used":2,"unused":1},{"kind":"command","items":1,"installed":0,"used":1,"unused":0},{"kind":"connector","items":2,"installed":2,"used":1,"unused":1},{"kind":"hook","items":1,"installed":1,"used":1,"unused":0},{"kind":"plugin","items":0,"installed":0,"used":0,"unused":0},{"kind":"instructions","items":2,"installed":2,"used":2,"unused":0},{"kind":"memory","items":2,"installed":2,"used":2,"unused":0}],"items":[{"kind":"skill","name":"anthropic-skills:pdf","description":"Read and make PDF files","installed":true,"order":"user-first","definitions":[{"scope":"account","path":"/fixture/home/.claude/skills/synced/bucket/pdf/SKILL.md","description":"Read and make PDF files","bytes":55,"modified":"2026-11-11T05:23:15.767147448Z"}],"usage":{"sessions":0,"calls":0,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"offered_sessions":1,"offered_last_at":"2026-11-10T08:00:00Z","projects":[],"days":[]}},{"kind":"skill","name":"deploy","description":"Ship it, for every project","installed":true,"order":"user-first","definitions":[{"scope":"user","path":"/fixture/home/.claude/skills/deploy/SKILL.md","description":"Ship it, for every project","bytes":68,"modified":"2026-11-11T05:23:15.766748987Z","calls":2},{"scope":"project","where":"/fixture/home/proj","path":"/fixture/home/proj/.claude/skills/deploy/SKILL.md","description":"Ship this project","bytes":59,"modified":"2026-11-11T05:23:15.766902405Z"}],"usage":{"sessions":1,"calls":2,"errors":0,"by_user":1,"seconds":0,"output_tokens":0,"first_at":"2026-11-09T09:00:01Z","last_at":"2026-11-09T09:00:35Z","offered_sessions":1,"offered_last_at":"2026-11-10T08:00:00Z","projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":2}],"days":[{"day":"2026-11-09","calls":2}]},"last_used_at":"2026-11-09T09:00:35Z","claude_code_counter":{"uses":5,"last_used_at":"2026-11-06T21:20:00Z"}},{"kind":"skill","name":"init","installed":false,"order":"user-first","definitions":[],"usage":{"sessions":0,"calls":0,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"offered_sessions":1,"offered_last_at":"2026-11-10T08:00:00Z","projects":[],"days":[]}},{"kind":"skill","name":"old-skill","installed":false,"order":"user-first","definitions":[],"usage":{"sessions":0,"calls":0,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"offered_sessions":0,"projects":[],"days":[]},"claude_code_counter":{"uses":2,"last_used_at":"2026-05-28T20:26:40Z"}},{"kind":"skill","name":"tidy","description":"Tidy up after a change","installed":true,"order":"user-first","definitions":[{"scope":"user","path":"/fixture/home/.claude/skills/tidy/SKILL.md","description":"Tidy up after a change","bytes":44,"modified":"2026-11-11T05:23:15.767029114Z"}],"usage":{"sessions":0,"calls":0,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"offered_sessions":1,"offered_last_at":"2026-11-10T08:00:00Z","projects":[],"days":[]}},{"kind":"agent","name":"Explore","installed":false,"built_in":true,"order":"project-first","definitions":[],"usage":{"sessions":1,"calls":1,"errors":0,"by_user":0,"seconds":30,"output_tokens":0,"first_at":"2026-11-09T09:00:03Z","last_at":"2026-11-09T09:00:03Z","offered_sessions":1,"offered_last_at":"2026-11-10T08:00:00Z","projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":1}],"days":[{"day":"2026-11-09","calls":1}]},"last_used_at":"2026-11-09T09:00:03Z"},{"kind":"agent","name":"general-purpose","installed":false,"order":"project-first","definitions":[],"usage":{"sessions":1,"calls":1,"errors":0,"by_user":0,"seconds":1.7,"output_tokens":6,"first_at":"2026-11-08T10:00:07Z","last_at":"2026-11-08T10:00:07Z","offered_sessions":0,"projects":[{"project":"-Users-me-work","cwd":"/Users/xxxx/work","sessions":1,"calls":1}],"days":[{"day":"2026-11-08","calls":1}]},"last_used_at":"2026-11-08T10:00:07Z"},{"kind":"agent","name":"reviewer","description":"Reviews a change before it is committed","installed":true,"order":"project-first","definitions":[{"scope":"user","path":"/fixture/home/.claude/agents/reviewer.md","description":"Reviews a change before it is committed","bytes":76,"modified":"2026-11-11T05:23:15.767266449Z"}],"usage":{"sessions":0,"calls":0,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"offered_sessions":1,"offered_last_at":"2026-11-10T08:00:00Z","projects":[],"days":[]}},{"kind":"command","name":"compact","installed":false,"order":"user-first","definitions":[],"usage":{"sessions":1,"calls":1,"errors":0,"by_user":1,"seconds":0,"output_tokens":0,"first_at":"2026-11-10T08:00:00Z","last_at":"2026-11-10T08:00:00Z","offered_sessions":0,"projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":1}],"days":[{"day":"2026-11-10","calls":1}]},"last_used_at":"2026-11-10T08:00:00Z"},{"kind":"connector","name":"claude_ai_Gmail","title":"claude.ai Gmail","installed":true,"order":"local-first","definitions":[{"scope":"account"}],"usage":{"sessions":0,"calls":0,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"offered_sessions":1,"offered_last_at":"2026-11-10T08:00:00Z","projects":[],"days":[]}},{"kind":"connector","name":"notes","title":"notes","installed":true,"order":"local-first","definitions":[{"scope":"user","path":"/fixture/home/.claude.json","modified":"2026-11-11T05:23:15.767860746Z","detail":{"program":"notes-mcp","transport":"stdio"}}],"usage":{"sessions":1,"calls":1,"errors":1,"by_user":0,"seconds":2,"output_tokens":0,"first_at":"2026-11-09T09:00:03Z","last_at":"2026-11-09T09:00:03Z","offered_sessions":1,"offered_last_at":"2026-11-10T08:00:00Z","projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":1}],"days":[{"day":"2026-11-09","calls":1}]},"last_used_at":"2026-11-09T09:00:03Z"},{"kind":"hook","name":"PostToolUse:Edit|Write","installed":true,"order":"merged","definitions":[{"scope":"user","path":"/fixture/home/.claude/settings.json","bytes":105,"modified":"2026-11-11T05:23:15.76774687Z","detail":{"command":"gofmt -l .","event":"PostToolUse","matcher":"Edit|Write","type":"command"}}],"usage":{"sessions":1,"calls":1,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"first_at":"2026-11-09T09:00:37.5Z","last_at":"2026-11-09T09:00:37.5Z","offered_sessions":0,"projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":1}],"days":[{"day":"2026-11-09","calls":1}]},"last_used_at":"2026-11-09T09:00:37.5Z"},{"kind":"instructions","name":"/fixture/home/.claude/CLAUDE.md","installed":true,"order":"merged","definitions":[{"scope":"user","path":"/fixture/home/.claude/CLAUDE.md","bytes":17,"modified":"2026-11-11T05:23:15.76735795Z"}],"usage":{"sessions":1,"calls":1,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"first_at":"2026-11-09T09:00:00Z","last_at":"2026-11-09T09:00:00Z","offered_sessions":0,"projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":1}],"days":[{"day":"2026-11-09","calls":1}]},"last_used_at":"2026-11-09T09:00:00Z"},{"kind":"instructions","name":"/fixture/home/proj/CLAUDE.md","installed":true,"order":"merged","definitions":[{"scope":"project","where":"/fixture/home/proj","path":"/fixture/home/proj/CLAUDE.md","bytes":20,"modified":"2026-11-11T05:23:15.767450785Z"}],"usage":{"sessions":1,"calls":1,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"first_at":"2026-11-09T09:00:00Z","last_at":"2026-11-09T09:00:00Z","offered_sessions":0,"projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":1}],"days":[{"day":"2026-11-09","calls":1}]},"last_used_at":"2026-11-09T09:00:00Z"},{"kind":"memory","name":"/fixture/home/.claude/projects/-fixture-proj/memory/a-note.md","installed":true,"order":"merged","definitions":[{"scope":"project","where":"-fixture-proj","path":"/fixture/home/.claude/projects/-fixture-proj/memory/a-note.md","bytes":8,"modified":"2026-11-11T05:23:15.767644036Z"}],"usage":{"sessions":1,"calls":1,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"first_at":"2026-11-09T09:00:35Z","last_at":"2026-11-09T09:00:35Z","offered_sessions":0,"projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":1}],"days":[{"day":"2026-11-09","calls":1}]},"last_used_at":"2026-11-09T09:00:35Z"},{"kind":"memory","name":"/fixture/home/.claude/projects/-fixture-proj/memory/MEMORY.md","installed":true,"order":"merged","definitions":[{"scope":"project","where":"-fixture-proj","path":"/fixture/home/.claude/projects/-fixture-proj/memory/MEMORY.md","bytes":22,"modified":"2026-11-11T05:23:15.767547785Z"}],"usage":{"sessions":1,"calls":1,"errors":0,"by_user":0,"seconds":0,"output_tokens":0,"first_at":"2026-11-09T09:00:00Z","last_at":"2026-11-09T09:00:00Z","offered_sessions":0,"projects":[{"project":"-Users-me-work","cwd":"/fixture/home/proj","sessions":1,"calls":1}],"days":[{"day":"2026-11-09","calls":1}]},"last_used_at":"2026-11-09T09:00:00Z"}],"looked_in":["/fixture/home/.claude","/fixture/home/proj"]}
+{
+  "sessions": 4,
+  "kinds": [
+    {
+      "kind": "skill",
+      "items": 5,
+      "installed": 3,
+      "used": 1,
+      "unused": 3
+    },
+    {
+      "kind": "agent",
+      "items": 3,
+      "installed": 1,
+      "used": 2,
+      "unused": 1
+    },
+    {
+      "kind": "command",
+      "items": 1,
+      "installed": 0,
+      "used": 1,
+      "unused": 0
+    },
+    {
+      "kind": "connector",
+      "items": 2,
+      "installed": 2,
+      "used": 1,
+      "unused": 1
+    },
+    {
+      "kind": "hook",
+      "items": 1,
+      "installed": 1,
+      "used": 1,
+      "unused": 0
+    },
+    {
+      "kind": "plugin",
+      "items": 0,
+      "installed": 0,
+      "used": 0,
+      "unused": 0
+    },
+    {
+      "kind": "instructions",
+      "items": 2,
+      "installed": 2,
+      "used": 2,
+      "unused": 0
+    },
+    {
+      "kind": "memory",
+      "items": 2,
+      "installed": 2,
+      "used": 2,
+      "unused": 0
+    }
+  ],
+  "items": [
+    {
+      "kind": "skill",
+      "name": "anthropic-skills:pdf",
+      "description": "Read and make PDF files",
+      "installed": true,
+      "order": "user-first",
+      "definitions": [
+        {
+          "scope": "account",
+          "path": "/fixture/home/.claude/skills/synced/bucket/pdf/SKILL.md",
+          "description": "Read and make PDF files",
+          "bytes": 55,
+          "modified": "2026-11-10T12:00:00Z"
+        }
+      ],
+      "usage": {
+        "sessions": 0,
+        "calls": 0,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "offered_sessions": 1,
+        "offered_last_at": "2026-11-10T08:00:00Z",
+        "projects": [],
+        "days": []
+      }
+    },
+    {
+      "kind": "skill",
+      "name": "deploy",
+      "description": "Ship it, for every project",
+      "installed": true,
+      "order": "user-first",
+      "definitions": [
+        {
+          "scope": "user",
+          "path": "/fixture/home/.claude/skills/deploy/SKILL.md",
+          "description": "Ship it, for every project",
+          "bytes": 68,
+          "modified": "2026-11-10T12:00:00Z",
+          "calls": 2
+        },
+        {
+          "scope": "project",
+          "where": "/fixture/home/proj",
+          "path": "/fixture/home/proj/.claude/skills/deploy/SKILL.md",
+          "description": "Ship this project",
+          "bytes": 59,
+          "modified": "2026-11-10T12:00:00Z"
+        }
+      ],
+      "usage": {
+        "sessions": 1,
+        "calls": 2,
+        "errors": 0,
+        "by_user": 1,
+        "seconds": 0,
+        "output_tokens": 0,
+        "first_at": "2026-11-09T09:00:01Z",
+        "last_at": "2026-11-09T09:00:35Z",
+        "offered_sessions": 1,
+        "offered_last_at": "2026-11-10T08:00:00Z",
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 2
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-09",
+            "calls": 2
+          }
+        ]
+      },
+      "last_used_at": "2026-11-09T09:00:35Z",
+      "claude_code_counter": {
+        "uses": 5,
+        "last_used_at": "2026-11-06T21:20:00Z"
+      }
+    },
+    {
+      "kind": "skill",
+      "name": "init",
+      "installed": false,
+      "order": "user-first",
+      "definitions": [],
+      "usage": {
+        "sessions": 0,
+        "calls": 0,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "offered_sessions": 1,
+        "offered_last_at": "2026-11-10T08:00:00Z",
+        "projects": [],
+        "days": []
+      }
+    },
+    {
+      "kind": "skill",
+      "name": "old-skill",
+      "installed": false,
+      "order": "user-first",
+      "definitions": [],
+      "usage": {
+        "sessions": 0,
+        "calls": 0,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "offered_sessions": 0,
+        "projects": [],
+        "days": []
+      },
+      "claude_code_counter": {
+        "uses": 2,
+        "last_used_at": "2026-05-28T20:26:40Z"
+      }
+    },
+    {
+      "kind": "skill",
+      "name": "tidy",
+      "description": "Tidy up after a change",
+      "installed": true,
+      "order": "user-first",
+      "definitions": [
+        {
+          "scope": "user",
+          "path": "/fixture/home/.claude/skills/tidy/SKILL.md",
+          "description": "Tidy up after a change",
+          "bytes": 44,
+          "modified": "2026-11-10T12:00:00Z"
+        }
+      ],
+      "usage": {
+        "sessions": 0,
+        "calls": 0,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "offered_sessions": 1,
+        "offered_last_at": "2026-11-10T08:00:00Z",
+        "projects": [],
+        "days": []
+      }
+    },
+    {
+      "kind": "agent",
+      "name": "Explore",
+      "installed": false,
+      "built_in": true,
+      "order": "project-first",
+      "definitions": [],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 30,
+        "output_tokens": 0,
+        "first_at": "2026-11-09T09:00:03Z",
+        "last_at": "2026-11-09T09:00:03Z",
+        "offered_sessions": 1,
+        "offered_last_at": "2026-11-10T08:00:00Z",
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-09",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-09T09:00:03Z"
+    },
+    {
+      "kind": "agent",
+      "name": "general-purpose",
+      "installed": false,
+      "order": "project-first",
+      "definitions": [],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 1.7,
+        "output_tokens": 6,
+        "first_at": "2026-11-08T10:00:07Z",
+        "last_at": "2026-11-08T10:00:07Z",
+        "offered_sessions": 0,
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/Users/xxxx/work",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-08",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-08T10:00:07Z"
+    },
+    {
+      "kind": "agent",
+      "name": "reviewer",
+      "description": "Reviews a change before it is committed",
+      "installed": true,
+      "order": "project-first",
+      "definitions": [
+        {
+          "scope": "user",
+          "path": "/fixture/home/.claude/agents/reviewer.md",
+          "description": "Reviews a change before it is committed",
+          "bytes": 76,
+          "modified": "2026-11-10T12:00:00Z"
+        }
+      ],
+      "usage": {
+        "sessions": 0,
+        "calls": 0,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "offered_sessions": 1,
+        "offered_last_at": "2026-11-10T08:00:00Z",
+        "projects": [],
+        "days": []
+      }
+    },
+    {
+      "kind": "command",
+      "name": "compact",
+      "installed": false,
+      "order": "user-first",
+      "definitions": [],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 0,
+        "by_user": 1,
+        "seconds": 0,
+        "output_tokens": 0,
+        "first_at": "2026-11-10T08:00:00Z",
+        "last_at": "2026-11-10T08:00:00Z",
+        "offered_sessions": 0,
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-10",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-10T08:00:00Z"
+    },
+    {
+      "kind": "connector",
+      "name": "claude_ai_Gmail",
+      "title": "claude.ai Gmail",
+      "installed": true,
+      "order": "local-first",
+      "definitions": [
+        {
+          "scope": "account"
+        }
+      ],
+      "usage": {
+        "sessions": 0,
+        "calls": 0,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "offered_sessions": 1,
+        "offered_last_at": "2026-11-10T08:00:00Z",
+        "projects": [],
+        "days": []
+      }
+    },
+    {
+      "kind": "connector",
+      "name": "notes",
+      "title": "notes",
+      "installed": true,
+      "order": "local-first",
+      "definitions": [
+        {
+          "scope": "user",
+          "path": "/fixture/home/.claude.json",
+          "modified": "2026-11-10T12:00:00Z",
+          "detail": {
+            "program": "notes-mcp",
+            "transport": "stdio"
+          }
+        }
+      ],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 1,
+        "by_user": 0,
+        "seconds": 2,
+        "output_tokens": 0,
+        "first_at": "2026-11-09T09:00:03Z",
+        "last_at": "2026-11-09T09:00:03Z",
+        "offered_sessions": 1,
+        "offered_last_at": "2026-11-10T08:00:00Z",
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-09",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-09T09:00:03Z"
+    },
+    {
+      "kind": "hook",
+      "name": "PostToolUse:Edit|Write",
+      "installed": true,
+      "order": "merged",
+      "definitions": [
+        {
+          "scope": "user",
+          "path": "/fixture/home/.claude/settings.json",
+          "bytes": 105,
+          "modified": "2026-11-10T12:00:00Z",
+          "detail": {
+            "command": "gofmt -l .",
+            "event": "PostToolUse",
+            "matcher": "Edit|Write",
+            "type": "command"
+          }
+        }
+      ],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "first_at": "2026-11-09T09:00:37.5Z",
+        "last_at": "2026-11-09T09:00:37.5Z",
+        "offered_sessions": 0,
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-09",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-09T09:00:37.5Z"
+    },
+    {
+      "kind": "instructions",
+      "name": "/fixture/home/.claude/CLAUDE.md",
+      "installed": true,
+      "order": "merged",
+      "definitions": [
+        {
+          "scope": "user",
+          "path": "/fixture/home/.claude/CLAUDE.md",
+          "bytes": 17,
+          "modified": "2026-11-10T12:00:00Z"
+        }
+      ],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "first_at": "2026-11-09T09:00:00Z",
+        "last_at": "2026-11-09T09:00:00Z",
+        "offered_sessions": 0,
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-09",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-09T09:00:00Z"
+    },
+    {
+      "kind": "instructions",
+      "name": "/fixture/home/proj/CLAUDE.md",
+      "installed": true,
+      "order": "merged",
+      "definitions": [
+        {
+          "scope": "project",
+          "where": "/fixture/home/proj",
+          "path": "/fixture/home/proj/CLAUDE.md",
+          "bytes": 20,
+          "modified": "2026-11-10T12:00:00Z"
+        }
+      ],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "first_at": "2026-11-09T09:00:00Z",
+        "last_at": "2026-11-09T09:00:00Z",
+        "offered_sessions": 0,
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-09",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-09T09:00:00Z"
+    },
+    {
+      "kind": "memory",
+      "name": "/fixture/home/.claude/projects/-fixture-proj/memory/a-note.md",
+      "installed": true,
+      "order": "merged",
+      "definitions": [
+        {
+          "scope": "project",
+          "where": "-fixture-proj",
+          "path": "/fixture/home/.claude/projects/-fixture-proj/memory/a-note.md",
+          "bytes": 8,
+          "modified": "2026-11-10T12:00:00Z"
+        }
+      ],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "first_at": "2026-11-09T09:00:35Z",
+        "last_at": "2026-11-09T09:00:35Z",
+        "offered_sessions": 0,
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-09",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-09T09:00:35Z"
+    },
+    {
+      "kind": "memory",
+      "name": "/fixture/home/.claude/projects/-fixture-proj/memory/MEMORY.md",
+      "installed": true,
+      "order": "merged",
+      "definitions": [
+        {
+          "scope": "project",
+          "where": "-fixture-proj",
+          "path": "/fixture/home/.claude/projects/-fixture-proj/memory/MEMORY.md",
+          "bytes": 22,
+          "modified": "2026-11-10T12:00:00Z"
+        }
+      ],
+      "usage": {
+        "sessions": 1,
+        "calls": 1,
+        "errors": 0,
+        "by_user": 0,
+        "seconds": 0,
+        "output_tokens": 0,
+        "first_at": "2026-11-09T09:00:00Z",
+        "last_at": "2026-11-09T09:00:00Z",
+        "offered_sessions": 0,
+        "projects": [
+          {
+            "project": "-Users-me-work",
+            "cwd": "/fixture/home/proj",
+            "sessions": 1,
+            "calls": 1
+          }
+        ],
+        "days": [
+          {
+            "day": "2026-11-09",
+            "calls": 1
+          }
+        ]
+      },
+      "last_used_at": "2026-11-09T09:00:00Z"
+    }
+  ],
+  "looked_in": [
+    "/fixture/home/.claude",
+    "/fixture/home/proj"
+  ]
+}

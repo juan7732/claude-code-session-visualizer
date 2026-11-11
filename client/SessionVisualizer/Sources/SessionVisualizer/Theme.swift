@@ -175,6 +175,9 @@ enum SettingsKey {
     static let timelineFollow = "timeline.follow"
     /// What "Open" on a file opens it in: an application's bundle id or its path; empty for each file's default app.
     static let fileOpener = "files.opener"
+    /// Sessions the person asked to be reminded about before their prompt cache expires, and how many minutes before.
+    static let nowReminders = "now.reminders"
+    static let nowReminderMinutes = "now.reminderMinutes"
     /// "braid" (reading order) or "score" (time-true staves).
     static let canvasLayout = "canvas.layout"
     /// The Score's time scale, in canvas points a second, and whether files that kept coming back have rows.

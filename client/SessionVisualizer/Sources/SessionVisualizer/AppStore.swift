@@ -51,6 +51,14 @@ final class AppStore {
     /// Claude Code's own configuration, read when the Claude page shows.
     private(set) var claude: Loadable<ClaudeSnapshot>?
     private(set) var claudeReadAt: Date?
+    /// The sessions at work and what each is doing, asked again every few seconds while it is shown.
+    private(set) var now: Loadable<NowReport>?
+    /// How far back "at work" reaches, in minutes. Every window shares it.
+    var nowMinutes = 60
+    /// The reminders before a session's prompt cache expires.
+    let reminders = CacheReminders()
+    /// A reload the person asked for is under way.
+    private(set) var reloading = false
     /// What Claude Code is extended with and its use, by the days counted (0 for every session kept).
     private(set) var primitives: [Int: Loadable<PrimitivesReport>] = [:]
     /// One primitive with the sessions that used it, by `primitiveKey`.
@@ -233,6 +241,80 @@ final class AppStore {
         } catch {
             overviews[key] = .failed("\(error)")
         }
+    }
+
+    /// What the sessions at work are doing now. A failure keeps what was last read on screen.
+    func loadNow() async {
+        if now == nil { now = .loading }
+        do {
+            let report = try await client.now(minutes: nowMinutes == 60 ? nil : nowMinutes)
+            if now != .loaded(report) { now = .loaded(report) }
+            reminders.sync(report)
+        } catch {
+            if case .loaded = now {} else { now = .failed("\(error)") }
+        }
+    }
+
+    /// The session at work with this id, when the last look saw it.
+    func nowSession(_ id: String) -> NowReport.Session? {
+        if case .loaded(let report) = now { report.sessions.first { $0.id == id } } else { nil }
+    }
+
+    /// True when the session has moved on since its document was read here.
+    func isBehind(_ id: String) -> Bool {
+        guard let model = model(id), let live = nowSession(id) else { return false }
+        return live.lastAt.timeIntervalSince(model.doc.lastAt) > 1
+    }
+
+    /// Reads a session again and swaps it in when it has arrived, so the page keeps showing the
+    /// old one meanwhile. What was fetched for the old one (results, time, images) is dropped.
+    func reloadModel(_ id: String) async {
+        guard case .loaded = models[id] else { return await loadModel(id) }
+        let client = self.client
+        do {
+            let model = try await Task.detached(priority: .userInitiated) {
+                async let doc = client.document(session: id)
+                async let relations = client.relations(session: id)
+                return SessionModel(doc: try await doc, relations: try await relations)
+            }.value
+            // What a view had asked for is asked for again: a view asks once, when it appears.
+            let hadTime = times[id] != nil, hadImages = images[id] != nil, hadStats = stats[id] != nil
+            models[id] = .loaded(model)
+            actionDetails[id] = nil
+            stepDetails[id] = nil
+            compactionDetails[id] = nil
+            times[id] = nil
+            images[id] = nil
+            if hadTime { await loadTime(id) }
+            if hadImages { await loadImages(id) }
+            if hadStats { await loadStats(id) }
+        } catch {
+            notice = "\(error)"
+        }
+    }
+
+    /// Refresh (⌘R): the sessions, and whatever the page in front shows.
+    func reload(page: Page, compare: [String] = []) async {
+        guard !reloading else { return }
+        reloading = true
+        defer { reloading = false }
+        await refresh()
+        switch page {
+        case .session(let id):
+            await reloadModel(id)
+        case .compare:
+            for id in compare { await reloadModel(id) }
+        case .stats:
+            for key in overviews.keys { await loadOverview(project: key.isEmpty ? nil : key) }
+        case .primitives:
+            for key in primitives.keys { await loadPrimitives(days: key == 0 ? nil : key) }
+        case .claude:
+            await loadClaude()
+        case .sessions, .search, .now:
+            break
+        }
+        // Last, so "moved on since it was read" is judged against what was just read.
+        await loadNow()
     }
 
     /// Reads the list again each time the page shows: what is on disk changes without the app knowing.

@@ -393,8 +393,8 @@ settles which model, how much memory and how long per call, before any of it is 
 M20 to M22 were asked for by Juan on 2026-11-10, after M13. They are numbered after M19 because that is when they were
 written down. They may be taken up before the release: M16's signing waits on Apple (Juan, 2026-11-10).
 
-**M20 Now: sessions at work.** A page of its own: every session that did something in the last 60 minutes is a card, all
-of them at a glance.
+**M20 Now: sessions at work (DONE).** A page of its own: every session that did something in the last 60 minutes is a
+card, all of them at a glance.
 
 - What it is doing now: the model working, a tool running (which, and for how long), waiting for a permission, waiting
   for a hand-back or a background command, or waiting for you (since when, and what it last said).
@@ -412,6 +412,18 @@ Then a `skit` command and a route for it, as for everything else. Notifications 
 when. Done when: with three sessions running in three windows, the page says correctly which one is waiting for you, and
 a notification arrives five minutes before a cache expires.
 
+State, 2026-11-11 (`now.md`): built, and marked done by Juan the same day. The spike settled the three questions. What a
+session is doing: Claude Code keeps a file per running process with its status, and the last records of the transcript
+say the rest (which tool, since when, what it last said), within the last 32 kB of a transcript of any size. Cache
+lifetime: each request's usage says whether it wrote five-minute or one-hour entries, so expiry is the last request's
+time plus that. A waiting permission prompt is not in a transcript at all: it shows only if Claude Code marks the
+process as waiting, which is not verified for VS Code. `skit now`, `/v0/now` (about 20 ms with a 115 MB transcript
+running), and the Now page on the rail: a card per session with its state and a running clock, what is running or was
+last said, and the cache as a bar that empties; a bell per card for a notification when the cache has five minutes left;
+the app asks every 3 seconds while the page shows. With it, Refresh (⌘R) by the back and forward arrows on every page,
+with a dot when the open session has moved on since it was read. Not built: background shell commands as a state; an
+open session's page following a running session by itself; a card's button to the editor window (M21).
+
 **M21 Back to the editor.** From a card of M20 (and from any live session's page), "Open in VS Code" brings the window
 that is running that session to the front, so the work continues where it was left. To settle first: how to tell which
 window that is. Claude Code records the process and its entry point for a running session; the editor's window for a
@@ -420,10 +432,9 @@ when two do. A session started in a terminal has no editor window: the card says
 the terminal instead. Could ship with M20 or after it. Done when: with two VS Code windows on two workspaces, each
 running a session, the button on each card raises the right one.
 
-**M22 Primitives (built; Juan's pass in the live window pending).** A section of its own on the rail for what Claude
-Code is extended with: skills, agents (subagent definitions), slash commands and prompts, hooks, connectors, plugins,
-memory and instructions. The Claude page lists some of these today (skills with a use count, memory files, connectors by
-name); this is that, grown up.
+**M22 Primitives (DONE).** A section of its own on the rail for what Claude Code is extended with: skills, agents
+(subagent definitions), slash commands and prompts, hooks, connectors, plugins, memory and instructions. The Claude page
+lists some of these today (skills with a use count, memory files, connectors by name); this is that, grown up.
 
 - Where each is installed: for the user, for a project, from a plugin; and which one wins when a name is defined twice.
 - How much each is used, from the sessions themselves and not only from Claude Code's own counter: which sessions
@@ -443,9 +454,10 @@ calls nor Claude Code's own counter see all of the use. The index (schema 8) kee
 day. `skit primitives`, `/v0/primitives` and the Primitives page (rail, between Stats and Claude): a list by kind, most
 used first, with a period, "only what was not used" and a filter; the selected item beside it with its definitions
 (open, reveal), its figures, its use by day and by project, and the sessions that used it, each opening at the turn of
-its first use. There was no mock: the page follows the Files view and the Claude page, and is a first cut for Juan to
-react to. Not built: plugins on a machine that has one (written from the documented layout, tested on a made-up one);
-output styles, the status line and key bindings; a `primitive` kind in Search.
+its first use. There was no mock: the page follows the Files view and the Claude page, and is a first cut. Juan marked
+it done "for now" on 2026-11-10; mock-ups and a second pass on the page are issue #8. Not built: plugins on a machine
+that has one (written from the documented layout, tested on a made-up one); output styles, the status line and key
+bindings; a `primitive` kind in Search.
 
 **Not scheduled.** Continue from here (embedded terminal, fork at a turn; needs the feasibility probe in `NOTES.md`).
 Plugins (ergo, git) through the extension points. Image tiers B and C, the hooks installer, HTML export. The pricing
