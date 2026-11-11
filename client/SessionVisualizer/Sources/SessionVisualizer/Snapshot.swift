@@ -35,6 +35,10 @@ struct SnapshotRequest {
     var mode: String?
     /// On the Search page: every session's hits shown, whatever the setting.
     var unfold = false
+    /// On the Canvas: the zoom (1 is 100 %), turns collapsed, and "all" or "width" to fit.
+    var zoom: Double?
+    var collapse = false
+    var fit: String?
 
     init?(arguments: [String]) {
         guard let at = arguments.firstIndex(of: "--snapshot"), at + 1 < arguments.count else { return nil }
@@ -84,6 +88,9 @@ struct SnapshotRequest {
         kind = value("--kind")
         mode = value("--mode")
         unfold = arguments.contains("--unfold")
+        zoom = value("--zoom").flatMap(Double.init)
+        collapse = arguments.contains("--collapse")
+        fit = value("--fit")
     }
 }
 
@@ -122,13 +129,103 @@ enum Measure {
     }
 }
 
+/// `SessionVisualizer --measure-canvas <session id> [--socket path] [--size 1500x900]`: what a
+/// frame of the Canvas costs. Builds the Braid of the session, then draws it
+/// offscreen along a pan at each level of detail and through a zoom, and prints
+/// milliseconds per frame. A frame at 60 a second has 16.7 ms.
+enum MeasureCanvas {
+    static func run(arguments: [String]) -> Never? {
+        guard let at = arguments.firstIndex(of: "--measure-canvas"), at + 1 < arguments.count else { return nil }
+        let id = arguments[at + 1]
+        func value(_ flag: String) -> String? { arguments.firstIndex(of: flag).flatMap { $0 + 1 < arguments.count ? arguments[$0 + 1] : nil } }
+        var size = CGSize(width: 1500, height: 900)
+        if let parts = value("--size")?.split(separator: "x").compactMap({ Double($0) }), parts.count == 2 { size = CGSize(width: parts[0], height: parts[1]) }
+        let http = UnixHTTP(socketPath: value("--socket") ?? EngineLocator().socketPath)
+        func ms(_ start: Date) -> Double { Date().timeIntervalSince(start) * 1000 }
+        do {
+            let doc = try JSONDecoder.skit().decode(SessionDocument.self, from: http.send(method: "GET", path: "/v0/sessions/\(id)").body)
+            let relations = try JSONDecoder.skit().decode(Relations.self, from: http.send(method: "GET", path: "/v0/sessions/\(id)/relations").body)
+            let model = SessionModel(doc: doc, relations: relations)
+            var t = Date()
+            let content = BraidContent(model: model)
+            let contentMs = ms(t)
+            t = Date()
+            let layout = CanvasLayout(content: content)
+            let layoutMs = ms(t)
+            t = Date()
+            let collapsed = CanvasLayout(content: content, closed: Set(doc.turns.map(\.index)))
+            print(String(format: "%d turns, %d actions, %d tool calls, %d subagents", doc.turns.count, doc.actions.count, doc.toolCalls.count, doc.subagents.count))
+            print(String(format: "content (every text broken into lines)  %7.1f ms", contentMs))
+            print(String(format: "layout, every turn open                 %7.1f ms   %d nodes, %d edges, %d notes, %.0f × %.0f points", layoutMs, layout.nodes.count, layout.edges.count, layout.notes.count, layout.bounds.width, layout.bounds.height))
+            print(String(format: "layout, every turn collapsed            %7.1f ms   %d nodes, %.0f points tall", ms(t), collapsed.nodes.count, collapsed.bounds.height))
+
+            _ = NSApplication.shared
+            let view = BraidCanvasNSView(frame: CGRect(origin: .zero, size: size))
+            view.content = content
+            view.layout = layout
+            let window = NSWindow(contentRect: CGRect(origin: .zero, size: size), styleMask: [.borderless], backing: .buffered, defer: false)
+            window.contentView = view
+            guard let bitmap = view.bitmapImageRepForCachingDisplay(in: view.bounds) else {
+                print("measure: no bitmap")
+                exit(1)
+            }
+            print(String(format: "drawing %d × %d pixels, light and dark:", bitmap.pixelsWide, bitmap.pixelsHigh))
+            func run(_ name: String, frames: Int, camera: (Int) -> Camera) {
+                var times: [Double] = []
+                for frame in 0..<frames {
+                    view.camera = camera(frame)
+                    let start = Date()
+                    view.cacheDisplay(in: view.bounds, to: bitmap)
+                    times.append(ms(start))
+                }
+                times.sort()
+                print(String(format: "  %@  median %5.1f ms   95th %5.1f ms   worst %5.1f ms", name.padding(toLength: 44, withPad: " ", startingAt: 0),
+                             times[times.count / 2], times[min(times.count - 1, times.count * 95 / 100)], times[times.count - 1]))
+            }
+            let height = layout.bounds.height
+            for palette in [Palette.light, Palette.dark] {
+                view.colors = CanvasColors(palette)
+                for (name, scale) in [("near, 100 %, a pan down the session", 1.0), ("near, 80 %", 0.8), ("mid, 50 %", 0.5), ("far, 25 %", 0.25), ("far, 10 %", 0.1)] {
+                    run(name, frames: 180) { frame in
+                        Camera(x: 60, y: 40 - (height * scale - size.height) * CGFloat(frame) / 179, scale: scale)
+                    }
+                }
+                run("zoom from 6 % to 200 % at the middle", frames: 180) { frame in
+                    var camera = Camera()
+                    camera.fitAll(layout.bounds, in: size)
+                    camera.zoom(by: pow(2.0 / 0.06, CGFloat(frame) / 179) * 0.06 / camera.scale, at: CGPoint(x: size.width / 2, y: size.height / 2))
+                    return camera
+                }
+            }
+        } catch {
+            print("measure: \(error)")
+            exit(1)
+        }
+        exit(0)
+    }
+}
+
 enum Snapshot {
+    /// This process renders one picture and exits: it reads and writes none of
+    /// what a person's own windows remember (where a canvas was left).
+    static let active = CommandLine.arguments.contains("--snapshot")
+
     static func run(_ request: SnapshotRequest) -> Never {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
         // Settings for this run only: the argument domain is never written to disk.
-        UserDefaults.standard.setVolatileDomain([SettingsKey.oled: request.appearance == "oled", SettingsKey.sidebar: true],
-                                                forName: UserDefaults.argumentDomain)
+        var settings: [String: Any] = [SettingsKey.oled: request.appearance == "oled", SettingsKey.sidebar: true]
+        // --set summary.digest=false: a setting for this picture only.
+        var arguments = CommandLine.arguments[...]
+        while let at = arguments.firstIndex(of: "--set"), at + 1 < arguments.endIndex {
+            let pair = arguments[at + 1].split(separator: "=", maxSplits: 1).map(String.init)
+            if pair.count == 2 {
+                let value: Any = pair[1] == "true" ? true : pair[1] == "false" ? false : Int(pair[1]).map { $0 as Any } ?? pair[1]
+                settings[pair[0]] = value
+            }
+            arguments = arguments[(at + 2)...]
+        }
+        UserDefaults.standard.setVolatileDomain(settings, forName: UserDefaults.argumentDomain)
 
         let store = AppStore(socketPath: request.socket, managesEngine: false)
         let state = WindowState()
@@ -170,6 +267,15 @@ enum Snapshot {
                             }
                         }
                     }
+                    if request.view == .canvas {
+                        // The canvas lays its text out off the main thread, then takes its first camera.
+                        for _ in 0..<100 where state.canvas.cameraFor == nil { try? await Task.sleep(for: .milliseconds(50)) }
+                        if request.collapse { state.canvas.closed = Set(model.doc.turns.filter { !$0.actionIndexes.isEmpty }.map(\.index)) }
+                        try? await Task.sleep(for: .milliseconds(200))
+                        if let zoom = request.zoom { state.canvas.zoom(by: zoom / state.canvas.camera.scale) }
+                        if request.fit == "all" { state.canvas.fitAll() } else if request.fit == "width" { state.canvas.fitWidth() }
+                        if request.select != nil, request.fit == nil { state.canvas.focusRequests += 1 }
+                    }
                     try? await Task.sleep(for: .milliseconds(900)) // scrolling, the drawer, the results
                 }
             }
@@ -190,6 +296,7 @@ enum Snapshot {
                 state.paletteShown = true
                 try? await Task.sleep(for: .milliseconds(1200))
             }
+            if CommandLine.arguments.contains("--scroll-through") { await scrollThrough(window) }
             try? await Task.sleep(for: .milliseconds(600))
             let ok = write(window, to: request.output)
             if store.engine != .ready { FileHandle.standardError.write(Data("snapshot: engine state \(store.engine)\n".utf8)) }
@@ -197,6 +304,45 @@ enum Snapshot {
         }
         app.run()
         exit(0)
+    }
+
+    /// `--scroll-through`: scrolls the page's scroll view from top to bottom the
+    /// way a hand would, a notch a frame, and says where it is on stderr. A
+    /// view that locks up while being scrolled stops the count, and the
+    /// process can be sampled from outside.
+    static func scrollThrough(_ window: NSWindow) async {
+        func scrollViews(_ view: NSView) -> [NSScrollView] {
+            (view as? NSScrollView).map { [$0] } ?? [] + view.subviews.flatMap(scrollViews)
+        }
+        guard let root = window.contentView,
+              let scroll = scrollViews(root).max(by: { ($0.documentView?.frame.height ?? 0) < ($1.documentView?.frame.height ?? 0) })
+        else {
+            FileHandle.standardError.write(Data("scroll-through: no scroll view\n".utf8))
+            return
+        }
+        var y: CGFloat = 0
+        var steps = 0
+        let hover = ProcessInfo.processInfo.environment["SKIT_EXERCISE_HOVER"] != nil
+        while steps < 4000 {
+            let height = scroll.documentView?.frame.height ?? 0
+            let limit = max(0, height - scroll.contentView.bounds.height)
+            scroll.contentView.scroll(to: CGPoint(x: 0, y: y))
+            scroll.reflectScrolledClipView(scroll.contentView)
+            if hover {
+                // A pointer resting on the page while it scrolls under it: rows enter and leave it.
+                let point = CGPoint(x: window.frame.width * 0.45, y: window.frame.height * 0.4)
+                if let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                  windowNumber: window.windowNumber, context: nil, eventNumber: steps, clickCount: 0, pressure: 0) {
+                    window.sendEvent(event)
+                }
+            }
+            if steps % 10 == 0 { FileHandle.standardError.write(Data(String(format: "scroll-through: y %.0f of %.0f\n", y, limit).utf8)) }
+            if y >= limit { break }
+            y = min(limit, y + 90)
+            steps += 1
+            try? await Task.sleep(for: .milliseconds(16))
+        }
+        FileHandle.standardError.write(Data("scroll-through: reached the end after \(steps) steps\n".utf8))
     }
 
     private static func write(_ window: NSWindow, to path: String) -> Bool {

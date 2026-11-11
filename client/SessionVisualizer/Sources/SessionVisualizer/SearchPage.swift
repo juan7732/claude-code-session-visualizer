@@ -46,7 +46,7 @@ struct SearchPage: View {
             HStack(spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: "magnifyingglass").font(.system(size: 12)).foregroundStyle(palette.muted)
-                    TextField(state.mode == "meaning" ? "Ask in your own words" : "Search all sessions", text: Binding(get: { state.query }, set: { state.query = $0 }))
+                    TextField(state.mode.isEmpty ? "Search all sessions" : "Ask in your own words", text: Binding(get: { state.query }, set: { state.query = $0 }))
                         .textFieldStyle(.plain).font(.system(size: 13)).focused($focused)
                         .onSubmit { enter(state) }
                         .onKeyPress(.downArrow) { move(state, 1); return .handled }
@@ -58,10 +58,11 @@ struct SearchPage: View {
                 .overlay(RoundedRectangle(cornerRadius: Metric.radius, style: .continuous).stroke(palette.line2))
                 Picker("Search by", selection: Binding(get: { state.mode }, set: { state.mode = $0 })) {
                     Text("Keyword").tag("")
+                    Text("Hybrid").tag("hybrid")
                     Text("Meaning").tag("meaning")
                 }
                 .labelsHidden().fixedSize()
-                .help("Keyword finds the words you typed. Meaning finds what was said about it, shared words or not; it reads prompts, replies and thinking, not tool calls.")
+                .help("Keyword finds the words you typed. Meaning finds what was said about it, shared words or not; it reads prompts, replies and thinking, not tool calls. Hybrid lists what is close in meaning first, then the keyword hits.")
             }
             .padding(.horizontal, 12).padding(.top, 12).padding(.bottom, 8)
 
@@ -130,6 +131,7 @@ struct SearchPage: View {
         if state.hits.isEmpty { return meaning ? "Nothing in the archive is close to “\(needle)”." : "Nothing mentions “\(needle)”." }
         let sessions = Set(state.hits.map(\.session)).count
         let found = meaning ? "\(sessions) session\(sessions == 1 ? " has" : "s have") something close to “\(needle)”"
+            : state.mode == "hybrid" ? "\(sessions) session\(sessions == 1 ? "" : "s") for “\(needle)”, closest in meaning first"
             : "\(sessions) session\(sessions == 1 ? "" : "s") mention\(sessions == 1 ? "s" : "") “\(needle)”"
         return found + (state.all.count >= Self.limit ? " · the first \(Self.limit) hits" : "")
     }
@@ -186,9 +188,11 @@ struct SearchPage: View {
         return out
     }
 
-    /// Sessions with the most hits first; inside a session the engine's order
-    /// stays, which is best match first.
-    nonisolated static func ordered(_ hits: [SearchHit]) -> [SearchHit] {
+    /// The hits with each session's together. By keyword, the session with the
+    /// most hits leads; by meaning or hybrid, the one with the best hit does,
+    /// because there the engine's order is the ranking. Inside a session the
+    /// engine's order always stays.
+    nonisolated static func ordered(_ hits: [SearchHit], byCount: Bool = true) -> [SearchHit] {
         var counts: [String: Int] = [:]
         var firstSeen: [String: Int] = [:]
         for (i, hit) in hits.enumerated() {
@@ -198,7 +202,7 @@ struct SearchPage: View {
         return hits.enumerated().sorted { a, b in
             let (x, y) = (a.element.session, b.element.session)
             if x != y {
-                let (cx, cy) = (counts[x] ?? 0, counts[y] ?? 0)
+                let (cx, cy) = byCount ? (counts[x] ?? 0, counts[y] ?? 0) : (0, 0)
                 return cx != cy ? cx > cy : (firstSeen[x] ?? 0) < (firstSeen[y] ?? 0)
             }
             return a.offset < b.offset
@@ -259,7 +263,7 @@ struct SearchPage: View {
             }
         }
         if Task.isCancelled { return }
-        let ordered = Self.ordered(hits)
+        let ordered = Self.ordered(hits, byCount: mode.isEmpty)
         let sessions = Set(ordered.map(\.session))
         // Several sessions: one line each to choose from, when that is how the list was last left.
         (state.hits, state.failure, state.selected) = (ordered, nil, 0)
@@ -390,10 +394,10 @@ private struct HitRow: View {
                     Text(Self.place(hit)).font(.system(size: 12, weight: .semibold)).fixedSize()
                     Text(SearchKind.label(hit.kind) + (hit.tool.map { $0.isEmpty ? "" : " · " + $0 } ?? "") + ((hit.agent ?? "").isEmpty ? "" : " · subagent"))
                         .font(.system(size: 12)).foregroundStyle(palette.muted).lineLimit(1)
-                    if hit.match == "meaning", let cosine = hit.cosine {
+                    if hit.match == "meaning" || hit.match == "both", let cosine = hit.cosine {
                         Spacer(minLength: 4)
                         Text(String(format: "%.2f", cosine)).font(.system(size: 10.5, design: .monospaced)).foregroundStyle(palette.muted)
-                            .help("How close this passage is to what you asked (cosine similarity, 1 is the same)")
+                            .help("How close this passage is to what you asked (cosine similarity, 1 is the same)" + (hit.match == "both" ? ". It has your words too." : ""))
                     }
                 }
                 Text(Snippet.attributed(hit.snippet, palette: palette)).font(.system(size: 12.5)).foregroundStyle(palette.ink2).lineLimit(2)

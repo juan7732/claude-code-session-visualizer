@@ -158,10 +158,17 @@ enum SettingsKey {
     static let foldByDefault = "transcript.foldByDefault"
     static let summaryDigest = "summary.digest"
     static let summaryHours = "summary.hours"
+    static let summaryMap = "summary.map"
     /// The context window the Summary's gauge measures against, in tokens.
     static let contextWindow = "summary.contextWindow"
     /// Recent searches, one per line, newest first.
     static let recentSearches = "search.recent"
     /// A search that finds several sessions starts with each folded to one line.
     static let searchFolded = "search.folded"
+    static let canvasBackground = "canvas.background"
+    static let canvasMinimap = "canvas.minimap"
+    static let canvasLegend = "canvas.legend"
+    static let canvasNotes = "canvas.resultNotes"
+    /// Where a session's canvas was left: one camera per session.
+    static func canvasCamera(_ sessionID: String) -> String { "canvas.camera." + sessionID }
 }

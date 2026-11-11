@@ -2,8 +2,8 @@ import SkitKit
 import SwiftUI
 
 /// What a session was about, at a glance (mock: `?view=summary`, the
-/// Dashboard): cards over the numbers, then the turns one line each, then the
-/// hours it was alive. Every row that names a node selects it, and the drawer
+/// Dashboard): cards over the numbers, then the turns one line each, the map of
+/// what they touched, and the hours it was alive. Every row that names a node selects it, and the drawer
 /// under the page shows it.
 struct SummaryView: View {
     @Environment(AppStore.self) private var store
@@ -11,6 +11,7 @@ struct SummaryView: View {
     @Environment(\.palette) private var palette
     @AppStorage(SettingsKey.summaryDigest) private var showDigest = true
     @AppStorage(SettingsKey.summaryHours) private var showHours = true
+    @AppStorage(SettingsKey.summaryMap) private var showMap = true
     var session: SessionSummary
 
     var body: some View {
@@ -19,7 +20,8 @@ struct SummaryView: View {
         // from the transcript as it is now; the list row may be a little older.
         let stats: SessionSummary = { if case .loaded(let s) = store.stats[session.id] { s } else { session } }()
         ScrollView {
-            LazyVStack(alignment: .leading, spacing: 0) {
+            // A plain stack: see Digest for why nothing on this page is lazy.
+            VStack(alignment: .leading, spacing: 0) {
                 SummaryHead(session: session)
                 VStack(spacing: 12) {
                     row {
@@ -45,6 +47,7 @@ struct SummaryView: View {
                 if let model {
                     SessionSearchBox(model: model).padding(.top, 22)
                     if showDigest { Digest(model: model).padding(.top, 22) }
+                    if showMap { ArcsMap(model: model, layout: ArcsLayout(model: model)).padding(.top, 22) }
                     if showHours, let grid = HoursGrid(turns: model.doc.turns) { HoursCard(model: model, grid: grid).padding(.top, 18) }
                 } else if case .failed(let why) = store.models[session.id] {
                     Text("Could not read the session: \(why)").font(.system(size: 12)).foregroundStyle(palette.err).padding(.top, 18)
@@ -634,16 +637,28 @@ private struct HitLine: View {
 // MARK: What happened, when
 
 /// One row per turn: what was asked, what the agent said when it stopped, what it wrote.
+///
+/// The rows are a plain stack, not a lazy one, and the page around them is
+/// plain too. A lazy stack re-estimates its height as rows come and go; with a
+/// row that changes under a resting pointer (the hover highlight) that became a
+/// loop on the main thread while scrolling, and the window froze (found
+/// 2026-11-10). A very long session shows its first rows and offers the rest.
 struct Digest: View {
     @Environment(WindowState.self) private var window
     @Environment(\.palette) private var palette
     var model: SessionModel
+    @State private var showAll = false
+
+    /// How many lines are laid out before the rest is asked for.
+    static let firstLines = 300
 
     var body: some View {
+        let all = Self.lines(model)
+        let lines = showAll ? all[...] : all.prefix(Self.firstLines)
         VStack(alignment: .leading, spacing: 6) {
             Text("WHAT HAPPENED, WHEN").font(.caps).tracking(0.9).foregroundStyle(palette.muted)
-            LazyVStack(alignment: .leading, spacing: 0) {
-                ForEach(Self.lines(model)) { line in
+            VStack(alignment: .leading, spacing: 0) {
+                ForEach(lines) { line in
                     switch line {
                     case .gap(_, let seconds):
                         Text("\(SessionModel.duration(seconds)) later").font(.label(11)).foregroundStyle(palette.muted)
@@ -658,6 +673,11 @@ struct Digest: View {
                     case .turn(let index):
                         DigestRow(model: model, index: index)
                     }
+                }
+                if lines.count < all.count {
+                    Button("Show the other \(all.count - lines.count) lines") { showAll = true }
+                        .buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(palette.accent)
+                        .padding(.leading, 92).padding(.vertical, 8)
                 }
             }
             .padding(4)

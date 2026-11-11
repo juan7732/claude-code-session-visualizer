@@ -119,6 +119,9 @@ import Testing
         // b has three hits and leads; inside it the engine's order stays (best match first).
         // a and c have one each: the one the engine ranked higher comes first.
         #expect(ordered.map { "\($0.session)\($0.turn)/\($0.action)" } == ["b5/20", "b1/2", "b1/-1", "a3/9", "c0/0"])
+        // By meaning or hybrid the engine's order is the ranking: the session with the best hit leads.
+        let ranked = SearchPage.ordered([hit("a", turn: 3, action: 9), hit("b", turn: 5, action: 20), hit("b", turn: 1, action: 2), hit("a", turn: 0, action: 1)], byCount: false)
+        #expect(ranked.map { "\($0.session)\($0.turn)" } == ["a3", "a0", "b5", "b1"])
         let groups = SearchPage.groups(ordered)
         #expect(groups.map(\.id) == ["b", "a", "c"] && groups[0].title == "S b")
         #expect(groups.flatMap { $0.rows.map(\.index) } == [0, 1, 2, 3, 4], "the cursor counts through the groups")

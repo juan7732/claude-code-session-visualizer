@@ -8,6 +8,7 @@ struct SettingsView: View {
             GeneralSettings().tabItem { Label("General", systemImage: "gearshape") }
             SummarySettings().tabItem { Label("Summary", systemImage: "rectangle.grid.2x2") }
             TranscriptSettings().tabItem { Label("Transcript", systemImage: "text.bubble") }
+            CanvasSettings().tabItem { Label("Canvas", systemImage: "point.3.connected.trianglepath.dotted") }
             EngineSettings().tabItem { Label("Engine", systemImage: "shippingbox") }
         }
         .frame(width: 520, height: 420)
@@ -37,6 +38,7 @@ private struct SummarySettings: View {
     @AppStorage(SettingsKey.contextWindow) private var window = 1_000_000
     @AppStorage(SettingsKey.summaryDigest) private var digest = true
     @AppStorage(SettingsKey.summaryHours) private var hours = true
+    @AppStorage(SettingsKey.summaryMap) private var map = true
 
     var body: some View {
         Form {
@@ -52,8 +54,45 @@ private struct SummarySettings: View {
                 Toggle("What happened, when", isOn: $digest)
                 Text("One row per turn: what you asked, what the agent said when it stopped, the files it wrote.")
                     .font(.footnote).foregroundStyle(.secondary)
+                Toggle("Map", isOn: $map)
+                Text("Turns down a spine, with the files and outside services they touched beside them.")
+                    .font(.footnote).foregroundStyle(.secondary)
                 Toggle("When this session was alive", isOn: $hours)
                 Text("The minutes the agent was working, by day and hour.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+        }
+        .formStyle(.grouped)
+    }
+}
+
+private struct CanvasSettings: View {
+    @AppStorage(SettingsKey.canvasBackground) private var background = "dots"
+    @AppStorage(SettingsKey.canvasMinimap) private var minimap = "left"
+    @AppStorage(SettingsKey.canvasLegend) private var legend = true
+    @AppStorage(SettingsKey.canvasNotes) private var resultNotes = true
+
+    var body: some View {
+        Form {
+            Section("The chain") {
+                Toggle("What came back, on the arrows", isOn: $resultNotes)
+                Text("Between two steps, the first line of what the tools returned: what shaped the next step.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Around it") {
+                Picker("Background", selection: $background) {
+                    Text("Dots").tag("dots")
+                    Text("Lines").tag("lines")
+                    Text("Grid").tag("grid")
+                    Text("Blank").tag("blank")
+                }
+                Picker("Minimap", selection: $minimap) {
+                    Text("Left").tag("left")
+                    Text("Right").tag("right")
+                    Text("Off").tag("off")
+                }
+                Toggle("Legend", isOn: $legend)
+                Text("The same options are behind the gear on the Canvas. Where each session's canvas was left is remembered.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
         }

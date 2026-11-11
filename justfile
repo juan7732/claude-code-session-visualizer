@@ -167,6 +167,10 @@ client-app-install: client-app
     cp -R {{client}}/.build/app/SessionVisualizer.app /Applications/SessionVisualizer.app
     @echo "installed /Applications/SessionVisualizer.app"
 
+# Scroll a live window through one view of a session with a pointer on it; fails if the window freezes
+client-exercise view id *args:
+    {{client}}/Scripts/exercise.sh {{view}} {{id}} {{args}}
+
 # Render one state of the app to a PNG, e.g. just client-snapshot out.png --page sessions --appearance dark
 client-snapshot out *args: client-build
     {{client}}/.build/debug/SessionVisualizer --snapshot {{out}} {{args}}

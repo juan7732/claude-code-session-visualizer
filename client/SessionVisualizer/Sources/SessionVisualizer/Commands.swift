@@ -108,6 +108,7 @@ struct AppCommands: Commands {
     private var model: SessionModel? { sessionID.flatMap { store.model($0) } }
     private var inTranscript: Bool { sessionID != nil && window?.sessionView == .transcript }
     private var onSearch: Bool { window?.page == .search }
+    private var onCanvas: Bool { sessionID != nil && window?.sessionView == .canvas }
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -119,7 +120,11 @@ struct AppCommands: Commands {
         }
         CommandGroup(after: .pasteboard) {
             Divider()
-            Button("Find") { if let window { AppActions.find(window) } }
+            Button("Find") {
+                guard let window else { return }
+                // The Canvas finds in place; from any other view, find is the Transcript's.
+                if window.sessionView == .canvas { window.transcript.findRequests += 1 } else { AppActions.find(window) }
+            }
                 .keyboardShortcut("f").disabled(sessionID == nil)
             Button("Search All Sessions") { if let window { AppActions.showSearch(window) } }
                 .keyboardShortcut("f", modifiers: [.command, .shift]).disabled(window == nil)
@@ -157,10 +162,10 @@ struct AppCommands: Commands {
             }
             .keyboardShortcut(.leftArrow, modifiers: [.command, .option]).disabled(!inTranscript && !onSearch)
             Divider()
-            Button("Zoom In") {}.keyboardShortcut("+").disabled(true) // M10
-            Button("Zoom Out") {}.keyboardShortcut("-").disabled(true)
-            Button("Actual Size") {}.keyboardShortcut("0").disabled(true)
-            Button("Zoom to Fit") {}.keyboardShortcut("0", modifiers: [.command, .shift]).disabled(true)
+            Button("Zoom In") { window?.canvas.zoom(by: 1.25) }.keyboardShortcut("+").disabled(!onCanvas)
+            Button("Zoom Out") { window?.canvas.zoom(by: 1 / 1.25) }.keyboardShortcut("-").disabled(!onCanvas)
+            Button("Actual Size") { window?.canvas.actualSize() }.keyboardShortcut("0").disabled(!onCanvas)
+            Button("Zoom to Fit") { window?.canvas.fitWidth() }.keyboardShortcut("0", modifiers: [.command, .shift]).disabled(!onCanvas)
             Divider()
         }
         CommandMenu("Session") {
@@ -186,7 +191,7 @@ struct AppCommands: Commands {
         }
         CommandGroup(replacing: .help) {
             Button("Keyboard Shortcuts") { window?.transcript.helpShown.toggle() }
-                .keyboardShortcut("/", modifiers: [.command, .shift]).disabled(!inTranscript)
+                .keyboardShortcut("/", modifiers: [.command, .shift]).disabled(!inTranscript && !onCanvas)
         }
     }
 }

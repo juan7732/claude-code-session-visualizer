@@ -20,8 +20,7 @@ enum SessionView: String, CaseIterable, Identifiable {
     /// The milestone that brings the view, for the ones not built yet.
     var arrives: String? {
         switch self {
-        case .summary, .transcript: nil
-        case .canvas: "M10"
+        case .summary, .transcript, .canvas: nil
         case .timeline: "M11"
         case .files: "M13"
         }
@@ -92,7 +91,7 @@ final class SearchState {
     var query = ""
     /// "" for everything, else prompt | assistant | thinking | tool_use | tool_result.
     var kind = ""
-    /// "" for keyword, "meaning" for what the text says.
+    /// "" for keyword, "meaning" for what the text says, "hybrid" for both (meaning first).
     var mode = ""
     /// Every hit for the query, and the ones of the chosen kind.
     var all: [SearchHit] = []
@@ -132,6 +131,7 @@ final class WindowState {
                 if !travelling { remember(Place(page: oldValue, view: sessionView)) }
                 selection = nil
                 transcript = TranscriptState()
+                canvas = CanvasState()
             }
         }
     }
@@ -204,6 +204,7 @@ final class WindowState {
     var selection: NodeKey?
     var inspectorTab = InspectorTab.details
     var transcript = TranscriptState()
+    var canvas = CanvasState()
     var search = SearchState()
     /// The ⌘K palette is open.
     var paletteShown = false

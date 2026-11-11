@@ -44,6 +44,7 @@ struct RootView: View {
             if let initialPage { window.page = initialPage }
             if let initialView { window.sessionView = initialView }
             if store.engine != .ready { await store.connect() }
+            await exercise()
         }
         .task {
             // Sessions change while the app is open: keep the list current.
@@ -112,10 +113,10 @@ struct RootView: View {
                 }
                 .pickerStyle(.segmented).labelsHidden()
             }
-            if window.sessionView == .transcript {
+            if window.sessionView == .transcript || window.sessionView == .canvas {
                 ToolbarItem(placement: .primaryAction) { FindField(sessionID: id) }
             }
-            if window.sessionView == .transcript || window.sessionView == .summary {
+            if window.sessionView.arrives == nil {
                 ToolbarItem(placement: .primaryAction) {
                     Button {
                         inspector.toggle()
@@ -134,6 +135,32 @@ struct RootView: View {
                 .help("More")
             }
         }
+    }
+
+    /// `SKIT_EXERCISE=summary:<session id>` (or `transcript:<id>`, `search:<words>`)
+    /// in the environment: the real window opens that page, scrolls it from top
+    /// to bottom by itself and quits. For reproducing a freeze that only a live window shows; the
+    /// process can be sampled from outside while it runs.
+    private func exercise() async {
+        guard let spec = ProcessInfo.processInfo.environment["SKIT_EXERCISE"], let colon = spec.firstIndex(of: ":") else { return }
+        let what = String(spec[..<colon]), id = String(spec[spec.index(after: colon)...])
+        if what == "search" {
+            // search:<words>: the Search page with every session's hits shown.
+            window.search.query = id
+            window.page = .search
+            for _ in 0..<100 where window.search.searched.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
+            window.search.setAllFolded(false)
+        } else if let view = SessionView(rawValue: what) {
+            window.open(session: id, view: view)
+            for _ in 0..<200 where store.model(id) == nil { try? await Task.sleep(for: .milliseconds(100)) }
+        } else {
+            return
+        }
+        try? await Task.sleep(for: .milliseconds(1500))
+        FileHandle.standardError.write(Data("exercise: \(what) of \(id) is up\n".utf8))
+        if let shown = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) { await Snapshot.scrollThrough(shown) }
+        try? await Task.sleep(for: .milliseconds(500))
+        exit(0)
     }
 
     /// "Back to the Summary", "Back to Search": where the button leads.

@@ -4,6 +4,7 @@ import SwiftUI
 enum Main {
     static func main() {
         _ = Measure.run(arguments: CommandLine.arguments)
+        _ = MeasureCanvas.run(arguments: CommandLine.arguments)
         if let request = SnapshotRequest(arguments: CommandLine.arguments) {
             Snapshot.run(request)
         }

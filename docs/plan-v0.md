@@ -172,8 +172,7 @@ and the encoded document kept per parsed session; the agent as an interactive pr
 Carried to M9: Copy Link (needs the app's URL scheme, so the bundle), the drawer on the Summary, selecting a single
 subagent step, the `/compactions/{n}` detail in the drawer, a ⚙ popover per view (the options are a Settings tab).
 
-**M9 Summary, Search and the bundled app (v0).** Mock: `?view=summary` (Dashboard), `#/search` (Finder), ⌘K. Built on
-2026-11-10; waiting for Juan's pass in the live app before it is marked done.
+**M9 Summary, Search and the bundled app (DONE, v0).** Mock: `?view=summary` (Dashboard), `#/search` (Finder), ⌘K.
 
 - Summary dashboard: about, ended, size, outcome (files written, commits, lines), problems, context with the gauge,
   parallel work, outside, where it worked, how it ran; a search box for this session that answers yes or no and offers
@@ -202,22 +201,30 @@ subagent step, the `/compactions/{n}` detail in the drawer, a ⚙ popover per vi
 Engine, for it: `commits` in `/relations`, `in_turns` in stats, `skit export` and `/export`, `/actions/{n}?agent=`
 (`relations-and-client-routes.md`). Still missing: the model's context-window limit (a setting stands in), fork parent
 and child ids ("How it ran" shows the number of branch points). Open after M9: an app icon; a Developer ID, without
-which the app runs only on the Mac that built it; a ⚙ popover per view (the options are Settings tabs); `hybrid` mode
-in the Finder once the engine has it. Done when: for any session, what it was about, what happened when, and whether X
-was discussed can be answered from the app in /Applications. This closes v0's definition of done, item 6.
+which the app runs only on the Mac that built it; a ⚙ popover per view (the options are Settings tabs). Done when: for
+any session, what it was about, what happened when, and whether X was discussed can be answered from the app in
+/Applications. This closes v0's definition of done, item 6.
 
-**M10 Canvas: Braid.** Mock: `?view=canvas`, layout Braid; lab in `ux-mocks/canvas/`.
+**M10 Canvas: Braid.** Mock: `?view=canvas`, layout Braid; lab in `ux-mocks/canvas/`. Built on 2026-11-10; waiting for
+Juan's pass in the live app before it is marked done.
 
-- **Spike first:** camera (pan both axes, zoom at pointer, fit, focus), three levels of detail, and a measured
-  deterministic layout on the largest session. Drawn marks at far and mid zoom, real views near. Write down what held 60
-  fps and what did not before building the rest.
-- The node language as views: prompt card, step card, subagent strand, result notes on arrows, edges.
-- Turns stacked with separators and gap pills, collapsed turns as summary pills, background threads, hand-backs.
-- Minimap that pans while dragged, keyboard navigation, find with stepping, camera saved per session.
-- The Summary's Arcs map, built on the same drawing layer.
+- **The spike came first and settled the approach** (`decisions/0012-the-canvas-is-drawn.md`): one AppKit view draws the
+  canvas with Core Graphics and Core Text; every text is broken into lines once, so the layout is computed and the same
+  every time; three levels of detail by zoom. Measured on the three largest sessions at full-screen Retina size: 5 to 8
+  ms a frame near, 2 to 3 ms far, against the 16.7 ms a frame has at 60 a second.
+- The node language, drawn: prompt card, system-turn card, step card (what it did, what it wrote, a chip per tool call
+  when there are several, badges for failed, hand-back and task output), subagent strand with its steps, what came back
+  on the arrows, the edges (chain, spawn, hand-back, background launch, thread and read-back).
+- Turns stacked with separators and "21m later" pills, compactions as pills, a collapsed turn as one pill (double-click
+  or Return; Collapse All). The chain waits for a hand-back: the step that received it sits below the strand.
+- Camera: scroll to move, pinch or ⌘-scroll to zoom where the pointer is, drag, Fit Width, All, Focus, ⌘+ ⌘− ⌘0 ⇧⌘0;
+  kept per session. A minimap that moves the camera while dragged. Keys: ↑ ↓ steps, ← → turns, i, f, ?. Find on the
+  Canvas rings the matches, dims the rest and steps through them. The drawer is under the Canvas too.
+- The Summary's map (Arcs): turns down a spine, the files that kept coming back and the outside services as hubs tied to
+  the turns that touched them, subagents as pills, background commands as dashed loops.
 
-Engine: `/relations`, `/turns/{n}`. Missing: subagent documents in the turn and action vocabulary; `/relations` memoised
-per cached session (120 ms per call on the largest session today). Done when: the five questions in `ux-mocks/README.md`
+Engine: nothing new was needed (`/relations` is memoised since M8; a subagent's steps come from its nested document).
+Not built: the keyboard inside a strand, dragging a strand aside. Done when: the five questions in `ux-mocks/README.md`
 can be answered on the Braid without leaving it.
 
 **M11 Timeline.** Mock: `?view=timeline` (strip and ledger).
@@ -267,8 +274,8 @@ schema 5 (chunks and vectors keyed by a hash of the text, where ADR 0005 said "o
 `skit eval` and an eval of 53 queries; meaning search with a gate that lets it say nothing was found; `hybrid` (meaning
 matches first, then keyword hits), which beats keyword on every measure of the eval (R@1 0.62 → 0.69, R@5 0.77 → 0.81,
 R@10 0.85 → 0.88, MRR 0.68 → 0.75); narrowing by session, project, kinds and "no tool calls" in every mode; `serve`
-embedding new text by itself every thirty minutes and holding the vectors in memory between queries. The Finder has a
-Keyword / Meaning switch (built with M9); offering `hybrid` there is what is left.
+embedding new text by itself every thirty minutes and holding the vectors in memory between queries. The Finder offers
+Keyword, Hybrid and Meaning beside its field; outside keyword mode the session with the best hit leads the list.
 
 Kept as it is, on purpose (2026-11-10: live with it for now): a near miss gets related hits, because a cosine floor
 cannot tell "same subject" from "answers this", and keyword and hybrid still answer a question about an absent subject

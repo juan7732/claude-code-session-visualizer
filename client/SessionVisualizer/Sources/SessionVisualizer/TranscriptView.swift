@@ -41,7 +41,7 @@ struct TranscriptView: View {
                 }
             }
             .overlay(alignment: .bottomLeading) {
-                if showHint { KeyHint().padding(14) }
+                if showHint { KeyHint(keys: Self.keys).padding(14) }
             }
             .focusable().focusEffectDisabled().focused($keyboard)
             .onKeyPress(phases: .down) { press in handle(press) ? .handled : .ignored }
@@ -164,11 +164,7 @@ struct TranscriptView: View {
     }
 }
 
-/// The keys of the Transcript, behind a small "? keys" at the bottom.
-private struct KeyHint: View {
-    @Environment(WindowState.self) private var window
-    @Environment(\.palette) private var palette
-
+extension TranscriptView {
     static let keys: [(String, String)] = [
         ("j / ↓", "next item"), ("k / ↑", "previous item"), ("J / K", "next, previous turn"),
         ("Return / i", "inspect the item in the drawer"),
@@ -177,13 +173,20 @@ private struct KeyHint: View {
         ("e / c", "open or close every call in the turn"),
         ("g / G", "top, bottom"), ("/", "find"), ("esc", "close the drawer"), ("?", "this list"),
     ]
+}
+
+/// The keys of a view, behind a small "? keys" at the bottom.
+struct KeyHint: View {
+    @Environment(WindowState.self) private var window
+    @Environment(\.palette) private var palette
+    var keys: [(String, String)]
 
     var body: some View {
         let state = window.transcript
         Group {
             if state.helpShown {
                 Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 4) {
-                    ForEach(Self.keys, id: \.0) { key, what in
+                    ForEach(keys, id: \.0) { key, what in
                         GridRow {
                             Text(key).font(.system(size: 11, design: .monospaced)).foregroundStyle(palette.ink)
                             Text(what).font(.system(size: 11.5)).foregroundStyle(palette.ink2)

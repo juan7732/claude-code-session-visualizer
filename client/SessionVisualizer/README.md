@@ -29,8 +29,10 @@ just client-app-install   the same, copied into /Applications
 
 The views, by file: `SessionsView` (home), `SummaryView` (the dashboard, search in this session, the digest, the hours
 grid), `TranscriptView` and `TranscriptRows`, `Drawer` (the inspector under both), `SearchPage` (the Finder),
-`PaletteView` (⌘K). `SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the
-palette; `Export` writes Markdown through the engine and builds and reads `skit-visualizer://` links.
+`PaletteView` (⌘K), `CanvasView` (the Braid: `BraidLayout` says what each node says and where it is, `BraidCanvas` is
+the AppKit view that draws it and takes the pointer, ADR 0012), `ArcsMap` (the Summary's map). `SessionModel` is what
+they all read; `Commands` holds every command once, for the menu bar and the palette; `Export` writes Markdown through
+the engine and builds and reads `skit-visualizer://` links.
 
 ## Rules
 
@@ -45,6 +47,9 @@ palette; `Export` writes Markdown through the engine and builds and reads `skit-
 - **Every command is in the menu bar** (`Commands.swift`), disabled until its view exists. The ⌘K palette lists the same
   commands from the same list.
 - **Numbers the transcript does not record are not guessed.** The context window is a setting, and the card says so.
+- **One lazy stack per scroll view, and none on the Summary.** A lazy stack inside another re-estimates its height as
+  rows come and go; with rows that highlight under the pointer that became a loop on the main thread and the window
+  froze while scrolling (2026-11-10). A snapshot cannot show this; `just client-exercise` can.
 
 ## Engine at launch
 
@@ -66,12 +71,25 @@ Options: `--page sessions|session:<id>|search|stats|claude`, `--view summary|tra
 `--appearance light|dark|oled`, `--size 1500x940`, `--socket <path>`, `--flyout`, and inside a session
 `--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>`,
 `--tab details|io|note`, `--query <text>` (find in the Transcript, the Summary's search box, or the Search page),
-`--open-calls`, `--fold`, `--palette`, and on the Search page `--mode meaning`, `--kind <kind>` (chosen after the first
-results, as a click would), `--unfold` (every session's hits shown). The offscreen window never takes the keyboard.
+`--open-calls`, `--fold`, `--palette`, `--set <key>=<value>` (a setting for this picture only), `--scroll-through`, and
+on the Search page `--mode meaning`, `--kind <kind>` (chosen after the first results, as a click would), `--unfold`
+(every session's hits shown), and on the Canvas `--zoom 0.3`, `--fit all|width`, `--collapse`. The offscreen window
+never takes the keyboard, and a snapshot neither reads nor writes where a session's canvas was left.
+
+`--measure-canvas <session id> [--size 1728x1000]` builds the Braid of a session and prints what a frame costs along a
+pan at each level of detail and through a zoom (use a release build: `swift build -c release`).
 
 `--measure <session id>` prints how long each step of opening a session takes (fetch, decode, build), twice: once as
 found and once with the session in the engine's memory. One known limit: the toolbar's glass controls draw as white
 shapes in a dark offscreen capture; in a real window they are dark.
+
+## The live exercise
+
+`just client-exercise summary <session id>` (or `transcript <id>`, or `search <words>`) opens a real window on that
+page, scrolls it from top to bottom with a pointer resting on the page, and quits. If the scroll stops advancing, the
+main thread is stuck: the script samples the process and exits 1. Run it on a long session after changing how a
+scrolling page is laid out. The window appears on screen for a few seconds. `--scroll-through` does the same offscreen
+in snapshot mode, which found nothing the day the Summary froze: only a live window with a pointer did.
 
 ## Toolchain
 

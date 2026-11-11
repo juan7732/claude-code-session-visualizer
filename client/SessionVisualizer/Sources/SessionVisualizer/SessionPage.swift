@@ -2,8 +2,8 @@ import SkitKit
 import SwiftUI
 
 /// One session: its views over one selection, and the drawer under them.
-/// The Summary and the Transcript are built; the other views name the
-/// milestone that brings them.
+/// The Summary, the Transcript and the Canvas are built; the other views name
+/// the milestone that brings them.
 struct SessionPage: View {
     @Environment(AppStore.self) private var store
     @Environment(WindowState.self) private var window
@@ -18,6 +18,7 @@ struct SessionPage: View {
                     switch window.sessionView {
                     case .summary: SummaryView(session: session)
                     case .transcript: transcript
+                    case .canvas: canvas
                     default: ComingPage(title: window.sessionView.title, milestone: window.sessionView.arrives ?? "")
                     }
                 } else {
@@ -25,7 +26,7 @@ struct SessionPage: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if inspector, window.sessionView == .transcript || window.sessionView == .summary, let key = window.selection, let model = store.model(id) {
+            if inspector, window.sessionView.arrives == nil, let key = window.selection, let model = store.model(id) {
                 Drawer(model: model, key: key).transition(.move(edge: .bottom))
             }
         }
@@ -38,6 +39,25 @@ struct SessionPage: View {
         .onChange(of: window.pending) {
             // A link to a node of the session that is already open.
             if let model = store.model(id) { window.applyPending(in: model) }
+        }
+    }
+
+    @ViewBuilder private var canvas: some View {
+        switch store.models[id] {
+        case .loaded(let model):
+            if model.items.isEmpty {
+                ComingPage(title: "Nothing was said", detail: "This session has no prompts and no requests.")
+            } else {
+                CanvasView(model: model)
+            }
+        case .failed(let why):
+            ComingPage(title: "Could not read the session", detail: why)
+        case .loading, nil:
+            VStack(spacing: 8) {
+                ProgressView().controlSize(.small)
+                Text("Reading the session").foregroundStyle(palette.muted)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity).background(palette.bg)
         }
     }
 
