@@ -18,6 +18,10 @@ func TestReadLayersExperimentsAndRedaction(t *testing.T) {
 	os.WriteFile(filepath.Join(root, ".claude", "settings.json"), []byte(`{"model":"b"}`), 0o644)
 	os.WriteFile(filepath.Join(root, ".claude", "skills", "demo", "SKILL.md"), []byte("x"), 0o644)
 	os.WriteFile(filepath.Join(root, "CLAUDE.md"), []byte("one\ntwo\n"), 0o644)
+	// What Claude Code keeps for itself: a folder of notes per project.
+	os.MkdirAll(filepath.Join(claude, "projects", "-p-work", "memory"), 0o755)
+	os.WriteFile(filepath.Join(claude, "projects", "-p-work", "memory", "MEMORY.md"), []byte("- a pointer\n"), 0o644)
+	os.WriteFile(filepath.Join(claude, "projects", "-p-work", "memory", "a-fact.md"), []byte("SECRET-NOTE\nline\nline\n"), 0o644)
 	os.WriteFile(claude+".json", []byte(`{"userID":"SECRET-USER","oauthAccount":{"emailAddress":"secret@example.com","accessToken":"SECRET-TOKEN"},
 		"cachedExperimentData":{"flag_a":{"experimentId":"exp_other_name","variationId":1,"value":true}},
 		"cachedExperimentFeatures":["flag_a"],"cachedGrowthBookFeatures":{"flag_a":true,"flag_b":{"n":2}},"cachedGrowthBookFeaturesAt":1794266586516,
@@ -46,14 +50,19 @@ func TestReadLayersExperimentsAndRedaction(t *testing.T) {
 	if len(s.Projects) != 1 || s.Projects[0].MCPServers[0] != "srv" || !s.Projects[0].Trusted || s.Projects[0].AllowedTools != 1 {
 		t.Fatalf("projects: %+v", s.Projects)
 	}
-	if len(s.Memory) != 1 || s.Memory[0].Lines != 2 || len(s.Skills) != 2 || s.Skills[0].Uses != 3 || !s.Skills[0].OnDisk || s.Skills[1].OnDisk {
+	// The project's instructions first, then the notes, each with its kind and whose it is.
+	if len(s.Memory) != 3 || s.Memory[0].Kind != "instructions" || s.Memory[0].Project != root ||
+		s.Memory[1].Kind != "memory" || s.Memory[1].Project != "-p-work" || filepath.Base(s.Memory[2].Path) != "a-fact.md" || s.Memory[2].Lines != 3 {
+		t.Fatalf("memory files: %+v", s.Memory)
+	}
+	if s.Memory[0].Lines != 2 || len(s.Skills) != 2 || s.Skills[0].Uses != 3 || !s.Skills[0].OnDisk || s.Skills[1].OnDisk {
 		t.Fatalf("memory %+v skills %+v", s.Memory, s.Skills)
 	}
 	if s.Identity["userID"] != "set" || s.Identity["machineID"] != "not set" || s.State["numStartups"] != float64(7) {
 		t.Fatalf("identity %v state %v", s.Identity, s.State)
 	}
 	b, _ := json.Marshal(s)
-	for _, secret := range []string{"SECRET-USER", "SECRET-TOKEN", "SECRET-ENV", "secret@example.com"} {
+	for _, secret := range []string{"SECRET-USER", "SECRET-TOKEN", "SECRET-ENV", "secret@example.com", "SECRET-NOTE"} {
 		if strings.Contains(string(b), secret) {
 			t.Fatalf("snapshot leaks %s", secret)
 		}

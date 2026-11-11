@@ -8,7 +8,7 @@ import SwiftUI
 struct ClaudePage: View {
     @Environment(AppStore.self) private var store
     @Environment(WindowState.self) private var window
-    @Environment(\.palette) private var palette
+    @Environment(\.palette) var palette
 
     var body: some View {
         let state = window.claude
@@ -150,17 +150,13 @@ struct ClaudePage: View {
                 Note("Connectors seen across projects: " + snapshot.connectors.joined(separator: ", ") + ".")
             }
         case .memory:
-            let files = snapshot.memory.filter { ClaudeContent.matches(needle, $0.path) }
-            Heading("Memory files")
-            Columns(cells: [("FILE", nil), ("LINES", 70), ("SIZE", 80), ("CHANGED", 130)], header: true)
-            ForEach(Array(files.enumerated()), id: \.element.path) { index, file in
-                Line(index: index) {
-                    Text(Format.homeRelative(file.path)).font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
-                    Text("\(file.lines)").font(.system(size: 12.5)).monospacedDigit().frame(width: 70, alignment: .trailing)
-                    Text(FilesContent.bytes(file.bytes)).font(.system(size: 12.5)).monospacedDigit().frame(width: 80, alignment: .trailing)
-                    Text(Format.dateTime(file.modified)).font(.system(size: 12)).foregroundStyle(palette.muted).frame(width: 130, alignment: .trailing)
-                }
-            }
+            let files = snapshot.memory.filter { ClaudeContent.matches(needle, $0.path, $0.project ?? "") }
+            let written = files.filter { $0.kind != "memory" }, kept = files.filter { $0.kind == "memory" }
+            Heading("Instructions people wrote · \(written.count)")
+            memoryTable(written, first: "FILE")
+            Heading("Notes Claude Code keeps for itself · \(kept.count)").padding(.top, 14)
+            memoryTable(kept, first: "NOTE")
+            Note("The engine says where each file is, how long and how old; it never sends what a file says. A CLAUDE.md is looked for in each project Claude Code knows; Claude Code's own notes are under ~/.claude/projects/<project>/memory.")
             let skills = snapshot.skills.filter { ClaudeContent.matches(needle, $0.name, $0.path ?? "") }
             Heading("Skills").padding(.top, 14)
             Columns(cells: [("SKILL", 280), ("WHERE", nil), ("USED", 70), ("ON DISK", 80)], header: true)
@@ -197,11 +193,39 @@ struct ClaudePage: View {
     }
 }
 
+extension ClaudePage {
+    @ViewBuilder fileprivate func memoryTable(_ files: [ClaudeSnapshot.File], first: String) -> some View {
+        if files.isEmpty {
+            Text("None.").font(.system(size: 12.5)).foregroundStyle(palette.muted).padding(.horizontal, 8).padding(.bottom, 4)
+        } else {
+            Columns(cells: [(first, nil), ("PROJECT", 260), ("LINES", 70), ("SIZE", 80), ("CHANGED", 130)], header: true)
+            ForEach(Array(files.enumerated()), id: \.element.path) { index, file in
+                Line(index: index) {
+                    Text(file.kind == "memory" ? (file.path.split(separator: "/").last.map(String.init) ?? file.path) : Format.homeRelative(file.path))
+                        .font(.system(size: 12, design: .monospaced)).lineLimit(1).truncationMode(.middle).frame(maxWidth: .infinity, alignment: .leading).textSelection(.enabled)
+                        .help(file.path)
+                    Text(ClaudeContent.projectName(file.project)).font(.system(size: 12.5)).foregroundStyle(palette.ink2).lineLimit(1).truncationMode(.head).frame(width: 260, alignment: .leading)
+                    Text("\(file.lines)").font(.system(size: 12.5)).monospacedDigit().frame(width: 70, alignment: .trailing)
+                    Text(FilesContent.bytes(file.bytes)).font(.system(size: 12.5)).monospacedDigit().frame(width: 80, alignment: .trailing)
+                    Text(Format.dateTime(file.modified)).font(.system(size: 12)).foregroundStyle(palette.muted).frame(width: 130, alignment: .trailing)
+                }
+            }
+        }
+    }
+}
+
 /// What the Claude page matches and writes out.
 nonisolated enum ClaudeContent {
     /// Whether any of the texts holds the filter (already lowercased); an empty filter matches everything.
     static func matches(_ needle: String, _ texts: String...) -> Bool {
         needle.isEmpty || texts.contains { $0.lowercased().contains(needle) }
+    }
+
+    /// Whose a memory file is: a directory as it is, a slug ("-Users-me-work-tools") by its last word, nothing for the user's own.
+    static func projectName(_ project: String?) -> String {
+        guard let project, !project.isEmpty else { return "every project" }
+        if project.hasPrefix("/") { return Format.homeRelative(project) }
+        return project.split(separator: "-").suffix(2).joined(separator: "-")
     }
 
     /// "tengu_amber_prism=0": what to quote in a report.

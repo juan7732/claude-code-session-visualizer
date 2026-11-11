@@ -1,3 +1,4 @@
+import ImageIO
 import SkitKit
 import SwiftUI
 
@@ -398,30 +399,99 @@ private struct ImageGallery: View {
     }
 }
 
-/// One image of the session, fetched when it comes on screen.
+/// One image of the session, fetched when it comes on screen. In the grid it is
+/// a thumbnail, made once off the main thread and kept: decoding every
+/// full-size picture again each time another one arrived made a session with
+/// two hundred images crawl (Juan, 2026-11-10).
 private struct Picture: View {
     @Environment(AppStore.self) private var store
     @Environment(\.palette) private var palette
     var sessionID: String
     var index: Int
-    var fit = ContentMode.fit
+    /// The picture itself, for the lightbox; otherwise a thumbnail.
+    var full = false
+    @State private var image: NSImage?
+    @State private var failure: String?
 
     var body: some View {
         Group {
-            switch store.pictures[sessionID]?[index] {
-            case .loaded(let data):
-                if let image = NSImage(data: data) {
-                    Image(nsImage: image).resizable().aspectRatio(contentMode: fit)
-                } else {
-                    Label("Not an image the Mac can draw", systemImage: "photo").font(.system(size: 11.5)).foregroundStyle(palette.muted)
-                }
-            case .failed(let why):
-                Text(why).font(.system(size: 11.5)).foregroundStyle(palette.err).padding(8)
-            case .loading, nil:
+            if let image {
+                Image(nsImage: image).resizable().aspectRatio(contentMode: .fit)
+            } else if let failure {
+                Label(failure, systemImage: "photo").font(.system(size: 11.5)).foregroundStyle(palette.muted).padding(8)
+            } else {
                 ProgressView().controlSize(.small)
             }
         }
-        .task(id: "\(sessionID)/\(index)") { await store.loadPicture(sessionID, index) }
+        .task(id: Pictures.key(sessionID, index, full: full)) {
+            let key = Pictures.key(sessionID, index, full: full)
+            if let kept = Pictures.cache.object(forKey: key as NSString) {
+                image = kept
+                return
+            }
+            (image, failure) = (nil, nil)
+            // A few at a time: a grid that comes on screen asks for dozens at once.
+            await Pictures.gate.enter()
+            defer { Task { await Pictures.gate.leave() } }
+            if Task.isCancelled { return }
+            do {
+                let data = try await store.client.image(session: sessionID, index)
+                if Task.isCancelled { return }
+                let side = full ? nil : Pictures.thumbnailSide
+                guard let made = await Task.detached(priority: .userInitiated, operation: { Pictures.decode(data, maxSide: side) }).value else {
+                    failure = "Not an image the Mac can draw"
+                    return
+                }
+                Pictures.cache.setObject(made, forKey: key as NSString, cost: Int(made.size.width * made.size.height * 4))
+                image = made
+            } catch {
+                failure = "\(error)"
+            }
+        }
+    }
+}
+
+/// The pictures already decoded, and the gate that keeps a screenful from being fetched all at once.
+enum Pictures {
+    static let thumbnailSide = 640
+    static let cache: NSCache<NSString, NSImage> = {
+        let cache = NSCache<NSString, NSImage>()
+        cache.totalCostLimit = 256 << 20
+        return cache
+    }()
+    static let gate = Gate(limit: 4)
+
+    nonisolated static func key(_ sessionID: String, _ index: Int, full: Bool) -> String {
+        "\(sessionID)/\(index)/\(full ? "full" : "thumb")"
+    }
+
+    /// The image, or with `maxSide` a smaller copy no longer than that on its long side, decoded now and not at first draw.
+    nonisolated static func decode(_ data: Data, maxSide: Int?) -> NSImage? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
+        var options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true]
+        if let maxSide { options[kCGImageSourceThumbnailMaxPixelSize] = maxSide }
+        guard let made = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
+        return NSImage(cgImage: made, size: NSSize(width: made.width, height: made.height))
+    }
+
+    /// Lets `limit` callers through at a time; the rest wait their turn.
+    actor Gate {
+        private var free: Int
+        private var waiting: [CheckedContinuation<Void, Never>] = []
+
+        init(limit: Int) { free = limit }
+
+        func enter() async {
+            if free > 0 {
+                free -= 1
+                return
+            }
+            await withCheckedContinuation { waiting.append($0) }
+        }
+
+        func leave() {
+            if waiting.isEmpty { free += 1 } else { waiting.removeFirst().resume() }
+        }
     }
 }
 
@@ -439,7 +509,7 @@ private struct Lightbox: View {
         ZStack {
             Color.black.opacity(0.72).onTapGesture { window.files.lightbox = nil }
             VStack(spacing: 12) {
-                Picture(sessionID: model.doc.id, index: image.index)
+                Picture(sessionID: model.doc.id, index: image.index, full: true)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 HStack(spacing: 14) {
                     Button { step(-1) } label: { Image(systemName: "chevron.left") }.disabled(images.first?.index == image.index).help("Previous image (←)")
@@ -451,7 +521,7 @@ private struct Lightbox: View {
                         window.reveal(image.toolId.flatMap { model.toolsByID[$0] }.map { .action($0.action) } ?? .turn(image.turn), in: model)
                     }
                     Button("Copy") {
-                        if case .loaded(let data) = store.pictures[model.doc.id]?[image.index], let picture = NSImage(data: data) {
+                        if let picture = Pictures.cache.object(forKey: Pictures.key(model.doc.id, image.index, full: true) as NSString) {
                             NSPasteboard.general.clearContents()
                             NSPasteboard.general.writeObjects([picture])
                         }

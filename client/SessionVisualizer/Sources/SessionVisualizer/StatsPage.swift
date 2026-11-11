@@ -124,7 +124,7 @@ struct StatsPage: View {
             }
         }
         .fixedSize(horizontal: false, vertical: true)
-        Card(title: "Every session, one row") { SessionTable(rows: StatsContent.sorted(rows, by: state.sort, ascending: state.ascending), state: state) }
+        Card(title: "Every session, one row") { SessionTable(rows: StatsContent.sorted(rows, by: state.sort, ascending: state.ascending), totals: shown, state: state) }
             .fixedSize(horizontal: false, vertical: true)
     }
 
@@ -396,6 +396,8 @@ private struct SessionTable: View {
     @Environment(AppStore.self) private var store
     @Environment(\.palette) private var palette
     var rows: [SessionSummary]
+    /// The engine's sums for the sessions on show: the last row.
+    var totals: Overview
     var state: StatsState
     @State private var all = false
 
@@ -457,6 +459,27 @@ private struct SessionTable: View {
             if !all, rows.count > Self.first {
                 Button("Show the other \(rows.count - Self.first) sessions") { all = true }.buttonStyle(.plain).foregroundStyle(palette.accent).padding(.top, 8)
             }
+            // The totals are the overview's, so they hold for every session even while only the first rows are listed.
+            let t = totals.totals
+            Rectangle().fill(palette.line2).frame(height: 1).padding(.top, 2)
+            HStack(spacing: 8) {
+                Text("Total · \(StatsPage.count(totals.sessions, "session"))").frame(maxWidth: .infinity, alignment: .leading)
+                Text("").frame(width: width(.project))
+                number("", .lastActive)
+                number("\(t.turns)", .turns)
+                number("\(t.actions)", .actions)
+                number("\(t.toolCalls)", .calls)
+                number("\(t.toolErrors)", .failed)
+                number("\(t.subagents)", .subagents)
+                number(Format.tokens(t.outputTokens), .output)
+                number(t.actions > 0 ? "\(Int((totals.cacheHitRatio * 100).rounded()))%" : "", .cache)
+                number(t.sessionsWithCost > 0 ? Format.money(t.cost) : "", .cost)
+                Text("").frame(width: 80)
+            }
+            .font(.system(size: 12.5, weight: .semibold))
+            .padding(.horizontal, 8).padding(.vertical, 7)
+            .help("Cache is all input read from the cache over all input, across these sessions. Cost is Claude Code's own figure, summed over the \(StatsPage.count(t.sessionsWithCost, "session")) that recorded one.")
+            .accessibilityElement(children: .combine)
         }
     }
 

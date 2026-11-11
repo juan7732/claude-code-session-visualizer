@@ -74,12 +74,17 @@ type Project struct {
 	Trusted      bool     `json:"trusted"`
 }
 
-// File is a file by path, size and age.
+// File is a file by path, size and age. For a memory file, Kind says which
+// sort it is: "instructions" (a CLAUDE.md a person wrote) or "memory" (a note
+// Claude Code keeps for itself under projects/<slug>/memory), and Project the
+// directory or the slug it belongs to.
 type File struct {
 	Path     string    `json:"path"`
 	Bytes    int64     `json:"bytes"`
 	Lines    int       `json:"lines"`
 	Modified time.Time `json:"modified"`
+	Kind     string    `json:"kind,omitempty"`
+	Project  string    `json:"project,omitempty"`
 }
 
 // Skill is a skill found on disk or in the usage record.
@@ -216,21 +221,41 @@ func Read(claudeDir string, roots []string) (*Snapshot, error) {
 		}
 	}
 
-	mem := []string{filepath.Join(claudeDir, "CLAUDE.md")}
+	// Memory: the instructions people write (CLAUDE.md, for the user, for each
+	// root given and for each project Claude Code knows), and the notes Claude
+	// Code keeps for itself, one folder per project. Listed, never read out:
+	// only where each is, how long and how old.
+	type memFile struct{ path, kind, project string }
+	mem := []memFile{{filepath.Join(claudeDir, "CLAUDE.md"), "instructions", ""}}
+	dirs := append([]string{}, roots...)
+	for _, p := range snap.Projects {
+		dirs = append(dirs, p.Path)
+	}
+	for _, r := range dirs {
+		for _, name := range []string{"CLAUDE.md", "CLAUDE.local.md", filepath.Join(".claude", "CLAUDE.md")} {
+			mem = append(mem, memFile{filepath.Join(r, name), "instructions", r})
+		}
+	}
 	for _, r := range roots {
-		mem = append(mem, filepath.Join(r, "CLAUDE.md"), filepath.Join(r, "CLAUDE.local.md"))
 		sub, _ := filepath.Glob(filepath.Join(r, "*", "CLAUDE.md"))
-		mem = append(mem, sub...)
+		for _, p := range sub {
+			mem = append(mem, memFile{p, "instructions", r})
+		}
+	}
+	notes, _ := filepath.Glob(filepath.Join(claudeDir, "projects", "*", "memory", "*.md"))
+	sort.Strings(notes)
+	for _, p := range notes {
+		mem = append(mem, memFile{p, "memory", filepath.Base(filepath.Dir(filepath.Dir(p)))})
 	}
 	seen := map[string]bool{}
-	for _, p := range mem {
-		st, err := os.Stat(p)
-		if err != nil || seen[p] {
+	for _, m := range mem {
+		st, err := os.Stat(m.path)
+		if err != nil || st.IsDir() || seen[m.path] {
 			continue
 		}
-		seen[p] = true
-		b, _ := os.ReadFile(p)
-		snap.Memory = append(snap.Memory, File{Path: p, Bytes: st.Size(), Lines: strings.Count(string(b), "\n"), Modified: st.ModTime()})
+		seen[m.path] = true
+		b, _ := os.ReadFile(m.path)
+		snap.Memory = append(snap.Memory, File{Path: m.path, Bytes: st.Size(), Lines: strings.Count(string(b), "\n"), Modified: st.ModTime(), Kind: m.kind, Project: m.project})
 	}
 
 	var usage map[string]struct {

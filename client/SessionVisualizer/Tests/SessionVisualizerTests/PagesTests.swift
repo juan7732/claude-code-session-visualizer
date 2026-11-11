@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import SkitKit
 import SkitTestSupport
@@ -34,6 +35,29 @@ import Testing
         #expect(!ClaudeContent.sameName("tengu_x-public", "tengu_x") && !ClaudeContent.sameName("cai_giggly", "tengu_swift"))
         let experiment = try JSONDecoder.skit().decode(ClaudeSnapshot.Experiment.self, from: Data(#"{"flag":"f","experiment_id":"e","variation_id":2,"value":null}"#.utf8))
         #expect(ClaudeContent.assignment(experiment) == "e=2" && experiment.value.compact == "null")
+    }
+
+    @Test func memoryFilesSayWhoseTheyAre() {
+        #expect(ClaudeContent.projectName(nil) == "every project" && ClaudeContent.projectName("") == "every project")
+        #expect(ClaudeContent.projectName("/Users/me/work/tools") == "~/work/tools")
+        #expect(ClaudeContent.projectName("-Users-me-ergo-workspaces-parce-exploration") == "parce-exploration")
+    }
+
+    @Test func aPictureBecomesAThumbnailOnce() throws {
+        // A 1200 × 600 picture: the thumbnail is no longer than 640 on its long side and keeps its shape.
+        let big = NSImage(size: NSSize(width: 1200, height: 600), flipped: false) { rect in
+            NSColor.systemTeal.setFill()
+            rect.fill()
+            return true
+        }
+        let cg = try #require(big.cgImage(forProposedRect: nil, context: nil, hints: nil))
+        let data = try #require(NSBitmapImageRep(cgImage: cg).representation(using: .png, properties: [:]))
+        let thumb = try #require(Pictures.decode(data, maxSide: Pictures.thumbnailSide))
+        #expect(max(thumb.size.width, thumb.size.height) == 640 && abs(thumb.size.width / thumb.size.height - 2) < 0.02)
+        let whole = try #require(Pictures.decode(data, maxSide: nil))
+        #expect(whole.size.width >= 1200)
+        #expect(Pictures.decode(Data("not a picture".utf8), maxSide: 640) == nil)
+        #expect(Pictures.key("s", 3, full: false) != Pictures.key("s", 3, full: true))
     }
 
     @Test func valuesOnOneLine() {

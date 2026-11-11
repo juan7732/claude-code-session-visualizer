@@ -76,6 +76,10 @@ Added with M13 (2026-11-10), for Files, Stats, Compare and Claude:
   `project` matches any slug that contains the text, as in `list`; `slug` is one project exactly. A session whose
   summary is older than schema 6 and whose source is gone is in the totals and on no day (`sessions_without_activity`).
 - The app now also calls `/images`, `/images/{n}` and `/claude`, which were served already.
+- `skit claude` lists more memory: besides the user's `CLAUDE.md` and those of the roots given, the `CLAUDE.md`,
+  `CLAUDE.local.md` and `.claude/CLAUDE.md` of every project Claude Code knows, and the notes Claude Code keeps for
+  itself under `projects/<slug>/memory/`. Each file says its `kind` (`instructions` or `memory`) and its `project`. As
+  before, a file is listed by where it is, how long and how old; what it says is never sent.
 
 ## Relations
 

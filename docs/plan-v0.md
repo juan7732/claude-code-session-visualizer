@@ -1,8 +1,9 @@
 # Plan
 
 The milestones, done and to come, and the choices behind them. v0 ends at M9. v1 is M0 to M16 complete, M16 being the
-release itself, and v1 is what gets shared (Juan, 2026-11-10). M17 to M19 come after it. This file is the source of
-truth for what is in scope; the workspace session log only records what happened.
+release itself, and v1 is what gets shared (Juan, 2026-11-10). M17 to M19 come after it; M20 to M22 were added on
+2026-11-10 and are not yet placed in that order. This file is the source of truth for what is in scope; the workspace
+session log only records what happened.
 
 Decisions already taken: Go engine runs as a process (not linked into Swift). IDL deferred until a second face needs it;
 the contract for v0 is "one CLI subcommand = one engine function = one service endpoint, same names, JSON shapes". Not
@@ -325,13 +326,16 @@ from tool output. Both are what M18 is for.
 
 ### After the client: the release, and what comes after it
 
-| #   | Milestone                 | Ends with                                                                             |
-| --- | ------------------------- | ------------------------------------------------------------------------------------- |
-| M15 | (declined)                | "Other people's machines" was proposed and declined on 2026-11-10; see below          |
-| M16 | Release 1.0               | A stranger with an Apple silicon Mac can install it, understand it, remove it. **v1** |
-| M17 | Insights from the vectors | Things the archive can say across sessions, with no new model                         |
-| M18 | A second small model      | A model that reads a question and a passage together, as an opt-in download           |
-| M19 | A small language model    | Text written by a local model (summaries, titles), as a further opt-in download       |
+| #   | Milestone                 | Ends with                                                                              |
+| --- | ------------------------- | -------------------------------------------------------------------------------------- |
+| M15 | (declined)                | "Other people's machines" was proposed and declined on 2026-11-10; see below           |
+| M16 | Release 1.0               | A stranger with an Apple silicon Mac can install it, understand it, remove it. **v1**  |
+| M17 | Insights from the vectors | Things the archive can say across sessions, with no new model                          |
+| M18 | A second small model      | A model that reads a question and a passage together, as an opt-in download            |
+| M19 | A small language model    | Text written by a local model (summaries, titles), as a further opt-in download        |
+| M20 | Now: sessions at work     | Every session active in the last hour as a card: what it is doing, how warm its cache  |
+| M21 | Back to the editor        | From a card, the VS Code window that is running that session comes to the front        |
+| M22 | Primitives                | Skills, agents, prompts and the rest: what is installed where, and how much it is used |
 
 **M15, declined.** Hardening for other people's machines (other Claude Code versions, far larger archives, Intel and
 CPU-only, strangers' archives) was proposed and declined. The tool supports Apple silicon Macs only and is shared as it
@@ -377,11 +381,55 @@ not at query time. What a tool call did, embedded with the call (issue #4); titl
 Code never titled and a line per turn for the Summary; a query rewritten before it is searched. Starts with a spike that
 settles which model, how much memory and how long per call, before any of it is promised.
 
+M20 to M22 were asked for by Juan on 2026-11-10, after M13. They are numbered after M19 because that is when they were
+written down; where they come relative to the release and the model milestones is his to say.
+
+**M20 Now: sessions at work.** A page of its own: every session that did something in the last 60 minutes is a card, all
+of them at a glance.
+
+- What it is doing now: the model working, a tool running (which, and for how long), waiting for a permission, waiting
+  for a hand-back or a background command, or waiting for you (since when, and what it last said).
+- Its prompt cache: how much of the last request was read from the cache, and how long until the cache expires, counted
+  from the last request. A timer can be set on a card, and a notification sent when the cache has five minutes left, so
+  a session can be picked up again before the next prompt pays for the whole context.
+- This takes back a decision: live tailing was declined on 2026-11-09. A card needs the tail of a transcript that is
+  still being written.
+
+Engine, to settle first, by a spike on real transcripts: what in a transcript says which cache lifetime a request used
+(the usage records split cache writes into five-minute and one-hour ones) and whether expiry can be told from the last
+request's time alone; how a waiting permission prompt shows, if it does (`skit time` cannot see it today); and what the
+"doing now" of a session costs to keep current (`serve` already watches `~/.claude` and knows the running processes).
+Then a `skit` command and a route for it, as for everything else. Notifications are the app's; the engine only says
+when. Done when: with three sessions running in three windows, the page says correctly which one is waiting for you, and
+a notification arrives five minutes before a cache expires.
+
+**M21 Back to the editor.** From a card of M20 (and from any live session's page), "Open in VS Code" brings the window
+that is running that session to the front, so the work continues where it was left. To settle first: how to tell which
+window that is. Claude Code records the process and its entry point for a running session; the editor's window for a
+workspace folder can be raised by opening that folder with `code`, which is right when one window has the folder and not
+when two do. A session started in a terminal has no editor window: the card says so and offers the folder in Finder or
+the terminal instead. Could ship with M20 or after it. Done when: with two VS Code windows on two workspaces, each
+running a session, the button on each card raises the right one.
+
+**M22 Primitives.** A section of its own on the rail for what Claude Code is extended with: skills, agents (subagent
+definitions), slash commands and prompts, hooks, connectors, plugins, memory and instructions. The Claude page lists
+some of these today (skills with a use count, memory files, connectors by name); this is that, grown up.
+
+- Where each is installed: for the user, for a project, from a plugin; and which one wins when a name is defined twice.
+- How much each is used, from the sessions themselves and not only from Claude Code's own counter: which sessions
+  invoked a skill or spawned an agent of a kind, how often, when last, how it went (failed calls, time spent, tokens).
+- What is installed and never used.
+
+Engine: the relations already record skills and connectors a session reached; agents by kind, slash commands and hooks
+are to be added, with an aggregate across sessions kept in the index as M13 did for activity. Done when: "which of my
+skills did I use this month, in which projects, and which have I never used" is answered from the app and from `skit`.
+
 **Not scheduled.** Continue from here (embedded terminal, fork at a turn; needs the feasibility probe in `NOTES.md`).
 Plugins (ergo, git) through the extension points. Image tiers B and C, the hooks installer, HTML export. The pricing
 table (issue #1). A web face: possible because the engine is an HTTP JSON process, not built; the no-derivation rule and
 a `/v0` free of Swift-specific shapes keep the door open, and HTML export is the smaller answer for a reader without a
-Mac. Declined on 2026-11-09: live tailing, subagents as sessions, retention signals, the accessibility pass.
+Mac. Declined on 2026-11-09: subagents as sessions, retention signals, the accessibility pass. Live tailing was declined
+the same day and is back as M20.
 
 ## Choices (confirmed 2026-11-08)
 

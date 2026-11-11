@@ -663,11 +663,15 @@ public struct ClaudeSnapshot: Codable, Sendable, Equatable {
         }
     }
 
+    /// A memory file, listed and never read out. `kind` is "instructions" (a CLAUDE.md a person
+    /// wrote) or "memory" (a note Claude Code keeps for itself); `project` is the directory or the slug it is for.
     public struct File: Codable, Sendable, Equatable {
         public var path: String
         public var bytes: Int
         public var lines: Int
         public var modified: Date
+        public var kind: String?
+        public var project: String?
     }
 
     public struct Skill: Codable, Sendable, Equatable {

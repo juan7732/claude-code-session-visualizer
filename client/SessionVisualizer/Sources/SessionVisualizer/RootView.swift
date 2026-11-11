@@ -162,6 +162,11 @@ struct RootView: View {
             for _ in 0..<100 where store.claude == nil || store.claude == .loading { try? await Task.sleep(for: .milliseconds(100)) }
         } else if what == "compare" {
             window.showCompare(in: store)
+        } else if what == "images" {
+            // images:<session id>: the Files view on its Images grid.
+            window.open(session: id, view: .files)
+            window.files.tab = .images
+            for _ in 0..<200 where store.model(id) == nil { try? await Task.sleep(for: .milliseconds(100)) }
         } else if let view = SessionView(rawValue: what) {
             window.open(session: id, view: view)
             for _ in 0..<200 where store.model(id) == nil { try? await Task.sleep(for: .milliseconds(100)) }

@@ -6,7 +6,7 @@ import SwiftUI
 /// [--view summary|…] [--appearance light|dark|oled] [--size 1500x940] [--socket path] [--flyout]
 /// [--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>]
 /// [--tab details|io|note] [--query text] [--palette]
-/// [--open-calls] [--fold] [--where] [--files-tab files|context|images] [--lightbox N]`
+/// [--open-calls] [--fold] [--where] [--files-tab files|context|images] [--lightbox N] [--claude-tab memory|flags|…]`
 ///
 /// Renders one state of the app to a PNG and exits, without showing a window:
 /// the way a view is held against its mock (plan, "Judged against the mock").
@@ -342,6 +342,10 @@ enum Snapshot {
                     }
                     try? await Task.sleep(for: .milliseconds(900)) // scrolling, the drawer, the results
                 }
+            }
+            if request.page == .claude, let tab = CommandLine.arguments.firstIndex(of: "--claude-tab").flatMap({ $0 + 1 < CommandLine.arguments.count ? ClaudeTab(rawValue: CommandLine.arguments[$0 + 1]) : nil }) {
+                state.claude.tab = tab
+                try? await Task.sleep(for: .milliseconds(800))
             }
             if request.page == .compare {
                 // --page compare --select is not used here: the pair is the two most recent sessions that did anything.
