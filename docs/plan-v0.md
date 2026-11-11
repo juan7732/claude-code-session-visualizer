@@ -274,18 +274,29 @@ finished, so the bars of a turn tile it. `decisions/0012-the-canvas-is-drawn.md`
 close at full-screen Retina size). Not built: collapsing turns on the Score; compactions on the ruler. Done when: who
 was working at the same time reads at 80 to 160 % zoom.
 
-**M13 Files, Stats, Compare, Claude.** Four pages of lists, tables and cards. Each ships on its own, in this order.
+**M13 Files, Stats, Compare, Claude (built; Juan's pass in the live window pending).** Four pages of lists, tables and
+cards.
 
-- **Files** (⌘5): files touched with a strip of the turns that touched each; Context gallery; Images gallery with a
-  lightbox. Engine: `/relations` files, `/images`. Missing: a session-wide attachments list, a file's content at a turn
-  and a diff per write, a `file` search kind.
-- **Stats**: boards with a project filter, the activity calendar, the sortable table. Engine: to confirm whether the
-  boards can be built from session rows or need an aggregate route with per-day activity.
-- **Compare**: two sessions side by side. Engine: nothing new.
-- **Claude**: experiments, effective settings by layer, flags, projects, memory and skills. Engine: `/claude`.
+- **Files** (⌘5): every file touched, most written first, with a filter; for one file a strip of the turns that touched
+  it and a card per touch with the command or edit around the file's name and what came back. Context: the blocks Claude
+  Code injected into the prompts, by kind. Images: the pictures pasted in or returned by a tool, as a grid and large (←
+  → esc, Show in Transcript, Copy). Not built: a file's content at a turn and a diff per write (the engine does not read
+  file-history snapshots), a session-wide list of attachments, a `file` search kind.
+- **Stats**: figures; a year of days (click one for its numbers and sessions); by project (click narrows every board);
+  tools and failures; where the time went; models and the prompt cache; actions per prompt; one sortable row per
+  session. The boards needed per-day activity and a time split across sessions, which a session row did not have and the
+  client does not derive: session summaries gained them and `skit overview` adds them up from the index.
+- **Compare** (File › Compare Sessions…): two sessions on the same measures, each with its turns as a strip, actions per
+  prompt and where its time went. Both sessions are read once for files written, commits and background commands.
+- **Claude**: experiments with the flag each drives and "copy as id=variation", settings in effect by layer, the cached
+  flags with a filter, projects, memory files and skills, what Claude Code remembers about itself. Read-only.
 
-**M14 Semantic search.** Find a turn by meaning, not only by its words. Engine first; the engine half can run beside M7
-to M13.
+Engine, for it (`relations-and-client-routes.md`): `activity`, `shape` and `time` in summaries (index schema 6);
+`skit overview` and `/v0/overview`; and a second correction to the time split, which the overview exposed: a wait after
+the agent spoke is a hand-back wait only when a hand-back arrived, otherwise it is waiting for you.
+
+**M14 Semantic search (DONE).** Find a turn by meaning, not only by its words. Engine first; the engine half can run
+beside M7 to M13.
 
 - `embed` package: client for the `llama-server` sidecar (ADR 0005), started on demand and stopped when idle; the model
   downloaded once from a pinned revision with a checksum into `~/.sessionkit/models/`.
@@ -300,13 +311,13 @@ to M13.
 Done when: a question that shares no words with the transcript finds the turn, hybrid beats keyword on the eval, and
 nothing leaves the machine but the one model download.
 
-State, 2026-11-10 (`meaning-search.md`): the engine half is built and waits for Juan's pass. The `embed` package; index
-schema 5 (chunks and vectors keyed by a hash of the text, where ADR 0005 said "on the segment row"); `skit embed`;
-`skit eval` and an eval of 53 queries; meaning search with a gate that lets it say nothing was found; `hybrid` (meaning
-matches first, then keyword hits), which beats keyword on every measure of the eval (R@1 0.62 → 0.69, R@5 0.77 → 0.81,
-R@10 0.85 → 0.88, MRR 0.68 → 0.75); narrowing by session, project, kinds and "no tool calls" in every mode; `serve`
-embedding new text by itself every thirty minutes and holding the vectors in memory between queries. The Finder offers
-Keyword, Hybrid and Meaning beside its field; outside keyword mode the session with the best hit leads the list.
+State, 2026-11-10 (`meaning-search.md`): built, and marked done by Juan the same day. The `embed` package; index schema
+5 (chunks and vectors keyed by a hash of the text, where ADR 0005 said "on the segment row"); `skit embed`; `skit eval`
+and an eval of 53 queries; meaning search with a gate that lets it say nothing was found; `hybrid` (meaning matches
+first, then keyword hits), which beats keyword on every measure of the eval (R@1 0.62 → 0.69, R@5 0.77 → 0.81, R@10 0.85
+→ 0.88, MRR 0.68 → 0.75); narrowing by session, project, kinds and "no tool calls" in every mode; `serve` embedding new
+text by itself every thirty minutes and holding the vectors in memory between queries. The Finder offers Keyword, Hybrid
+and Meaning beside its field; outside keyword mode the session with the best hit leads the list.
 
 Kept as it is, on purpose (2026-11-10: live with it for now): a near miss gets related hits, because a cosine floor
 cannot tell "same subject" from "answers this", and keyword and hybrid still answer a question about an absent subject

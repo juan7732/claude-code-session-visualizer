@@ -6,7 +6,7 @@ import SwiftUI
 /// [--view summary|…] [--appearance light|dark|oled] [--size 1500x940] [--socket path] [--flyout]
 /// [--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>]
 /// [--tab details|io|note] [--query text] [--palette]
-/// [--open-calls] [--fold] [--where]`
+/// [--open-calls] [--fold] [--where] [--files-tab files|context|images] [--lightbox N]`
 ///
 /// Renders one state of the app to a PNG and exits, without showing a window:
 /// the way a view is held against its mock (plan, "Judged against the mock").
@@ -41,6 +41,9 @@ struct SnapshotRequest {
     var fit: String?
     /// On the Timeline: the "Where the time went" panel open.
     var whereTime = false
+    /// On the Files view: the list on show, and an image open large.
+    var filesTab: FilesTab?
+    var lightbox: Int?
 
     init?(arguments: [String]) {
         guard let at = arguments.firstIndex(of: "--snapshot"), at + 1 < arguments.count else { return nil }
@@ -54,6 +57,7 @@ struct SnapshotRequest {
             case "search": self.page = .search
             case "stats": self.page = .stats
             case "claude": self.page = .claude
+            case "compare": self.page = .compare
             case let s where s.hasPrefix("session:"): self.page = .session(String(s.dropFirst("session:".count)))
             default: self.page = .sessions
             }
@@ -94,6 +98,8 @@ struct SnapshotRequest {
         collapse = arguments.contains("--collapse")
         fit = value("--fit")
         whereTime = arguments.contains("--where")
+        filesTab = value("--files-tab").flatMap(FilesTab.init(rawValue:))
+        lightbox = value("--lightbox").flatMap(Int.init)
     }
 }
 
@@ -322,6 +328,13 @@ enum Snapshot {
                         if request.fit == "all" { state.canvas.fitAll() } else if request.fit == "width" { state.canvas.fitWidth() }
                         if request.select != nil, request.fit == nil { state.canvas.focusRequests += 1 }
                     }
+                    if request.view == .files {
+                        if let tab = request.filesTab { state.files.tab = tab }
+                        if let query = request.query { state.files.filter = query }
+                        for _ in 0..<100 where store.images[id] == nil || store.images[id] == .loading { try? await Task.sleep(for: .milliseconds(50)) }
+                        state.files.lightbox = request.lightbox
+                        try? await Task.sleep(for: .milliseconds(1200)) // the pictures
+                    }
                     if request.view == .timeline {
                         // The split is a request of its own.
                         for _ in 0..<100 where store.times[id] == nil || store.times[id] == .loading { try? await Task.sleep(for: .milliseconds(50)) }
@@ -329,6 +342,14 @@ enum Snapshot {
                     }
                     try? await Task.sleep(for: .milliseconds(900)) // scrolling, the drawer, the results
                 }
+            }
+            if request.page == .compare {
+                // --page compare --select is not used here: the pair is the two most recent sessions that did anything.
+                state.showCompare(in: store)
+                for _ in 0..<200 where [state.compare.first, state.compare.second].compactMap({ $0 }).contains(where: { store.model($0) == nil }) {
+                    try? await Task.sleep(for: .milliseconds(100))
+                }
+                try? await Task.sleep(for: .milliseconds(600))
             }
             if request.page == .search, let query = request.query {
                 if let mode = request.mode { state.search.mode = mode }

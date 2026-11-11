@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 )
 
 // Dir returns skit's home directory.
@@ -29,3 +31,24 @@ func ArchiveDir(dir string) string { return filepath.Join(dir, "archive") }
 // RunDir holds small files about processes skit started (the embedding
 // sidecar), so a later skit can clean up after one that was killed.
 func RunDir(dir string) string { return filepath.Join(dir, "run") }
+
+// LocalZone is the machine's time zone under its own name ("America/Chicago").
+// time.Local calls itself "Local", which tells a reader on another clock
+// nothing; the name comes from TZ or from where /etc/localtime points. When
+// neither says, it is time.Local as it is.
+func LocalZone() *time.Location {
+	name := os.Getenv("TZ")
+	if name == "" {
+		if target, err := os.Readlink("/etc/localtime"); err == nil {
+			if i := strings.Index(target, "zoneinfo/"); i >= 0 {
+				name = target[i+len("zoneinfo/"):]
+			}
+		}
+	}
+	if name != "" {
+		if loc, err := time.LoadLocation(name); err == nil {
+			return loc
+		}
+	}
+	return time.Local
+}

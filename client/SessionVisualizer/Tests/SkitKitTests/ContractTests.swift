@@ -61,7 +61,7 @@ import Testing
         #expect(stats.compactionList?.first?.preTokens == 6400)
         #expect(stats.rewoundActions == 0)
         // What the Summary's cards read beyond the counts.
-        #expect(stats.inTurns == "13s")
+        #expect(stats.inTurns == "12s")
         #expect(stats.injectedBlocks == 1 && stats.attachments != nil)
     }
 
@@ -175,7 +175,7 @@ import Testing
     /// `skit time`: the parts add up to the whole.
     @Test func timeAddsUp() throws {
         let time = try decode(SessionTime.self, "time.json")
-        #expect(time.wall == 64 && time.waitingForYou == 51 && time.waitingForBackground == 0)
+        #expect(time.wall == 64 && time.waitingForYou == 51.5 && time.waitingForBackground == 0)
         let split = time.inTurns
         #expect(abs(split.seconds - (split.model + split.tools + split.subagents + split.waiting)) < 0.002)
         #expect(abs(time.wall - (time.waitingForYou + time.waitingForBackground + split.seconds)) < 0.002)
@@ -186,6 +186,53 @@ import Testing
         #expect(slowest.toolId == "toolu_01" && slowest.name == "Bash" && slowest.seconds == 0.8 && slowest.summary?.isEmpty == false)
         let wait = try #require(time.longestWaits.first)
         #expect(wait.whom == "you" && wait.afterTurn == 0 && wait.beforeTurn == 1 && wait.seconds == 50.5)
+    }
+
+    /// `skit overview`: every session added up, and the days hold what the totals hold.
+    @Test func overviewAddsUp() throws {
+        let overview = try decode(Overview.self, "overview.json")
+        let rows = try decode([SessionSummary].self, "sessions.json")
+        #expect(overview.sessions == rows.count && overview.timezone == "UTC")
+        #expect(overview.totals.actions == rows.map(\.requests).reduce(0, +))
+        #expect(overview.totals.toolCalls == rows.map(\.toolCalls).reduce(0, +))
+        #expect(overview.days.map(\.actions).reduce(0, +) == overview.totals.actions)
+        #expect(overview.projects.map(\.sessions).reduce(0, +) == overview.sessions)
+        let day = try #require(overview.days.first)
+        #expect(day.day.count == 10 && !day.sessions.isEmpty)
+        #expect(abs(overview.time.wall - (overview.time.waitingForYou + overview.time.waitingForBackground + overview.time.seconds)) < 0.01)
+        // A session's row carries what the overview adds up.
+        let row = try #require(rows.first { $0.id.hasPrefix("aaaaaaaa") })
+        #expect(row.shape?.first == 4 && row.time?.wall == 64)
+    }
+
+    /// `skit claude`: the snapshot decodes from a Mac with next to nothing set, and from one with everything.
+    @Test func claudeConfiguration() throws {
+        let bare = try decode(ClaudeSnapshot.self, "claude.json")
+        #expect(!bare.claudeDir.isEmpty && !bare.layers.isEmpty)
+        #expect(bare.layers.allSatisfy { !$0.name.isEmpty && !$0.path.isEmpty })
+        let full = try JSONDecoder.skit().decode(ClaudeSnapshot.self, from: Data(#"""
+        {"claude_dir":"/h/.claude","layers":[{"name":"user","path":"/h/.claude/settings.json","exists":true,"modified":"2026-11-08T10:00:00Z","settings":{"model":"opus","env":{"A":"1"}}}],
+         "effective":[{"key":"model","value":"opus","from":"user","also":["project"]},{"key":"cleanupPeriodDays","value":30,"from":"user"}],
+         "experiments":[{"flag":"tengu_x","experiment_id":"tengu_x_experiment","variation_id":1,"value":true},{"flag":"tengu_y","experiment_id":"other","variation_id":0,"value":{"b":2,"a":"q"}}],
+         "flags":[{"key":"tengu_x","value":true,"in_experiment":true},{"key":"tengu_n","value":2.5}],"flags_cached_at":"2026-11-08T09:00:00Z",
+         "projects":[{"path":"/h/work","allowed_tools":3,"mcp_servers":["notes"],"trusted":true}],"connectors":["notes"],
+         "memory":[{"path":"/h/.claude/CLAUDE.md","bytes":120,"lines":4,"modified":"2026-11-08T10:00:00Z"}],
+         "skills":[{"name":"review","uses":7,"on_disk":false}],"state":{"numStartups":41},"identity":{"userID":"set"}}
+        """#.utf8))
+        #expect(full.effective[0].also == ["project"] && full.effective[1].also.isEmpty && full.effective[1].value.compact == "30")
+        #expect(full.experiments[1].value.compact == #"{"a": "q", "b": 2}"# && full.experiments[0].value.bool == true)
+        #expect(full.flags[0].inExperiment == true && full.flags[1].value.compact == "2.5" && full.flagsCachedAt != nil)
+        #expect(full.projects[0].mcpServers == ["notes"] && full.skills[0].uses == 7 && full.skills[0].onDisk == false)
+        #expect(full.state?["numStartups"]?.compact == "41" && full.identity?["userID"] == "set")
+    }
+
+    /// `skit images`: where each picture is, never its bytes.
+    @Test func imagesAreListedWithoutTheirBytes() throws {
+        let images = try decode([SessionImage].self, "images.json")
+        let image = try #require(images.first)
+        #expect(image.index == 0 && image.mediaType.hasPrefix("image/") && image.size > 0)
+        #expect(["prompt", "tool_result"].contains(image.place))
+        #expect(images.map(\.index) == Array(images.indices))
     }
 
     /// A session that fetched a page, used a connector and committed.

@@ -18,8 +18,9 @@ type Time struct {
 	LastAt  time.Time `json:"last_at"`
 	// Wall is the session from its first record to its last.
 	Wall float64 `json:"wall_seconds"`
-	// ForYou is the time outside turns before a prompt of the human's: the
-	// session waited for them.
+	// ForYou is the time the session waited for its human: outside turns before
+	// a prompt of theirs, and inside a turn after the agent spoke when nothing
+	// in the transcript brought it back.
 	ForYou float64 `json:"waiting_for_you_seconds"`
 	// ForBackground is the time outside turns before a turn something else
 	// started (a task notification): the session waited on background work.
@@ -41,8 +42,8 @@ type Split struct {
 	Tools float64 `json:"tools_seconds"`
 	// Subagents: tool calls that ran a subagent and waited for it.
 	Subagents float64 `json:"subagents_seconds"`
-	// Waiting: after the agent spoke and before something brought it back
-	// inside the same turn: a subagent's hand-back or a notification.
+	// Waiting: after the agent spoke, until a subagent's hand-back brought it
+	// back inside the same turn.
 	Waiting float64 `json:"waiting_seconds"`
 }
 
@@ -54,13 +55,15 @@ func (s *Split) add(o Split) {
 	s.Waiting += o.Waiting
 }
 
-// TurnTime is one turn's share.
+// TurnTime is one turn's share. Its Seconds leave out ForYou: stretches inside
+// the turn's span that were the human's (see TimeOf).
 type TurnTime struct {
 	Turn    int       `json:"turn"`
 	Origin  string    `json:"origin"`
 	At      time.Time `json:"at"`
 	End     time.Time `json:"end"`
 	Actions int       `json:"actions"`
+	ForYou  float64   `json:"waiting_for_you_seconds,omitempty"`
 	Split
 }
 
@@ -88,6 +91,14 @@ type Wait struct {
 // TimeOf accounts for a session's wall time from its turns and action spans.
 // top bounds the two rankings; 0 means 10.
 //
+// DECISION: after the agent spoke, a stretch before it acted again in the same
+// turn is waiting for a hand-back only when the action that followed received
+// one. Otherwise the transcript does not say what brought the agent back, and
+// in practice it was the human: a resumed session's earlier prompts are not in
+// its file, so days of conversation are one "turn" (measured 2026-11-10: one
+// such turn of five days put 4d 22h under "waiting for a hand-back"). Those
+// stretches count as waiting for you and are left out of the time in turns.
+//
 // DECISION: the split is the engine's, not a client's. It is arithmetic over
 // spans, but it carries judgments (what counts as the model's time, what a gap
 // before a notification means) that every face must make the same way.
@@ -106,13 +117,32 @@ func TimeOf(s *transcript.Session, rel *transcript.Relations, top int) Time {
 		calls[c.Action] = append(calls[c.Action], c)
 	}
 
+	// The action after each one in its turn, and the actions a hand-back arrived into.
+	nextAction := map[int]int{}
+	for _, list := range spans {
+		for k := range list {
+			if k+1 < len(list) {
+				nextAction[list[k].Action] = list[k+1].Action
+			} else {
+				nextAction[list[k].Action] = -1
+			}
+		}
+	}
+	handedBackInto := map[int]bool{}
+	for _, h := range rel.Handbacks {
+		if h.Action >= 0 {
+			handedBackInto[h.Action] = true
+		}
+	}
+
 	var inTurns, forBackground time.Duration
 	for i, t := range s.Turns {
 		tt := TurnTime{Turn: t.Index, Origin: t.Origin, At: t.StartAt, End: t.EndAt, Actions: len(t.Actions)}
 		total := t.Duration()
-		var model, tools, subs, waiting time.Duration
+		var model, tools, subs, waiting, away time.Duration
 		cursor := t.StartAt
-		for _, sp := range spans[t.Index] {
+		list := spans[t.Index]
+		for k, sp := range list {
 			model += positive(sp.GenEnd.Sub(cursor))
 			ran := positive(sp.ToolsEnd.Sub(sp.GenEnd))
 			sub := subagentTime(calls[sp.Action], sp.GenEnd, sp.ToolsEnd)
@@ -120,7 +150,16 @@ func TimeOf(s *transcript.Session, rel *transcript.Relations, top int) Time {
 			tools += ran - sub
 			cursor = later(cursor, sp.ToolsEnd)
 			if sp.Said {
-				waiting += positive(sp.End.Sub(cursor))
+				gap := positive(sp.End.Sub(cursor))
+				if gap > 0 && handedBackInto[nextAction[sp.Action]] {
+					waiting += gap
+				} else if gap > 0 && k+1 < len(list) {
+					away += gap
+					out.LongestWaits = append(out.LongestWaits, Wait{AfterTurn: t.Index, BeforeTurn: t.Index, At: cursor, End: sp.End, Seconds: secs(gap), For: "you"})
+				} else {
+					// The last action of the turn: what is left belongs to the tail below.
+					continue
+				}
 				cursor = later(cursor, sp.End)
 			}
 		}
@@ -129,9 +168,11 @@ func TimeOf(s *transcript.Session, rel *transcript.Relations, top int) Time {
 		model += positive(t.EndAt.Sub(cursor))
 		// Clocks in a transcript are not perfectly ordered. Keep the parts
 		// equal to the whole by letting the model's share absorb the difference.
+		total = positive(total - away)
 		if diff := total - (model + tools + subs + waiting); diff != 0 {
 			model = positive(model + diff)
 		}
+		tt.ForYou = secs(away)
 		tt.Split = Split{Seconds: secs(total), Model: secs(model), Tools: secs(tools), Subagents: secs(subs), Waiting: secs(waiting)}
 		out.Turns = append(out.Turns, tt)
 		out.InTurns.add(tt.Split)

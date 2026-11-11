@@ -33,9 +33,10 @@ grid), `TranscriptView` and `TranscriptRows`, `Drawer` (the inspector under both
 `PaletteView` (⌘K), `CanvasView` (two layouts on one camera, ADR 0012: `CanvasBase` is the AppKit view that holds the
 camera and takes the pointer; `BraidLayout` and `BraidCanvas` say and draw the Braid, `ScoreLayout` and `ScoreCanvas`
 the Score), `ArcsMap` (the Summary's map), `TimelineView` (the strip and the playhead in `TimelineStrip`, the rows in
-`Ledger`; `TimelineLayout` holds `TimeAxis`, which cuts idle time and maps moments to points, and what the strip draws).
-`SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the palette; `Export`
-writes Markdown through the engine and builds and reads `skit-visualizer://` links.
+`Ledger`; `TimelineLayout` holds `TimeAxis`, which cuts idle time and maps moments to points, and what the strip draws),
+`FilesView` (files, injected context, images), `StatsPage` (every figure is `skit overview`'s), `ComparePage`,
+`ClaudePage`. `SessionModel` is what they all read; `Commands` holds every command once, for the menu bar and the
+palette; `Export` writes Markdown through the engine and builds and reads `skit-visualizer://` links.
 
 ## Rules
 
@@ -89,13 +90,14 @@ shapes in a dark offscreen capture; in a real window they are dark.
 
 ## The live exercise
 
-`just client-exercise summary <session id>` (or `transcript <id>`, `timeline <id>`, `canvas <id>`, `search <words>`)
-opens a real window on that page, scrolls it from top to bottom with a pointer resting on the page, and quits; on the
-Timeline it then plays the playhead for a few seconds with the ledger following, and on the Canvas it pans and zooms the
-camera (`canvas <id> -canvas.layout score` for the Score). It writes nothing the app remembers. If the scroll stops
-advancing, the main thread is stuck: the script samples the process and exits 1. Run it on a long session after changing
-how a scrolling page is laid out. The window appears on screen for a few seconds. `--scroll-through` does the same
-offscreen in snapshot mode, which found nothing the day the Summary froze: only a live window with a pointer did.
+`just client-exercise summary <session id>` (or `transcript <id>`, `timeline <id>`, `canvas <id>`, `files <id>`,
+`search <words>`, `stats all`, `claude flags`, `compare recent`) opens a real window on that page, scrolls it from top
+to bottom with a pointer resting on the page, and quits; on the Timeline it then plays the playhead for a few seconds
+with the ledger following, and on the Canvas it pans and zooms the camera (`canvas <id> -canvas.layout score` for the
+Score). It writes nothing the app remembers. If the scroll stops advancing, the main thread is stuck: the script samples
+the process and exits 1. Run it on a long session after changing how a scrolling page is laid out. The window appears on
+screen for a few seconds. `--scroll-through` does the same offscreen in snapshot mode, which found nothing the day the
+Summary froze: only a live window with a pointer did.
 
 ## Toolchain
 

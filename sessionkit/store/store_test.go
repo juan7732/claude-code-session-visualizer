@@ -116,7 +116,7 @@ PRAGMA user_version = 1;`); err != nil {
 	}
 }
 
-// TestMigrateFromV4KeepsEverything: schema 5 only adds, so segments stay, rows
+// TestMigrateFromV4KeepsEverything: schemas 5 and 6 only add, so segments stay, rows
 // keep the version they were indexed at (no session is parsed again), and the
 // new tables work on the migrated index.
 func TestMigrateFromV4KeepsEverything(t *testing.T) {
@@ -146,8 +146,10 @@ PRAGMA user_version = 4;`); err != nil {
 	st.db.QueryRow(`PRAGMA user_version`).Scan(&version)
 	st.db.QueryRow(`SELECT count(*) FROM segments`).Scan(&segs)
 	row, err := st.Session("s1")
-	if err != nil || version != 5 || segs != 1 || row.Schema != IndexedVersion {
-		t.Fatalf("version=%d segments=%d row schema=%d err=%v (a v4 row must still count as indexed)", version, segs, row.Schema, err)
+	// The row keeps the version it was indexed at. Schema 5 left it current;
+	// schema 6 changed what a summary holds, so it is now due to be indexed again.
+	if err != nil || version != SchemaVersion || segs != 1 || row.Schema != 4 || row.Schema >= IndexedVersion {
+		t.Fatalf("version=%d segments=%d row schema=%d err=%v (a v4 row keeps its version and is due for re-indexing)", version, segs, row.Schema, err)
 	}
 	todo, err := st.UnchunkedSegments([]string{"assistant"}, 10)
 	if err != nil || len(todo) != 1 || todo[0].Text != "a row that must survive" {

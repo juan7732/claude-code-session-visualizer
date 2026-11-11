@@ -113,6 +113,17 @@ func TestRoutes(t *testing.T) {
 	if rel["commits"] == nil {
 		t.Fatalf("relations lists commits, empty when there are none: %v", rel["commits"])
 	}
+	var ov map[string]any
+	if code := get(t, h, "/v0/overview", &ov); code != 200 || ov["sessions"].(float64) < 1 || len(ov["days"].([]any)) < 1 || len(ov["projects"].([]any)) < 1 {
+		t.Fatalf("overview route: %d %v", code, ov)
+	}
+	if code := get(t, h, "/v0/overview?project=no-such-project", &ov); code != 200 || ov["sessions"] != float64(0) {
+		t.Fatalf("overview of no project: %d %v", code, ov)
+	}
+	// slug is the whole slug or nothing: a part of one matches no project.
+	if code := get(t, h, "/v0/overview?slug=work", &ov); code != 200 || ov["sessions"] != float64(0) {
+		t.Fatalf("overview of a partial slug: %d %v", code, ov)
+	}
 	var tm map[string]any
 	if code := get(t, h, "/v0/sessions/"+fixtureID+"/time?top=2", &tm); code != 200 || tm["wall_seconds"] != float64(64) || len(tm["slowest_calls"].([]any)) != 2 || len(tm["turns"].([]any)) != 2 {
 		t.Fatalf("time route: %d %v", code, tm)
@@ -193,7 +204,7 @@ func TestConcurrentReadsShareOneParse(t *testing.T) {
 	h := s.Handler()
 	base := "/v0/sessions/" + fixtureID
 	paths := []string{base, base + "/stats", base + "/turns/0", base + "/actions/3", base + "/actions/0/context", base + "/compactions/0",
-		base + "/relations", base + "/time", base + "/images", "/v0/sessions", "/v0/status", "/v0/search?q=Bash", "/v0/archive/verify"}
+		base + "/relations", base + "/time", base + "/images", "/v0/sessions", "/v0/overview", "/v0/status", "/v0/search?q=Bash", "/v0/archive/verify"}
 	var imgs []map[string]any
 	get(t, h, base+"/images", &imgs)
 

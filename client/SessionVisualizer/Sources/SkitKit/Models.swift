@@ -136,6 +136,10 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var context: [ContextPoint]?
     /// The source transcript is gone; this row comes from the archive.
     public var archivedOnly: Bool?
+    /// How many actions each prompt of the human's started, in order.
+    public var shape: [Int]?
+    /// Where the wall time went, in seconds (`skit time`, without its lists).
+    public var time: TimeTotals?
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -177,6 +181,8 @@ public struct SessionSummary: Codable, Sendable, Equatable, Identifiable {
         case linesRemoved = "lines_removed"
         case context
         case archivedOnly = "archived_only"
+        case shape
+        case time
     }
 }
 
@@ -439,6 +445,240 @@ public struct SessionTime: Codable, Sendable, Equatable {
             case afterTurn = "after_turn"
             case beforeTurn = "before_turn"
             case whom = "for"
+        }
+    }
+}
+
+/// An image in a session, without its bytes: `GET /v0/sessions/{id}/images` (`skit images`).
+/// The bytes are on `/images/{index}`.
+public struct SessionImage: Codable, Sendable, Equatable, Identifiable {
+    public var index: Int
+    public var turn: Int
+    public var at: Date
+    /// "prompt" (pasted or dropped by the human) or "tool_result" (a tool returned it).
+    public var place: String
+    public var toolId: String?
+    public var mediaType: String
+    /// Decoded size in bytes.
+    public var size: Int
+
+    public var id: Int { index }
+
+    enum CodingKeys: String, CodingKey {
+        case index, turn, at, size
+        case place = "where"
+        case toolId = "tool_id"
+        case mediaType = "media_type"
+    }
+}
+
+/// Every session added up: `GET /v0/overview` (`skit overview`). Made from the
+/// summaries the index keeps; days are days in `timezone`, the engine's own.
+public struct Overview: Codable, Sendable, Equatable {
+    public var sessions: Int
+    public var timezone: String
+    public var totals: Totals
+    @EmptyWhenNull public var projects: [Project]
+    @EmptyWhenNull public var days: [Day]
+    @EmptyWhenNull public var tools: [ToolCount]
+    @EmptyWhenNull public var models: [NameCount]
+    public var cacheHitRatio: Double
+    public var cacheRead: Int
+    public var time: TimeTotals
+    /// Sessions summarised before the index kept activity and since gone from disk: in the totals, on no day.
+    public var withoutActivity: Int
+
+    enum CodingKeys: String, CodingKey {
+        case sessions, timezone, totals, projects, days, tools, models, time
+        case cacheHitRatio = "cache_hit_ratio"
+        case cacheRead = "cache_read_tokens"
+        case withoutActivity = "sessions_without_activity"
+    }
+
+    public struct Totals: Codable, Sendable, Equatable {
+        public var turns: Int
+        public var systemTurns: Int
+        public var actions: Int
+        public var toolCalls: Int
+        public var toolErrors: Int
+        public var outputTokens: Int
+        public var subagents: Int
+        public var compactions: Int
+        public var images: Int
+        public var apiErrors: Int
+        /// Claude Code's own figure, over the sessions that recorded one.
+        public var cost: Double
+        public var sessionsWithCost: Int
+
+        enum CodingKeys: String, CodingKey {
+            case turns, actions, subagents, compactions, images
+            case systemTurns = "system_turns"
+            case toolCalls = "tool_calls"
+            case toolErrors = "tool_errors"
+            case outputTokens = "output_tokens"
+            case apiErrors = "api_errors"
+            case cost = "claude_code_cost_usd"
+            case sessionsWithCost = "sessions_with_cost"
+        }
+    }
+
+    /// One project's sessions added up. `project` is the slug Claude Code files it under.
+    public struct Project: Codable, Sendable, Equatable, Identifiable {
+        public var project: String
+        public var cwd: String?
+        public var sessions: Int
+        public var actions: Int
+        public var toolCalls: Int
+        public var toolErrors: Int
+        public var outputTokens: Int
+
+        public var id: String { project }
+
+        enum CodingKeys: String, CodingKey {
+            case project, cwd, sessions, actions
+            case toolCalls = "tool_calls"
+            case toolErrors = "tool_errors"
+            case outputTokens = "output_tokens"
+        }
+    }
+
+    /// One day, as "2026-11-07", with the sessions that did something on it.
+    public struct Day: Codable, Sendable, Equatable, Identifiable {
+        public var day: String
+        public var actions: Int
+        public var toolCalls: Int
+        public var toolErrors: Int
+        public var outputTokens: Int
+        @EmptyWhenNull public var sessions: [String]
+
+        public var id: String { day }
+
+        enum CodingKeys: String, CodingKey {
+            case day, actions, sessions
+            case toolCalls = "tool_calls"
+            case toolErrors = "tool_errors"
+            case outputTokens = "output_tokens"
+        }
+    }
+}
+
+/// The split of `skit time` in seconds, as a session's summary and the overview carry it.
+public struct TimeTotals: Codable, Sendable, Equatable {
+    public var wall: Double
+    public var waitingForYou: Double
+    public var waitingForBackground: Double
+    public var seconds: Double
+    public var model: Double
+    public var tools: Double
+    public var subagents: Double
+    public var waiting: Double
+
+    enum CodingKeys: String, CodingKey {
+        case seconds
+        case wall = "wall_seconds"
+        case waitingForYou = "waiting_for_you_seconds"
+        case waitingForBackground = "waiting_for_background_seconds"
+        case model = "model_seconds"
+        case tools = "tools_seconds"
+        case subagents = "subagents_seconds"
+        case waiting = "waiting_seconds"
+    }
+}
+
+/// How Claude Code is set up on this Mac: `GET /v0/claude` (`skit claude`).
+/// Read-only and whitelisted: the engine never copies the account, tokens or
+/// ids; `identity` says only whether each is set.
+public struct ClaudeSnapshot: Codable, Sendable, Equatable {
+    public var claudeDir: String
+    @EmptyWhenNull public var layers: [Layer]
+    @EmptyWhenNull public var effective: [Setting]
+    @EmptyWhenNull public var experiments: [Experiment]
+    @EmptyWhenNull public var flags: [Flag]
+    public var flagsCachedAt: Date?
+    @EmptyWhenNull public var projects: [Project]
+    @EmptyWhenNull public var connectors: [String]
+    @EmptyWhenNull public var memory: [File]
+    @EmptyWhenNull public var skills: [Skill]
+    public var state: [String: JSONValue]?
+    public var identity: [String: String]?
+
+    enum CodingKeys: String, CodingKey {
+        case layers, effective, experiments, flags, projects, connectors, memory, skills, state, identity
+        case claudeDir = "claude_dir"
+        case flagsCachedAt = "flags_cached_at"
+    }
+
+    /// One settings file, lowest precedence first in the list.
+    public struct Layer: Codable, Sendable, Equatable {
+        public var name: String
+        public var path: String
+        public var exists: Bool
+        public var modified: Date?
+        public var settings: [String: JSONValue]?
+    }
+
+    /// A setting as it is in effect: the layer that wins, and the ones it overrides.
+    public struct Setting: Codable, Sendable, Equatable {
+        public var key: String
+        public var value: JSONValue
+        public var from: String
+        @EmptyWhenNull public var also: [String]
+    }
+
+    /// An experiment this install is assigned to. Variation 0 is the control group.
+    public struct Experiment: Codable, Sendable, Equatable {
+        public var flag: String
+        public var experimentId: String
+        public var variationId: Int
+        public var value: JSONValue
+
+        enum CodingKeys: String, CodingKey {
+            case flag, value
+            case experimentId = "experiment_id"
+            case variationId = "variation_id"
+        }
+    }
+
+    public struct Flag: Codable, Sendable, Equatable {
+        public var key: String
+        public var value: JSONValue
+        public var inExperiment: Bool?
+
+        enum CodingKeys: String, CodingKey {
+            case key, value
+            case inExperiment = "in_experiment"
+        }
+    }
+
+    public struct Project: Codable, Sendable, Equatable {
+        public var path: String
+        public var allowedTools: Int
+        @EmptyWhenNull public var mcpServers: [String]
+        public var trusted: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case path, trusted
+            case allowedTools = "allowed_tools"
+            case mcpServers = "mcp_servers"
+        }
+    }
+
+    public struct File: Codable, Sendable, Equatable {
+        public var path: String
+        public var bytes: Int
+        public var lines: Int
+        public var modified: Date
+    }
+
+    public struct Skill: Codable, Sendable, Equatable {
+        public var name: String
+        public var path: String?
+        public var uses: Int?
+        public var onDisk: Bool
+
+        enum CodingKeys: String, CodingKey {
+            case name, path, uses
+            case onDisk = "on_disk"
         }
     }
 }

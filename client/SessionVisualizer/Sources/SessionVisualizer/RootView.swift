@@ -66,8 +66,9 @@ struct RootView: View {
             case .sessions: SessionsView()
             case .session(let id): SessionPage(id: id)
             case .search: SearchPage()
-            case .stats: ComingPage(title: "Stats", milestone: "M13")
-            case .claude: ComingPage(title: "Claude", milestone: "M13")
+            case .stats: StatsPage()
+            case .claude: ClaudePage()
+            case .compare: ComparePage()
             }
         }
     }
@@ -79,6 +80,7 @@ struct RootView: View {
         case .search: "Search"
         case .stats: "Stats"
         case .claude: "Claude"
+        case .compare: "Compare"
         }
     }
 
@@ -150,6 +152,16 @@ struct RootView: View {
             window.page = .search
             for _ in 0..<100 where window.search.searched.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
             window.search.setAllFolded(false)
+        } else if what == "stats" {
+            window.page = .stats
+            for _ in 0..<100 where store.overviews[""] == nil || store.overviews[""] == .loading { try? await Task.sleep(for: .milliseconds(100)) }
+        } else if what == "claude" {
+            // claude:<tab>, e.g. claude:flags, the longest list.
+            window.claude.tab = ClaudeTab(rawValue: id) ?? .experiments
+            window.page = .claude
+            for _ in 0..<100 where store.claude == nil || store.claude == .loading { try? await Task.sleep(for: .milliseconds(100)) }
+        } else if what == "compare" {
+            window.showCompare(in: store)
         } else if let view = SessionView(rawValue: what) {
             window.open(session: id, view: view)
             for _ in 0..<200 where store.model(id) == nil { try? await Task.sleep(for: .milliseconds(100)) }
@@ -198,6 +210,7 @@ struct RootView: View {
         case .search: "Search"
         case .stats: "Stats"
         case .claude: "Claude"
+        case .compare: "Compare"
         case .session(let id): id == window.sessionID ? "the \(target.view.title)" : "the session you came from"
         }
         return "Back to \(place) (⌘[)"

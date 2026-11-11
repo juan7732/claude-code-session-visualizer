@@ -19,7 +19,7 @@ import (
 )
 
 // SchemaVersion is bumped with every migration.
-const SchemaVersion = 5
+const SchemaVersion = 6
 
 // IndexedVersion is the last schema that changed what a session's summary or
 // segments hold. A session row records the one it was indexed at, and a row
@@ -28,7 +28,7 @@ const SchemaVersion = 5
 // DECISION: kept apart from SchemaVersion so that a migration which only adds
 // tables (schema 5: chunks and vectors) does not make every session be parsed
 // again for nothing.
-const IndexedVersion = 4
+const IndexedVersion = 6
 
 // Store is an open index.
 type Store struct {
@@ -121,6 +121,13 @@ func (s *Store) migrate() error {
 			return err
 		}
 		version = 5
+	}
+	if version == 5 {
+		// v6: no new columns. Summaries gained what `skit overview` adds up
+		// across sessions (activity by hour, actions per prompt, the time
+		// split), so rows from before are re-indexed by the next `archive` or
+		// `list`. Vectors are keyed by the text's hash and are not made again.
+		version = 6
 	}
 	if _, err := tx.Exec(fmt.Sprintf(`PRAGMA user_version = %d`, SchemaVersion)); err != nil {
 		return err

@@ -20,8 +20,10 @@ func newTime() *cobra.Command {
 background work when the next turn was started by a notification. Inside turns
 the model was working (waiting for a response, thinking, writing), tools were
 running, a subagent was running, or the agent had spoken and waited for a
-hand-back. The parts add up to the whole. Then each turn's share, the slowest
-tool calls and the longest waits; --top sets how many of those two.
+hand-back. A wait after speaking that no hand-back ended counts as waiting for
+you: the transcript does not say what brought the agent back. The parts add up
+to the whole. Then each turn's share, the slowest tool calls and the longest
+waits; --top sets how many of those two.
 A tool call that waited for your permission counts as tool time: a transcript
 does not record that wait.`,
 		Example: "  skit time 36086585\n  skit time 36086585 --top 3 --json | jq '.slowest_calls[] | {name, seconds, summary}'\n  skit time 36086585 --json | jq '.turns | max_by(.seconds)'",
@@ -85,7 +87,11 @@ func printTime(w io.Writer, t stats.Time) {
 	}
 	fmt.Fprintf(w, "\nLongest waits (%d)\n", len(t.LongestWaits))
 	for _, g := range t.LongestWaits {
-		fmt.Fprintf(w, "  %9s  after turn %d, for %s  (%s)\n", dur(g.Seconds), g.AfterTurn, g.For, localTime(g.At))
+		where := fmt.Sprintf("after turn %d", g.AfterTurn)
+		if g.AfterTurn == g.BeforeTurn {
+			where = fmt.Sprintf("inside turn %d, after the agent spoke", g.AfterTurn)
+		}
+		fmt.Fprintf(w, "  %9s  %s, for %s  (%s)\n", dur(g.Seconds), where, g.For, localTime(g.At))
 	}
 	fmt.Fprintf(w, "\nTurns (%d), longest first\n", len(t.Turns))
 	turns := append([]stats.TurnTime(nil), t.Turns...)

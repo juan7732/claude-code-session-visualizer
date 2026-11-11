@@ -25,8 +25,8 @@ type Summary struct {
 	FirstAt   time.Time `json:"first_at"`
 	LastAt    time.Time `json:"last_at"`
 	Duration  string    `json:"duration"`
-	// InTurns is the part of Duration the agent spent working: the turns' own
-	// spans added up. The rest was the session waiting for its human.
+	// InTurns is the part of Duration spent inside turns, as `skit time` counts
+	// it. The rest was the session waiting, for its human or for background work.
 	InTurns string `json:"in_turns,omitempty"`
 	Partial bool   `json:"partial,omitempty"`
 
@@ -65,6 +65,33 @@ type Summary struct {
 
 	// Context is the context-window size at each request, in order.
 	Context []ContextPoint `json:"context,omitempty"`
+
+	// Activity is what happened in each hour the session worked, so that a
+	// calendar across sessions needs no transcript. Shape is how many actions
+	// each prompt of the human's started, in order. Time is where the wall
+	// time went (`skit time`, without its lists). All three are kept with the
+	// summary in the index: `skit overview` adds them up.
+	Activity []HourActivity `json:"activity,omitempty"`
+	Shape    []int          `json:"shape,omitempty"`
+	Time     *TimeTotals    `json:"time,omitempty"`
+}
+
+// HourActivity is one hour of a session, by the clock on the wall in UTC:
+// a reader turns hours into its own days. Subagents count at their own times.
+type HourActivity struct {
+	Hour         time.Time `json:"hour"`
+	Actions      int       `json:"actions"`
+	ToolCalls    int       `json:"tool_calls"`
+	ToolErrors   int       `json:"tool_errors"`
+	OutputTokens int       `json:"output_tokens"`
+}
+
+// TimeTotals is the split of `skit time` in seconds, without its lists.
+type TimeTotals struct {
+	Wall          float64 `json:"wall_seconds"`
+	ForYou        float64 `json:"waiting_for_you_seconds"`
+	ForBackground float64 `json:"waiting_for_background_seconds"`
+	Split
 }
 
 // Count is a name with a count.
@@ -102,6 +129,9 @@ type ContextPoint struct {
 type Options struct {
 	// Context includes the per-request context curve (one point per request).
 	Context bool
+	// Relations are the session's, when the caller already has them; Compute
+	// derives them otherwise (it needs the action spans for the time split).
+	Relations *transcript.Relations
 }
 
 // Compute summarises a session, rolling subagents into the totals.
@@ -116,11 +146,6 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		Subagents: t.Subagents, Branches: s.Branches, Usage: t.Usage, PRLinks: s.PRLinks,
 		Synthetic: t.Synthetic, Injected: t.InjectedBlocks, Attachments: t.Attachments,
 	}
-	var inTurns time.Duration
-	for _, turn := range s.Turns {
-		inTurns += turn.Duration()
-	}
-	sum.InTurns = FormatDuration(inTurns)
 	sum.RewoundTurns, sum.RewoundActions = t.RewoundTurns, t.RewoundActions
 	if t.RewoundActions > 0 {
 		u := t.RewoundUsage
@@ -191,6 +216,19 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		sum.ClaudeCodeCostUSD = &cost
 		sum.LinesAdded, sum.LinesRemoved = s.Cost.TotalLinesAdded, s.Cost.TotalLinesRemoved
 	}
+	sum.Activity = activity(s)
+	for _, turn := range s.Turns {
+		if turn.Origin == "human" {
+			sum.Shape = append(sum.Shape, len(turn.Actions))
+		}
+	}
+	rel := opt.Relations
+	if rel == nil {
+		rel = s.Relations()
+	}
+	t1 := TimeOf(s, rel, 1)
+	sum.Time = &TimeTotals{Wall: t1.Wall, ForYou: t1.ForYou, ForBackground: t1.ForBackground, Split: t1.InTurns}
+	sum.InTurns = FormatDuration(time.Duration(t1.InTurns.Seconds * float64(time.Second)))
 	if opt.Context {
 		for _, a := range s.Actions {
 			if a.Synthetic {
@@ -201,6 +239,53 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		}
 	}
 	return sum
+}
+
+// activity buckets the session's actions and tool calls, its subagents'
+// included, into the UTC hours they happened in, oldest first.
+func activity(s *transcript.Session) []HourActivity {
+	hours := map[time.Time]*HourActivity{}
+	at := func(t time.Time) *HourActivity {
+		h := t.UTC().Truncate(time.Hour)
+		a := hours[h]
+		if a == nil {
+			a = &HourActivity{Hour: h}
+			hours[h] = a
+		}
+		return a
+	}
+	add := func(sess *transcript.Session) {
+		for _, a := range sess.Actions {
+			if a.Synthetic || a.At.IsZero() {
+				continue
+			}
+			h := at(a.At)
+			h.Actions++
+			h.OutputTokens += a.Usage.OutputTokens
+		}
+		for _, c := range sess.ToolCalls {
+			if c.At.IsZero() {
+				continue
+			}
+			h := at(c.At)
+			h.ToolCalls++
+			if c.IsError {
+				h.ToolErrors++
+			}
+		}
+	}
+	add(s)
+	for _, sa := range s.Subagents {
+		if sa.Session != nil {
+			add(sa.Session)
+		}
+	}
+	out := make([]HourActivity, 0, len(hours))
+	for _, a := range hours {
+		out = append(out, *a)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Hour.Before(out[j].Hour) })
+	return out
 }
 
 // FormatDuration renders a duration for humans: 42s, 7m 03s, 2h 14m, 3d 2h.

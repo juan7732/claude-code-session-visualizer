@@ -38,6 +38,10 @@ public struct SkitClient: Sendable {
         "GET /v0/sessions/{id}/actions/{n}",
         "GET /v0/sessions/{id}/relations",
         "GET /v0/sessions/{id}/time",
+        "GET /v0/sessions/{id}/images",
+        "GET /v0/sessions/{id}/images/{n}",
+        "GET /v0/overview",
+        "GET /v0/claude",
         "GET /v0/sessions/{id}/compactions/{n}",
         "GET /v0/sessions/{id}/export",
         "GET /v0/search",
@@ -62,6 +66,14 @@ public struct SkitClient: Sendable {
         if let limit { query.append("limit=\(limit)") }
         return try await get("/v0/sessions" + (query.isEmpty ? "" : "?" + query.joined(separator: "&")))
     }
+
+    /// Every session added up, or the sessions of one project (its slug, exactly).
+    public func overview(project slug: String? = nil) async throws -> Overview {
+        try await get("/v0/overview" + (slug.map { "?slug=" + Self.escape($0) } ?? ""))
+    }
+
+    /// How Claude Code is configured on this Mac: settings by layer, experiments, flags, projects, memory, skills.
+    public func claude() async throws -> ClaudeSnapshot { try await get("/v0/claude") }
 
     public func stats(session id: String) async throws -> SessionSummary {
         try await get("/v0/sessions/\(Self.escape(id))/stats")
@@ -92,6 +104,16 @@ public struct SkitClient: Sendable {
 
     public func relations(session id: String) async throws -> Relations {
         try await get("/v0/sessions/\(Self.escape(id))/relations")
+    }
+
+    /// Every image pasted into a prompt or returned by a tool, without the bytes.
+    public func images(session id: String) async throws -> [SessionImage] {
+        try await get("/v0/sessions/\(Self.escape(id))/images")
+    }
+
+    /// One image's bytes, as the transcript holds them.
+    public func image(session id: String, _ index: Int) async throws -> Data {
+        try await call("GET", "/v0/sessions/\(Self.escape(id))/images/\(index)") { $0 }
     }
 
     /// Where the session's wall time went, with the `top` slowest calls and longest waits.

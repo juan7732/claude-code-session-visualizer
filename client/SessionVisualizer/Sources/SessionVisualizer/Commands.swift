@@ -30,6 +30,8 @@ enum AppActions {
         out.append(AppAction(title: "Forward", shortcut: "⌘]", enabled: window.canGoForward) { window.goForward() })
         out.append(AppAction(title: "Go to Sessions") { window.page = .sessions })
         out.append(AppAction(title: "Go to Search", shortcut: "⇧⌘F") { showSearch(window) })
+        out.append(AppAction(title: "Go to Stats") { window.page = .stats })
+        out.append(AppAction(title: "Compare Sessions…", enabled: store.sessions.count > 1) { window.showCompare(in: store) })
         out.append(AppAction(title: "Find in This Session", shortcut: "⌘F", enabled: id != nil) { find(window) })
         out.append(AppAction(title: "Export Session as Markdown…", shortcut: "⇧⌘E", enabled: session != nil) {
             if let session { Exporter.saveSession(session, store: store) }
@@ -121,7 +123,7 @@ struct AppCommands: Commands {
             Divider()
             Button("Export Session as Markdown…") { if let session { Exporter.saveSession(session, store: store) } }
                 .keyboardShortcut("e", modifiers: [.command, .shift]).disabled(session == nil)
-            Button("Compare Sessions…") {}.disabled(true) // M13
+            Button("Compare Sessions…") { window?.showCompare(in: store) }.disabled(window == nil || store.sessions.count < 2)
         }
         CommandGroup(after: .pasteboard) {
             Divider()

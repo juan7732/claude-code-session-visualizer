@@ -52,6 +52,8 @@ send() { curl -sS --fail-with-body --unix-socket "$sock" -X "$1" -d "$3" "http:/
 get /v0 routes.json
 get /v0/status status.json
 get /v0/sessions sessions.json
+get /v0/overview overview.json
+get /v0/claude claude.json
 get "/v0/sessions/$id/stats" stats.json
 get "/v0/sessions/$id" document.json
 get "/v0/sessions/$id/actions/3" action.json
@@ -59,6 +61,7 @@ get "/v0/sessions/$id/actions/0?agent=a1b2c3d4e5f607182" subagent-action.json
 get "/v0/sessions/$id/relations" relations.json
 get "/v0/sessions/$out_id/relations" relations-outside.json
 get "/v0/sessions/$id/time?top=3" time.json
+get "/v0/sessions/$id/images" images.json
 get "/v0/sessions/$id/compactions/0" compaction.json
 get "/v0/sessions/$id/export?turn=0" export-turn.md
 get "/v0/sessions/$id/annotations" annotation-empty.json

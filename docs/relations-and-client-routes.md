@@ -63,6 +63,20 @@ Added with M11 (2026-11-10), for the Timeline:
 - `start` on every span, and a corrected reading of what a span means (below).
 - `skit time <session> [--top N]` and `GET /v0/sessions/{id}/time?top=`: where the wall time went (below).
 
+Added with M13 (2026-11-10), for Files, Stats, Compare and Claude:
+
+- `activity`, `shape` and `time` on every session summary (`skit stats --json`, each row of `skit list --json`): what
+  happened in each UTC hour the session worked (actions, tool calls, failures, output tokens, subagents at their own
+  times), how many actions each prompt of the human's started, and the seconds of `skit time`'s split. They are stored
+  with the summary, so the index went to schema 6: no new table, and each session is summarised once more by the next
+  `list` or `archive`. Vectors are keyed by the hash of their text and are not made again.
+- `skit overview [-p text] [--days N]` and `GET /v0/overview?project=&slug=`: every session added up, from the index and
+  without reading a transcript: totals; the same per project; each day anything happened, in the machine's time zone
+  (named in `timezone`), with the ids of the sessions at work; tools; models; the prompt cache; the time split.
+  `project` matches any slug that contains the text, as in `list`; `slug` is one project exactly. A session whose
+  summary is older than schema 6 and whose source is gone is in the totals and on no day (`sessions_without_activity`).
+- The app now also calls `/images`, `/images/{n}` and `/claude`, which were served already.
+
 ## Relations
 
 `Session.Relations()` derives, on read:
@@ -104,7 +118,9 @@ in turns  = the model + tools + subagents + waiting for a hand-back
   notification started it.
 - **The model** is every span's `start` to `gen_end`, and what is left of a turn after its last action.
 - **Tools** is `gen_end` to `tools_end`; the part covered by calls that ran a subagent is **subagents**.
-- **Waiting** is `tools_end` to `end` of an action that spoke.
+- **Waiting** is `tools_end` to `end` of an action that spoke, when the action that followed received a subagent's
+  hand-back. When it did not, the transcript does not say what brought the agent back, and it was the human: that
+  stretch is waiting for you, is left out of the time in turns, and is listed among the longest waits ("inside turn N").
 
 Then the same split per turn (`turns`), the slowest tool calls with what each was for (`slowest_calls`) and the longest
 waits between turns (`longest_waits`); `--top` bounds those two lists, 10 by default.
@@ -115,6 +131,10 @@ action that is one long `Write` has nearly all of its generation before its own 
 between `at` and `gen_end`; one 394 s gap came before an action of 47k output tokens; and the time from each prompt to
 the first action (650 to 1271 s a session) was in no span. The mock, and this document before M11, called those gaps
 "waiting on a subagent, a task or the human". They are not.
+
+Why a wait after speaking is not always a hand-back (found by `skit overview`, 2026-11-10): a resumed session's earlier
+prompts are not in its file, so its first "turn" can be days of conversation. One such turn of five days had put 4d 22h
+under "waiting for a hand-back". Still wrong in such a turn: gaps after tool calls count as the model's.
 
 What the split cannot see: a tool call that waited for the human's permission counts as tool time, because a transcript
 does not record that wait. The command and the app both say so.

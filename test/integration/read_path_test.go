@@ -116,6 +116,52 @@ func TestStats_HumanAndJSON(t *testing.T) {
 	}
 }
 
+// TestOverview_AddsSessionsUpFromTheIndex: totals, projects and days for a person
+// and as JSON; the second run reads summaries from the index.
+func TestOverview_AddsSessionsUpFromTheIndex(t *testing.T) {
+	t.Parallel()
+	h := harness.New(t)
+	h.SeedFixture("synthetic-basics", "-Users-me-work")
+
+	res := h.Run("overview")
+	res.AssertOK(t)
+	for _, want := range []string{"Sessions  1 in 1 project", "By project", "-Users-me-work", "By day", "Tools", "Bash", "Models", "Time      wall"} {
+		if !strings.Contains(res.Stdout, want) {
+			t.Errorf("overview lacks %q:\n%s", want, res.Stdout)
+		}
+	}
+	res = h.Run("overview", "--json")
+	res.AssertOK(t)
+	var o struct {
+		Sessions int `json:"sessions"`
+		Totals   struct {
+			Actions   int `json:"actions"`
+			ToolCalls int `json:"tool_calls"`
+		} `json:"totals"`
+		Days []struct {
+			Day      string   `json:"day"`
+			Actions  int      `json:"actions"`
+			Sessions []string `json:"sessions"`
+		} `json:"days"`
+		Time struct {
+			Wall float64 `json:"wall_seconds"`
+		} `json:"time"`
+	}
+	if err := json.Unmarshal([]byte(res.Stdout), &o); err != nil {
+		t.Fatalf("overview --json: %v\n%s", err, res.Stdout)
+	}
+	var onDays int
+	for _, d := range o.Days {
+		onDays += d.Actions
+	}
+	if o.Sessions != 1 || o.Totals.Actions != 7 || o.Totals.ToolCalls != 5 || onDays != o.Totals.Actions || o.Time.Wall != 64 || len(o.Days[0].Sessions) != 1 {
+		t.Fatalf("the days must hold what the totals hold: %+v", o)
+	}
+	if res = h.Run("overview", "-p", "nowhere", "--json"); !strings.Contains(res.Stdout, `"sessions": 0`) {
+		t.Fatalf("a project nothing matches: %s", res.Stdout)
+	}
+}
+
 // TestTime_WhereTheWallTimeWent: the split adds up, for a person and as JSON.
 func TestTime_WhereTheWallTimeWent(t *testing.T) {
 	t.Parallel()
@@ -124,7 +170,7 @@ func TestTime_WhereTheWallTimeWent(t *testing.T) {
 
 	res := h.Run("time", id)
 	res.AssertOK(t)
-	for _, want := range []string{"waiting for you", "in turns", "the model", "tools running", "subagents running", "Slowest tool calls (4)", "Longest waits (1)", "Turns (2), longest first"} {
+	for _, want := range []string{"waiting for you", "in turns", "the model", "tools running", "subagents running", "Slowest tool calls (4)", "Longest waits (2)", "Turns (2), longest first"} {
 		if !strings.Contains(res.Stdout, want) {
 			t.Errorf("time lacks %q:\n%s", want, res.Stdout)
 		}

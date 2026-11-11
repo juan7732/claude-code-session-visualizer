@@ -48,6 +48,14 @@ final class AppStore {
     private(set) var compactionDetails: [String: [Int: Loadable<CompactionDetail>]] = [:]
     /// Where each opened session's time went (`skit time`), fetched when the Timeline shows it.
     private(set) var times: [String: Loadable<SessionTime>] = [:]
+    /// Claude Code's own configuration, read when the Claude page shows.
+    private(set) var claude: Loadable<ClaudeSnapshot>?
+    private(set) var claudeReadAt: Date?
+    /// Every session added up, by the project it is narrowed to ("" for all).
+    private(set) var overviews: [String: Loadable<Overview>] = [:]
+    /// The images of each opened session, and the bytes of the ones a view has shown.
+    private(set) var images: [String: Loadable<[SessionImage]>] = [:]
+    private(set) var pictures: [String: [Int: Loadable<Data>]] = [:]
     /// The last thing that went wrong after the engine was ready (a failed pin, a failed refresh).
     var notice: String?
 
@@ -168,6 +176,8 @@ final class AppStore {
                 stepDetails[old] = nil
                 compactionDetails[old] = nil
                 times[old] = nil
+                images[old] = nil
+                pictures[old] = nil
             }
         } catch {
             models[id] = .failed("\(error)")
@@ -209,6 +219,47 @@ final class AppStore {
             compactionDetails[id, default: [:]][index] = .loaded(try await client.compaction(session: id, index))
         } catch {
             compactionDetails[id, default: [:]][index] = .failed("\(error)")
+        }
+    }
+
+    /// The overview is asked for again each time the Stats page shows: sessions keep changing.
+    func loadOverview(project slug: String?) async {
+        let key = slug ?? ""
+        if overviews[key] == nil { overviews[key] = .loading }
+        do {
+            overviews[key] = .loaded(try await client.overview(project: slug))
+        } catch {
+            overviews[key] = .failed("\(error)")
+        }
+    }
+
+    func loadClaude() async {
+        if claude == nil { claude = .loading }
+        do {
+            claude = .loaded(try await client.claude())
+            claudeReadAt = Date()
+        } catch {
+            claude = .failed("\(error)")
+        }
+    }
+
+    func loadImages(_ id: String) async {
+        if case .loaded = images[id] { return }
+        images[id] = .loading
+        do {
+            images[id] = .loaded(try await client.images(session: id))
+        } catch {
+            images[id] = .failed("\(error)")
+        }
+    }
+
+    func loadPicture(_ id: String, _ index: Int) async {
+        if pictures[id]?[index] != nil { return }
+        pictures[id, default: [:]][index] = .loading
+        do {
+            pictures[id, default: [:]][index] = .loaded(try await client.image(session: id, index))
+        } catch {
+            pictures[id, default: [:]][index] = .failed("\(error)")
         }
     }
 

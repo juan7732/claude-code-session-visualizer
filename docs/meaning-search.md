@@ -293,8 +293,8 @@ What the eval shows that is still open:
 
 ## What is not built
 
-- **The third option in the app.** The Finder has a Keyword / Meaning switch; `hybrid` is served and not yet offered
-  there.
+- **Meaning outside the Search page.** The Finder offers Keyword, Hybrid and Meaning; find in a session (⌘F), the
+  Summary's search box and ⌘K are keyword only.
 - **Vectors for tool calls.** Tool calls and results have none. First step: embed tool output that reads as prose. Then,
   issue #4: a small local model writes what a call did, and that summary is embedded with the call.
 - **A near miss gets related hits**, and keyword and hybrid answer questions about absent subjects from tool output.

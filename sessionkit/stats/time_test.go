@@ -26,13 +26,14 @@ func near(a, b float64) bool { return math.Abs(a-b) < 0.002 }
 func TestTimeOfSyntheticBasics(t *testing.T) {
 	s := load(t, "synthetic-basics", "aaaaaaaa-0000-0000-0000-000000000001.jsonl")
 	tm := TimeOf(s, s.Relations(), 0)
-	if tm.Wall != 64 || tm.ForYou != 51 || tm.ForBackground != 0 || tm.InTurns.Seconds != 13 {
+	// Turn 1 spoke at 10:01:03 and a message of Claude Code's own followed half a second later:
+	// no hand-back arrived, so that half second is the human's, not the turn's.
+	if tm.Wall != 64 || tm.ForYou != 51.5 || tm.ForBackground != 0 || tm.InTurns.Seconds != 12.5 {
 		t.Fatalf("wall %v = for you %v + background %v + in turns %v", tm.Wall, tm.ForYou, tm.ForBackground, tm.InTurns.Seconds)
 	}
 	// The model's share includes the two seconds before the first action's first block.
 	in := tm.InTurns
-	// Turn 1 spoke at 10:01:03 and a message of Claude Code's own followed half a second later.
-	if !near(in.Model, 10.5) || !near(in.Tools, 1.8) || !near(in.Subagents, 0.2) || !near(in.Waiting, 0.5) {
+	if !near(in.Model, 10.5) || !near(in.Tools, 1.8) || !near(in.Subagents, 0.2) || in.Waiting != 0 || !near(tm.Turns[1].ForYou, 0.5) {
 		t.Fatalf("in turns = %+v", in)
 	}
 	if len(tm.Turns) != 2 || tm.Turns[0].Actions != 4 || !near(tm.Turns[0].Model, 7.5) || !near(tm.Turns[0].Seconds, 9.5) {
@@ -44,7 +45,8 @@ func TestTimeOfSyntheticBasics(t *testing.T) {
 	if last := tm.SlowestCalls[3]; last.Name != "Agent" || !last.Subagent {
 		t.Fatalf("the subagent's call is marked: %+v", last)
 	}
-	if len(tm.LongestWaits) != 1 || tm.LongestWaits[0].For != "you" || !near(tm.LongestWaits[0].Seconds, 50.5) || tm.LongestWaits[0].BeforeTurn != 1 {
+	// The wait between the turns, then the half second inside turn 1.
+	if len(tm.LongestWaits) != 2 || tm.LongestWaits[0].For != "you" || !near(tm.LongestWaits[0].Seconds, 50.5) || tm.LongestWaits[0].BeforeTurn != 1 || tm.LongestWaits[1].AfterTurn != 1 {
 		t.Fatalf("waits = %+v", tm.LongestWaits)
 	}
 	if top := TimeOf(s, s.Relations(), 2); len(top.SlowestCalls) != 2 {
@@ -71,7 +73,7 @@ func TestTimeAddsUp(t *testing.T) {
 	}
 	var sum float64
 	for _, x := range tm.Turns {
-		if !near(x.Seconds, x.Model+x.Tools+x.Subagents+x.Waiting) {
+		if !near(x.Seconds, x.Model+x.Tools+x.Subagents+x.Waiting) || x.ForYou < 0 {
 			t.Fatalf("turn %d does not add up: %+v", x.Turn, x)
 		}
 		if x.Model < 0 || x.Tools < 0 || x.Subagents < 0 || x.Waiting < 0 {

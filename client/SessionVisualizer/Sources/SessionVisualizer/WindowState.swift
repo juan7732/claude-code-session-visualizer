@@ -10,6 +10,8 @@ enum Page: Hashable {
     case search
     case stats
     case claude
+    /// Two sessions side by side (File › Compare Sessions…).
+    case compare
 }
 
 /// The views of one session, in menu order (⌘1 to ⌘5).
@@ -20,8 +22,7 @@ enum SessionView: String, CaseIterable, Identifiable {
     /// The milestone that brings the view, for the ones not built yet.
     var arrives: String? {
         switch self {
-        case .summary, .transcript, .canvas, .timeline: nil
-        case .files: "M13"
+        case .summary, .transcript, .canvas, .timeline, .files: nil
         }
     }
 }
@@ -82,6 +83,79 @@ final class TranscriptState {
     /// The Summary's "search this session" box.
     var summaryQuery = ""
     var summaryKind = ""
+}
+
+/// The lists of the Claude page.
+enum ClaudeTab: String, CaseIterable, Identifiable {
+    case experiments, settings, flags, projects, memory, state
+    var id: String { rawValue }
+}
+
+@Observable
+final class ClaudeState {
+    var tab = ClaudeTab.experiments
+    var filter = ""
+}
+
+/// The two sessions the Compare page holds side by side.
+@Observable
+final class CompareState {
+    var first: String?
+    var second: String?
+}
+
+/// What the Stats page of one window is narrowed to and sorted by.
+@Observable
+final class StatsState {
+    /// The slug of the project every board is narrowed to; nil for all.
+    var project: String?
+    /// The day of the calendar whose numbers are shown ("2026-11-07").
+    var day: String?
+    var sort = StatsColumn.lastActive
+    var ascending = false
+}
+
+/// The columns of the Stats page's table.
+enum StatsColumn: String, CaseIterable, Identifiable {
+    case session, project, lastActive, turns, actions, calls, failed, subagents, output, cache, cost
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .session: "Session"
+        case .project: "Project"
+        case .lastActive: "Last active"
+        case .turns: "Turns"
+        case .actions: "Actions"
+        case .calls: "Calls"
+        case .failed: "Failed"
+        case .subagents: "Sub"
+        case .output: "Output"
+        case .cache: "Cache"
+        case .cost: "Cost"
+        }
+    }
+    /// Words read from the start; numbers line up at the end.
+    var numeric: Bool { self != .session && self != .project }
+}
+
+/// The three lists of the Files view.
+enum FilesTab: String, CaseIterable, Identifiable {
+    case files, context, images
+    var id: String { rawValue }
+    var title: String { rawValue.capitalized }
+}
+
+/// What the Files view of one session remembers while the window shows it.
+@Observable
+final class FilesState {
+    var tab = FilesTab.files
+    var filter = ""
+    /// The file whose touches are shown; the first of the list when nil.
+    var selected: String?
+    /// The kind of injected block the Context gallery is narrowed to.
+    var contextKind: String?
+    /// The image shown large over the view.
+    var lightbox: Int?
 }
 
 /// What the Timeline of one session remembers while the window shows it.
@@ -151,6 +225,7 @@ final class WindowState {
                 transcript = TranscriptState()
                 canvas = CanvasState()
                 timeline = TimelineState()
+                files = FilesState()
             }
         }
     }
@@ -225,6 +300,10 @@ final class WindowState {
     var transcript = TranscriptState()
     var canvas = CanvasState()
     var timeline = TimelineState()
+    var files = FilesState()
+    var stats = StatsState()
+    var compare = CompareState()
+    var claude = ClaudeState()
     var search = SearchState()
     /// The ⌘K palette is open.
     var paletteShown = false
@@ -237,6 +316,16 @@ final class WindowState {
         var query: String?
         /// Select it (the drawer opens), or only bring it into view.
         var select = false
+    }
+
+    /// Opens the Compare page: the session in front (or the given one) against
+    /// the most recent other one, unless a pair is already chosen.
+    func showCompare(_ id: String? = nil, in store: AppStore) {
+        let recent = store.sessions.sorted { $0.lastAt > $1.lastAt }.filter { $0.requests > 0 }.map(\.id)
+        if let first = id ?? sessionID { compare.first = first }
+        if compare.first == nil { compare.first = recent.first }
+        if compare.second == nil || compare.second == compare.first { compare.second = recent.first { $0 != compare.first } }
+        go(to: .compare)
     }
 
     /// Opens a session, on a node of it when one is given: the session loads

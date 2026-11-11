@@ -2,8 +2,7 @@ import SkitKit
 import SwiftUI
 
 /// One session: its views over one selection, and the drawer under them.
-/// The Summary, the Transcript, the Canvas and the Timeline are built; Files
-/// names the milestone that brings it.
+/// Summary, Transcript, Canvas, Timeline and Files.
 struct SessionPage: View {
     @Environment(AppStore.self) private var store
     @Environment(WindowState.self) private var window
@@ -20,7 +19,7 @@ struct SessionPage: View {
                     case .transcript: loaded { TranscriptView(model: $0) }
                     case .canvas: loaded { CanvasView(model: $0) }
                     case .timeline: loaded { TimelineView(model: $0) }
-                    default: ComingPage(title: window.sessionView.title, milestone: window.sessionView.arrives ?? "")
+                    case .files: loaded { FilesView(model: $0) }
                     }
                 } else {
                     ComingPage(title: "No session \(Format.shortID(id))", detail: "It is neither on disk nor in the archive.")

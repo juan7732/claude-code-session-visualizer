@@ -53,6 +53,23 @@ public enum JSONValue: Codable, Sendable, Equatable {
         if case .bool(let value) = self { value } else { nil }
     }
 
+    /// The value on one line: a string as it is, a number without a needless ".0", anything else as compact JSON with sorted keys.
+    public var compact: String {
+        switch self {
+        case .null: return "null"
+        case .bool(let value): return value ? "true" : "false"
+        case .number(let value): return value == value.rounded() && abs(value) < 1e15 ? String(Int64(value)) : String(value)
+        case .string(let value): return value
+        case .array(let values): return "[" + values.map(\.quoted).joined(separator: ", ") + "]"
+        case .object(let members): return "{" + members.keys.sorted().map { "\"\($0)\": " + (members[$0]?.quoted ?? "null") }.joined(separator: ", ") + "}"
+        }
+    }
+
+    private var quoted: String {
+        if case .string(let value) = self { return "\"" + value.replacingOccurrences(of: "\"", with: "\\\"") + "\"" }
+        return compact
+    }
+
     /// The first of the named members that is a non-empty string.
     public func firstString(_ keys: String...) -> String? {
         for key in keys {

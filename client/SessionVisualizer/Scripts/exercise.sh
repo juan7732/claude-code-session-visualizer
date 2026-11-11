@@ -5,6 +5,7 @@
 #
 #   Scripts/exercise.sh <summary|transcript|canvas|timeline> <session id> [app arguments...]
 #   Scripts/exercise.sh search <words>
+#   Scripts/exercise.sh stats all | claude <experiments|settings|flags|projects|memory|state> | compare recent
 #
 # A snapshot cannot show a freeze: it draws one frame offscreen. This runs the
 # live window (it appears on screen for a few seconds and quits by itself). If
