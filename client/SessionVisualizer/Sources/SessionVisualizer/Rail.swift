@@ -122,11 +122,11 @@ private struct SessionsFlyout: View {
                 Text("none").font(.system(size: 12.5)).foregroundStyle(palette.muted).padding(.horizontal, 9).padding(.vertical, 6)
             }
             ForEach(live) { session in
-                row(session.title, trailing: nil, dot: true, active: window.sessionID == session.id) { window.page = .session(session.id) }
+                row(session.title, trailing: nil, dot: true, active: window.sessionID == session.id) { window.open(session: session.id, view: .summary) }
             }
             group("Recent")
             ForEach(recent) { session in
-                row(session.title, trailing: Format.ago(session.lastAt), active: window.sessionID == session.id) { window.page = .session(session.id) }
+                row(session.title, trailing: Format.ago(session.lastAt), active: window.sessionID == session.id) { window.open(session: session.id, view: .summary) }
             }
         }
         .padding(8)

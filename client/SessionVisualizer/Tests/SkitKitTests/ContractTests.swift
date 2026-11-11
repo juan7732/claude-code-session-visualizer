@@ -210,6 +210,10 @@ import Testing
         let hit = try #require(hits.first)
         #expect(hit.session == id && hit.title == "Synthetic basics" && hit.project == "-Users-me-work")
         #expect(hit.kind == "prompt" && hit.action == -1 && hit.turn == 0 && hit.match == "keyword")
+        #expect(hit.cosine == nil)
+        // A meaning hit, as `?mode=meaning` answers (the fixture engine has no model to make one with).
+        let close = try JSONDecoder.skit().decode(SearchHit.self, from: Data(#"{"session":"s","project":"p","title":"T","turn":9,"action":20,"kind":"assistant","at":"2026-09-28T06:58:00Z","snippet":"Starting with the ergo repo changes.","coverage":0,"score":0.775,"match":"meaning","cosine":0.775,"z":4.14}"#.utf8))
+        #expect(close.match == "meaning" && close.cosine == 0.775 && close.action == 20)
     }
 
     @Test func searchHitsSayWhereTheyAre() throws {

@@ -170,9 +170,13 @@ type EvalMode struct {
 	Mode    string      `json:"mode"`
 	Overall EvalScore   `json:"overall"`
 	Tags    []EvalScore `json:"tags,omitempty"`
-	// Nothing covers the queries that expect no answer.
-	Nothing  EvalNothing   `json:"nothing_expected"`
-	Outcomes []EvalOutcome `json:"outcomes"`
+	// Nothing covers the queries that expect no answer, all together;
+	// NothingTags splits them by tag ("nothing": the archive has nothing on the
+	// subject; "near-miss": it has something next to it, and related hits are
+	// not a fault of the gate).
+	Nothing     EvalNothing   `json:"nothing_expected"`
+	NothingTags []EvalNothing `json:"nothing_expected_by_tag,omitempty"`
+	Outcomes    []EvalOutcome `json:"outcomes"`
 }
 
 // EvalScore is recall and reciprocal rank over the queries that expect an answer.
@@ -187,8 +191,9 @@ type EvalScore struct {
 
 // EvalNothing counts the queries with no expected answer that got one anyway.
 type EvalNothing struct {
-	N        int `json:"n"`
-	Answered int `json:"answered"` // returned at least one hit
+	Tag      string `json:"tag,omitempty"`
+	N        int    `json:"n"`
+	Answered int    `json:"answered"` // returned at least one hit
 }
 
 // EvalOutcome is one query's result in one mode.
@@ -253,7 +258,7 @@ func (ev *Eval) Run(ctx context.Context, modes []string, search func(ctx context
 			out.Rank = rankOf(hits, ev.targets[i])
 			em.Outcomes = append(em.Outcomes, out)
 		}
-		em.Overall, em.Tags, em.Nothing = score(em.Outcomes)
+		em.Overall, em.Tags, em.Nothing, em.NothingTags = score(em.Outcomes)
 		rep.Modes = append(rep.Modes, em)
 	}
 	return rep, nil
@@ -291,8 +296,9 @@ func rankOf(hits []Hit, targets []evalTarget) int {
 	return best
 }
 
-func score(outcomes []EvalOutcome) (overall EvalScore, tags []EvalScore, nothing EvalNothing) {
+func score(outcomes []EvalOutcome) (overall EvalScore, tags []EvalScore, nothing EvalNothing, nothingTags []EvalNothing) {
 	byTag := map[string]*EvalScore{}
+	nothingByTag := map[string]*EvalNothing{}
 	overall.Tag = "all"
 	add := func(s *EvalScore, rank int) {
 		s.N++
@@ -311,9 +317,18 @@ func score(outcomes []EvalOutcome) (overall EvalScore, tags []EvalScore, nothing
 	}
 	for _, o := range outcomes {
 		if len(o.Expect) == 0 {
+			tag := o.Tag
+			if tag == "" {
+				tag = "nothing"
+			}
+			if nothingByTag[tag] == nil {
+				nothingByTag[tag] = &EvalNothing{Tag: tag}
+			}
 			nothing.N++
+			nothingByTag[tag].N++
 			if o.Hits > 0 {
 				nothing.Answered++
+				nothingByTag[tag].Answered++
 			}
 			continue
 		}
@@ -337,7 +352,11 @@ func score(outcomes []EvalOutcome) (overall EvalScore, tags []EvalScore, nothing
 		tags = append(tags, *s)
 	}
 	sort.Slice(tags, func(i, j int) bool { return tags[i].Tag < tags[j].Tag })
-	return overall, tags, nothing
+	for _, n := range nothingByTag {
+		nothingTags = append(nothingTags, *n)
+	}
+	sort.Slice(nothingTags, func(i, j int) bool { return nothingTags[i].Tag < nothingTags[j].Tag })
+	return overall, tags, nothing, nothingTags
 }
 
 func short(id string) string {

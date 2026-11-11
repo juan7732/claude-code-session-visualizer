@@ -373,8 +373,19 @@ func (s *Store) ReplaceSegments(session string, segs []Segment) error {
 		return err
 	}
 	defer tx.Rollback()
+	// Deleting segments takes their chunks along. If there were any, whoever
+	// holds the vectors in memory has to look again.
+	var hadChunks bool
+	if err := tx.QueryRow(`SELECT EXISTS(SELECT 1 FROM chunks c JOIN segments g ON g.id = c.segment WHERE g.session = ?)`, session).Scan(&hadChunks); err != nil {
+		return err
+	}
 	if _, err := tx.Exec(`DELETE FROM segments WHERE session = ?`, session); err != nil {
 		return err
+	}
+	if hadChunks {
+		if err := bumpVectorGeneration(tx); err != nil {
+			return err
+		}
 	}
 	stmt, err := tx.Prepare(`INSERT INTO segments(session, agent, turn, action, uuid, kind, tool, at, text) VALUES(?,?,?,?,?,?,?,?,?)`)
 	if err != nil {

@@ -45,11 +45,25 @@ enum Snippet {
     }
 
     /// The part of a long text around the first marked word: `before` characters
-    /// ahead of it and `after` behind, with an ellipsis where it was cut.
-    nonisolated static func window(_ text: String, marks: [String], before: Int = 500, after: Int = 900) -> String {
-        let first = marks.compactMap { text.range(of: $0, options: .caseInsensitive)?.lowerBound }.min() ?? text.startIndex
-        let start = text.index(first, offsetBy: -before, limitedBy: text.startIndex) ?? text.startIndex
-        let end = text.index(first, offsetBy: after, limitedBy: text.endIndex) ?? text.endIndex
+    /// ahead of it and `after` behind, with an ellipsis where it was cut. With no
+    /// marked word, the window opens where `passage` (an excerpt of the text) begins.
+    nonisolated static func window(_ text: String, marks: [String], passage: String? = nil, before: Int = 500, after: Int = 900) -> String {
+        var first = marks.compactMap { text.range(of: $0, options: .caseInsensitive)?.lowerBound }.min()
+        if first == nil, let passage {
+            // The excerpt's opening words, as they stand in the text (its whitespace may have been flattened).
+            let opening = passage.replacingOccurrences(of: "«", with: "").replacingOccurrences(of: "»", with: "")
+                .trimmingCharacters(in: CharacterSet(charactersIn: "… \n")).prefix(24)
+            if !opening.isEmpty { first = text.range(of: opening)?.lowerBound }
+            // A passage is read from its start: little before it, more after.
+            if let found = first {
+                let start = text.index(found, offsetBy: -min(before, 120), limitedBy: text.startIndex) ?? text.startIndex
+                let end = text.index(found, offsetBy: after + before - 120, limitedBy: text.endIndex) ?? text.endIndex
+                return (start > text.startIndex ? "…" : "") + text[start..<end] + (end < text.endIndex ? "…" : "")
+            }
+        }
+        let at = first ?? text.startIndex
+        let start = text.index(at, offsetBy: -before, limitedBy: text.startIndex) ?? text.startIndex
+        let end = text.index(at, offsetBy: after, limitedBy: text.endIndex) ?? text.endIndex
         return (start > text.startIndex ? "…" : "") + text[start..<end] + (end < text.endIndex ? "…" : "")
     }
 }

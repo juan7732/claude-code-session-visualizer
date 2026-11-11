@@ -162,4 +162,6 @@ enum SettingsKey {
     static let contextWindow = "summary.contextWindow"
     /// Recent searches, one per line, newest first.
     static let recentSearches = "search.recent"
+    /// A search that finds several sessions starts with each folded to one line.
+    static let searchFolded = "search.folded"
 }

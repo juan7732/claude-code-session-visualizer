@@ -39,6 +39,69 @@ Added 2026-11-07, extended after Juan's review.
   encoder (`images-and-modalities.md`). Other modalities later for users who feed audio or documents through MCP tools.
 - Session card = slug + title + cwd + project; `slug` is stable, titles change.
 
+## Models on top of the archive
+
+Added 2026-11-10 during M14. Juan took all of it up the same day: it is M17 (no new model), M18 (a second small model)
+and M19 (a small language model) in `plan-v0.md`, after v1. This section stays the list of ideas the milestones draw
+from. Two rules for all of it. **The eval decides**: an idea earns a place when it moves a number on queries with known
+answers (`meaning-search.md`), not when it demos well. **Models come in tiers and each tier is opt-in**: the embedder is
+the core (one 310 MB download); anything heavier is its own explicit download with its own line in `doctor`, loads only
+when used, and never arrives because another feature was turned on. Early thinking on three of these lives in the
+engineering repo's `thoughts/` (2026-11-10).
+
+With the vectors already there, no new model:
+
+- **A session's own summary vector**, so a query in the user's words ("my jev assignment") reaches a session that calls
+  the thing something else ("the SLT"). The cheapest test of a personal vocabulary.
+- **Chapters.** Where consecutive turns stop resembling each other, the subject changed: chapter marks for the Timeline
+  and the Summary without a language model.
+- **"You have been here before."** The nearest earlier turns to the prompt just typed, across sessions: the same
+  question asked last month, with its answer. Also "more like this" from any turn, and related sessions on a session's
+  Summary.
+- **A map of subjects.** Cluster the pieces across all sessions; each cluster is something the user works on. An answer
+  to "what have I been doing" that no single session holds, and a home for the registry of projects.
+- **Images and audio by description**, with the encoder ADR 0005 already measured (tier C in
+  `images-and-modalities.md`).
+- **A ranking that learns from use.** Which hit was opened, pinned or copied is a label. A few numbers per hit (keyword
+  score, coverage, cosine, kind, age) and a logistic regression fitted on those labels and the eval could replace
+  hand-set weights in `hybrid`. Small, local, and it stays explainable.
+- **Two-pass search for large archives.** The vectors are Matryoshka-trained: score everything at 256 dimensions, then
+  the best few hundred at 768. Only if brute force ever hurts.
+
+With a second small model that reads a query and a passage together (a reranker or decision model):
+
+- **Answer or near miss.** The gate today is a cosine floor, and it cannot tell a passage on the same subject from one
+  that answers the question (6 of 8 near misses in the eval get hits). A reranker over the top twenty is the fix the
+  eval is waiting to judge. `llama-server` serves reranker models through the same API.
+- **What kind of turn this is**: a decision, a question, a correction, a dead end, a commitment with a date. Five of the
+  first thirteen eval questions begin "what did we decide" or "when did we decide": a register of decisions across
+  sessions, each pointing at its turn, would answer the commonest question directly. The same labels give the Finder
+  facets and the Summary its outline.
+- **Things that should not leave the machine.** Before a session is exported or a link is shared: keys, tokens, names,
+  health or grade data. Patterns catch the first two; a classifier is for the rest.
+
+With a small language model (the heaviest tier):
+
+- **What a tool call did**, in a sentence, embedded with the call (issue #4).
+- **Titles and abstracts** for the sessions Claude Code never titled, and a line per turn for the Summary's digest.
+- **A query rewritten before it is searched**: expanded with the user's other names for the thing, or answered
+  hypothetically and the answer embedded, which sits closer to real answers than a question does.
+
+With the model the user already has:
+
+- **Claude Code answers from the archive.** The agent is the first user (tenet 3): a skill that calls
+  `skit search --json` and `skit show --turn` lets a Claude Code session answer "what did we decide about X" with the
+  turns cited. No local language model, nothing new to download; the transcript text goes where the user's sessions
+  already go, and only when they ask.
+- **The eval grows itself.** Proposing queries with their turns from the sessions is what was done by hand on
+  2026-11-10; as a skill it is repeatable, with the human still approving each one.
+
+Not models at all, but in the same spirit:
+
+- **How I work.** Tool-call sequences mined for patterns (which prompts lead to long agent turns, where sessions stall,
+  what precedes a compaction) with counting and simple statistics first.
+- **Warnings before they happen**: the context curve already shows a compaction coming.
+
 ## Agents
 
 - **Discoverable progression.** `skit describe` lists one line per command; `skit describe <command>` gives the full

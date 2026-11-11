@@ -1,10 +1,12 @@
 package store
 
 import (
+	"context"
 	"database/sql"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestMigrateFromV1 builds a schema-1 index by hand and checks it reaches the
@@ -273,5 +275,89 @@ func TestChunksAndVectors(t *testing.T) {
 	}
 	if c, _ = st.VectorCounts(); c.Chunks != 1 || c.Vectors != 1 {
 		t.Fatalf("at the end: %+v", c)
+	}
+}
+
+// TestVectorGenerationMovesWhenTheVectorsDo: a process that holds the vectors
+// in memory trusts this counter to say when to read the index again.
+func TestVectorGenerationMovesWhenTheVectorsDo(t *testing.T) {
+	st, err := Open(filepath.Join(t.TempDir(), "skit.sqlite"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer st.Close()
+	gen := func() int64 {
+		t.Helper()
+		g, err := st.VectorGeneration()
+		if err != nil {
+			t.Fatal(err)
+		}
+		return g
+	}
+	moved := func(what string, before int64) int64 {
+		t.Helper()
+		now := gen()
+		if now == before {
+			t.Fatalf("%s did not move the generation (%d)", what, before)
+		}
+		return now
+	}
+	still := func(what string, before int64) {
+		t.Helper()
+		if now := gen(); now != before {
+			t.Fatalf("%s moved the generation %d → %d", what, before, now)
+		}
+	}
+	if gen() != 0 {
+		t.Fatal("a new index starts at generation 0")
+	}
+	st.UpsertSummary(SessionRow{ID: "s1", Project: "proj", SourcePath: "/x", Summary: []byte(`{}`)})
+	text := "words enough to be worth a vector"
+	st.ReplaceSegments("s1", []Segment{{Session: "s1", Kind: "assistant", Text: text}})
+	still("indexing a session nobody has cut yet", 0)
+
+	todo, _ := st.UnchunkedSegments([]string{"assistant"}, 10)
+	hash := ChunkHash(text)
+	st.PutChunks([]int64{todo[0].ID}, []Chunk{{Segment: todo[0].ID, Len: len(text), Hash: hash}})
+	g := moved("writing chunks", 0)
+	if _, err := st.UseVectorSource("model A"); err != nil {
+		t.Fatal(err)
+	}
+	g = moved("naming a source for the first time", g)
+	st.UseVectorSource("model A")
+	still("naming the same source again", g)
+	st.PutVectors([][]byte{hash}, [][]byte{{1, 2}})
+	g = moved("storing a vector", g)
+
+	// What a search reads back: the piece with its vector and what it may be narrowed by.
+	var pieces []Piece
+	if err := st.EachPiece(context.Background(), func(p Piece) error {
+		p.Vec = append([]byte(nil), p.Vec...)
+		pieces = append(pieces, p)
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if len(pieces) != 1 || pieces[0].Session != "s1" || pieces[0].Project != "proj" || pieces[0].Kind != "assistant" || pieces[0].Len != len(text) || string(pieces[0].Vec) != "\x01\x02" {
+		t.Fatalf("pieces = %+v", pieces)
+	}
+
+	st.PruneVectors()
+	still("pruning when nothing is orphaned", g)
+	st.ReplaceSegments("s1", []Segment{{Session: "s1", Kind: "assistant", Text: text}})
+	g = moved("re-indexing a session that had chunks", g)
+	st.UseVectorSource("model B")
+	moved("changing the source", g)
+
+	// The last pass is remembered and reported.
+	if c, _ := st.VectorCounts(); c.EmbeddedAt != "" {
+		t.Fatalf("no pass has run, yet embedded_at = %q", c.EmbeddedAt)
+	}
+	when := time.Date(2026, 11, 10, 17, 30, 0, 0, time.UTC)
+	if err := st.MarkEmbedded(when); err != nil {
+		t.Fatal(err)
+	}
+	if c, _ := st.VectorCounts(); c.EmbeddedAt != "2026-11-10T17:30:00Z" {
+		t.Fatalf("embedded_at = %q", c.EmbeddedAt)
 	}
 }

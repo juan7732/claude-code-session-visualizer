@@ -22,10 +22,13 @@ const (
 	// ModeMeaning ranks text by how close it is to the query in meaning,
 	// whether or not they share a word (vectors; see Meaning).
 	ModeMeaning = "meaning"
+	// ModeHybrid puts what is close in meaning first and what has the words
+	// after it (see Hybrid).
+	ModeHybrid = "hybrid"
 )
 
 // Modes lists the modes Search accepts.
-var Modes = []string{ModeKeyword, ModeMeaning}
+var Modes = []string{ModeKeyword, ModeMeaning, ModeHybrid}
 
 // QueryEmbedder turns a query into a vector: package embed's Embedder.
 type QueryEmbedder interface {
@@ -55,36 +58,41 @@ func Search(ctx context.Context, st *store.Store, e QueryEmbedder, query string,
 		return Run(st, query, opt)
 	case ModeMeaning:
 		return Meaning(ctx, st, e, query, opt)
+	case ModeHybrid:
+		return Hybrid(ctx, st, e, query, opt)
 	default:
 		return nil, fmt.Errorf("%w %q (one of: %s)", ErrUnknownMode, opt.Mode, strings.Join(Modes, ", "))
 	}
 }
 
-// The gate: a piece counts as a match when its cosine reaches DefaultMinCosine
-// or its z reaches DefaultMinZ. Below both it is only the nearest thing in an
-// archive that has nothing on the subject, and it is not returned.
+// The gate: a piece counts as a match when its cosine reaches DefaultMinCosine.
+// Below that it is only the nearest thing in an archive that has nothing on
+// the subject, and it is not returned.
 //
-// DECISION: the two values come from the eval of 2026-11-10 (33 queries, 7 of
-// which should find nothing; 1,393 pieces). The nearest piece to a query the
-// archive has nothing on reached cosine 0.649 to 0.724 and z 2.95 to 3.59; the
-// right first hit for a query it does answer had cosine 0.707 to 0.883 and z
-// 3.68 to 9.38. With "cosine ≥ 0.73 or z ≥ 3.6" none of the 7 gets an answer
-// and R@1 (0.65) and R@5 (0.77) are unchanged; R@10 goes from 0.81 to 0.77
-// (one right turn sat in eighth place below the gate). Either test alone
-// costs more: the cosine floor alone leaves 2 answerable queries with no hit,
-// the z gate alone 3.
+// DECISION: 0.73, from the eval of 2026-11-10 (53 queries: 26 with an answer,
+// 19 about subjects the archive has nothing on, 8 near misses; about 1,400
+// pieces). No query written in sentences about an absent subject has a piece
+// at or above it (the nearest reach 0.724), and the right first hit of an
+// answerable query is at 0.745 or more, with one exception: a query that is
+// only a name ("denelon", 0.707), which keyword search finds first.
 //
-// REVIEW: the margins are thin (0.724 against 0.73, 3.59 against 3.6) and
-// seven queries drew the line, so these are provisional: more "nothing"
-// queries should move them before anything else does. And z is not stable as
-// an archive grows: the largest of n unrelated scores rises with n (about
-// √(2 ln n) standard deviations for a bell curve: 3.8 at 1,400 pieces, 5.0 at
-// 225,000), so a fixed MinZ lets more noise through in a larger archive. The
-// cosine floor does not have that problem and is the one to trust long-term.
-const (
-	DefaultMinCosine = 0.73
-	DefaultMinZ      = 3.6
-)
+// A first version also let a piece through on z ≥ 3.6. Twenty new "nothing"
+// queries showed that test to be the leak: "mortgage refinance rate" has
+// cosine 0.65 and z 3.69. z rises with the size of the archive (the largest of
+// n unrelated scores is about √(2 ln n) standard deviations up), so no fixed
+// value holds. MinZ remains as an option for experiments and is off.
+//
+// DECISION: a query that is only an id, a version or a code ("v3.2.1",
+// "JIRA-4821") matches a piece only when the piece contains it. An id has no
+// meaning to be near: "v3.2.1" sits at cosine 0.76 from a turn about 0.5.1.
+//
+// REVIEW: a threshold cannot tell a near miss from an answer. "How did we
+// fine-tune the embedding model on my own sessions?" (never done) scores 0.775
+// against a turn about measuring it, above several right answers. The vector
+// says "same subject", not "answers this". 6 of the 8 near misses in the eval
+// get hits, and that is left as it is: the hits are related, and telling them
+// apart needs a model that reads query and passage together (a reranker).
+const DefaultMinCosine = 0.73
 
 // Meaning ranks segments by the cosine between the query's vector and the
 // vector of their closest piece. Every piece is scored (brute force: at this
@@ -93,7 +101,7 @@ const (
 // above the mean of all pieces for this query. The mean and deviation are
 // taken over the whole index even when the search is narrowed to a session or
 // a kind, so z means the same thing however small the part searched. Pieces
-// below the gate are left out unless opt.NoGate is set.
+// that do not pass the gate are left out unless opt.NoGate is set.
 //
 // REVIEW: it does not look at words at all. Fusing it with keyword scores is
 // the next step (docs/plan-v0.md, M14).
@@ -122,21 +130,17 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 		return nil, err
 	}
 
-	// Every piece is read, so the score distribution is the whole index's;
+	// Every piece is scored, so the score distribution is the whole index's;
 	// the narrowing options only decide which pieces may be hits.
-	conds, args, err := opt.filter()
-	if err != nil {
-		return nil, err
+	if _, _, err := opt.filter(); err != nil {
+		return nil, err // an unknown kind
 	}
-	keep := "1"
-	if len(conds) > 0 {
-		keep = "(" + strings.Join(conds, " AND ") + ")"
+	var all *pieces
+	if opt.Vectors != nil {
+		all, err = opt.Vectors.get(ctx, st)
+	} else {
+		all, err = loadPieces(ctx, st)
 	}
-	// TODO: skit serve should keep the decoded vectors in memory between
-	// queries; reading and decoding them each time is fine for thousands of
-	// pieces and will not be for hundreds of thousands.
-	rows, err := st.DB().QueryContext(ctx, `SELECT c.segment, c.start, c.len, v.vec, `+keep+`
-		FROM chunks c JOIN vectors v ON v.hash = c.hash JOIN segments g ON g.id = c.segment JOIN sessions s ON s.id = g.session`, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -146,35 +150,22 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 		cos        float64
 	}
 	best := map[int64]piece{}
-	var n int
+	n := len(all.rows)
 	var sum, sumSq float64
-	vec := make([]float32, len(qvec))
-	for rows.Next() {
-		var p piece
-		var blob []byte
-		var wanted bool
-		if err := rows.Scan(&p.segment, &p.start, &p.len, &blob, &wanted); err != nil {
-			rows.Close()
-			return nil, err
+	wanted, lastInfo := false, int32(-1)
+	for i, r := range all.rows {
+		cos := float64(embed.DotPacked(qvec, all.vec(i)))
+		sum += cos
+		sumSq += cos * cos
+		if r.info != lastInfo {
+			wanted, lastInfo = opt.keeps(all.segs[r.info]), r.info
 		}
-		if err := embed.Unpack(vec, blob); err != nil {
-			rows.Close()
-			return nil, err
-		}
-		p.cos = float64(embed.Dot(qvec, vec))
-		n++
-		sum += p.cos
-		sumSq += p.cos * p.cos
 		if !wanted {
 			continue
 		}
-		if b, ok := best[p.segment]; !ok || p.cos > b.cos {
-			best[p.segment] = p
+		if b, ok := best[r.segment]; !ok || cos > b.cos {
+			best[r.segment] = piece{segment: r.segment, start: int(r.start), len: int(r.len), cos: cos}
 		}
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return nil, err
 	}
 	if n == 0 {
 		return nil, nil
@@ -182,12 +173,9 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 	mean := sum / float64(n)
 	std := math.Sqrt(math.Max(sumSq/float64(n)-mean*mean, 0))
 
-	minCos, minZ := opt.MinCosine, opt.MinZ
+	minCos := opt.MinCosine
 	if minCos == 0 {
 		minCos = DefaultMinCosine
-	}
-	if minZ == 0 {
-		minZ = DefaultMinZ
 	}
 	zOf := func(cos float64) float64 {
 		if std == 0 {
@@ -197,7 +185,7 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 	}
 	ranked := make([]piece, 0, len(best))
 	for _, p := range best {
-		if opt.NoGate || p.cos >= minCos || zOf(p.cos) >= minZ {
+		if opt.NoGate || p.cos >= minCos || (opt.MinZ > 0 && zOf(p.cos) >= opt.MinZ) {
 			ranked = append(ranked, p)
 		}
 	}
@@ -207,13 +195,15 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 		}
 		return ranked[i].segment < ranked[j].segment
 	})
-	if len(ranked) > opt.Limit {
-		ranked = ranked[:opt.Limit]
-	}
 
 	terms := Terms(query)
-	hits := make([]Hit, 0, len(ranked))
+	// An id is matched by its characters, not by its neighbours (see the gate).
+	mustContain := !opt.NoGate && IsLookup(terms)
+	hits := make([]Hit, 0, min(len(ranked), opt.Limit))
 	for _, p := range ranked {
+		if len(hits) == opt.Limit {
+			break
+		}
 		var h Hit
 		var at sql.NullString
 		var text []byte
@@ -229,10 +219,14 @@ func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string
 		if at.Valid {
 			h.At, _ = time.Parse(time.RFC3339Nano, at.String)
 		}
+		h.seg = p.segment
 		h.Match = ModeMeaning
 		h.Snippet = excerpt(string(text), 160)
 		if len(terms) > 0 {
 			h.Coverage = coverage(terms, string(text))
+		}
+		if mustContain && h.Coverage == 0 {
+			continue
 		}
 		h.Cosine = round4(p.cos)
 		h.Z = round4(zOf(p.cos))

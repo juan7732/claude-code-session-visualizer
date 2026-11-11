@@ -48,6 +48,29 @@ func Unpack(dst []float32, b []byte) error {
 	return nil
 }
 
+// halfTable holds the float32 for every half float, so reading a stored vector
+// is a lookup per number.
+var halfTable = func() *[1 << 16]float32 {
+	var t [1 << 16]float32
+	for h := range t {
+		t[h] = fromHalf(uint16(h))
+	}
+	return &t
+}()
+
+// DotPacked is the inner product of q with a packed vector, without unpacking
+// it first. b must hold 2*len(q) bytes.
+func DotPacked(q []float32, b []byte) float32 {
+	if len(b) < 2*len(q) {
+		return 0
+	}
+	var s float32
+	for i, x := range q {
+		s += x * halfTable[uint16(b[2*i])|uint16(b[2*i+1])<<8]
+	}
+	return s
+}
+
 // Dot is the inner product, which is the cosine for unit vectors.
 func Dot(a, b []float32) float32 {
 	var s float32

@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/archive"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/catalog"
@@ -437,5 +438,239 @@ func TestKindFiltersInKeywordSearch(t *testing.T) {
 	}
 	if _, err := Run(a.Store, "Zstandard", Options{Kinds: []string{"assistant", "tools"}}); !errors.Is(err, ErrUnknownKind) {
 		t.Fatalf("unknown kind: %v", err)
+	}
+}
+
+// TestMeaningMatchesAnIdOnlyWhereItAppears: a query that is nothing but a
+// version or an id has no meaning to be near. Whatever its vector sits next
+// to, it matches only passages that contain it.
+func TestMeaningMatchesAnIdOnlyWhereItAppears(t *testing.T) {
+	a, e := embedded(t)
+	ctx := context.Background()
+	open := Options{MinCosine: 0.0001} // let every piece past the cosine floor: the rule under test is the other one
+	hits, err := Meaning(ctx, a.Store, e, "1.5.7", open)
+	if err != nil || len(hits) != 1 || hits[0].Turn != 1 || !strings.Contains(hits[0].Snippet, "1.5.7") {
+		t.Fatalf("the installed version is named in one reply: %d hits %v %+v", len(hits), err, hits)
+	}
+	if hits, _ := Meaning(ctx, a.Store, e, "9.9.9", open); len(hits) != 0 {
+		t.Fatalf("a version nobody mentioned matched %d passages", len(hits))
+	}
+	if hits, _ := Meaning(ctx, a.Store, e, "JIRA-4821", open); len(hits) != 0 {
+		t.Fatalf("an id nobody mentioned matched %d passages", len(hits))
+	}
+	// Words beside the id make it an ordinary query again.
+	if hits, _ := Meaning(ctx, a.Store, e, "which version 9.9.9 of Zstandard", open); len(hits) == 0 {
+		t.Fatal("a sentence that happens to hold a version should still be searched by meaning")
+	}
+	// Without the gate, the nearest passages come back whatever they hold.
+	if hits, _ := Meaning(ctx, a.Store, e, "9.9.9", Options{NoGate: true}); len(hits) == 0 {
+		t.Fatal("--all should return the nearest passages even for an id")
+	}
+}
+
+// TestEvalCountsNothingQueriesByTag: a near miss that gets related hits is
+// reported apart from a query about a subject the archive has nothing on.
+func TestEvalCountsNothingQueriesByTag(t *testing.T) {
+	a, e := embedded(t)
+	ev, err := LoadEval(a.Store, []byte(`{"queries": [
+	  {"q": "quantum chromodynamics lattice", "expect": [], "tag": "nothing"},
+	  {"q": "kitchen renovation budget", "expect": []},
+	  {"q": "retention sweep deletes transcripts on Windows", "expect": [], "tag": "near-miss"}
+	]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	rep, err := ev.Run(context.Background(), []string{ModeKeyword}, func(ctx context.Context, q string, opt Options) ([]Hit, error) {
+		return Search(ctx, a.Store, e, q, opt)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := rep.Modes[0]
+	if m.Nothing.N != 3 || m.Nothing.Answered != 1 {
+		t.Fatalf("all together: %+v", m.Nothing)
+	}
+	if len(m.NothingTags) != 2 || m.NothingTags[0] != (EvalNothing{Tag: "near-miss", N: 1, Answered: 1}) || m.NothingTags[1] != (EvalNothing{Tag: "nothing", N: 2, Answered: 0}) {
+		t.Fatalf("by tag: %+v (an untagged query with no answer counts as \"nothing\")", m.NothingTags)
+	}
+}
+
+// TestHybridPutsMeaningFirstThenTheWords: what passes meaning search's gate
+// comes first, nearest first; keyword hits not among them follow in their own
+// order; a segment found both ways is listed once and says so.
+func TestHybridPutsMeaningFirstThenTheWords(t *testing.T) {
+	a, e := embedded(t)
+	ctx := context.Background()
+	const q = "Zstandard version"
+	// A gate the stand-in's cosines can reach, so the meaning tier is not empty.
+	opt := Options{MinCosine: 0.1}
+	near, err := Meaning(ctx, a.Store, e, q, opt)
+	if err != nil || len(near) == 0 {
+		t.Fatalf("meaning tier: %d %v", len(near), err)
+	}
+	words, err := Run(a.Store, q, Options{})
+	if err != nil || len(words) <= len(near) {
+		t.Fatalf("keyword should find more than meaning does here (tool calls have no vectors): %d against %d, %v", len(words), len(near), err)
+	}
+	hits, err := Hybrid(ctx, a.Store, e, q, opt)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The meaning tier, in meaning's order, with meaning's evidence.
+	for i, m := range near {
+		h := hits[i]
+		if h.seg != m.seg || h.Cosine != m.Cosine || (h.Match != ModeMeaning && h.Match != MatchBoth) {
+			t.Fatalf("place %d should be meaning's hit %d: %+v", i, i, h)
+		}
+	}
+	// Then keyword's, none repeated, each still a keyword hit.
+	seen := map[int64]bool{}
+	both := 0
+	for i, h := range hits {
+		if seen[h.seg] {
+			t.Fatalf("segment listed twice at place %d", i)
+		}
+		seen[h.seg] = true
+		if h.Match == MatchBoth {
+			both++
+			if !strings.Contains(h.Snippet, "«") || h.Cosine == 0 {
+				t.Fatalf("a hit found both ways shows the words and carries its cosine: %+v", h)
+			}
+		}
+		if i >= len(near) && (h.Match != ModeKeyword || h.Cosine != 0) {
+			t.Fatalf("after the meaning tier come keyword hits: place %d is %+v", i, h)
+		}
+		if i > 0 && h.Score > hits[i-1].Score {
+			t.Fatalf("scores must fall down the list: place %d", i)
+		}
+	}
+	if both == 0 {
+		t.Fatal("the reply that names Zstandard is close in meaning and has the words: expected a \"both\"")
+	}
+	for _, w := range words {
+		if !seen[w.seg] {
+			t.Fatalf("a keyword hit is missing from hybrid: %+v", w)
+		}
+	}
+	if len(hits) != len(words)+len(near)-both {
+		t.Fatalf("%d hits, want %d keyword + %d meaning - %d shared", len(hits), len(words), len(near), both)
+	}
+
+	// The limit holds across both tiers.
+	if short, _ := Hybrid(ctx, a.Store, e, q, Options{MinCosine: 0.1, Limit: 2}); len(short) != 2 {
+		t.Fatalf("limit 2 returned %d", len(short))
+	}
+	// Nothing close in meaning: keyword hits only, and no hit claims otherwise.
+	only, err := Hybrid(ctx, a.Store, e, q, Options{})
+	if err != nil || len(only) != len(words) {
+		t.Fatalf("with the real gate the stand-in passes nothing: %d hits, want keyword's %d (%v)", len(only), len(words), err)
+	}
+	for _, h := range only {
+		if h.Match != ModeKeyword {
+			t.Fatalf("no meaning match, yet a hit says %q", h.Match)
+		}
+	}
+	// A question of words keyword search ignores is still searched by meaning.
+	if _, err := Hybrid(ctx, a.Store, e, "what is it that they were doing there", Options{}); err != nil {
+		t.Fatalf("a query with no keyword terms: %v", err)
+	}
+	// Narrowing applies to both tiers.
+	narrowed, _ := Hybrid(ctx, a.Store, e, q, Options{MinCosine: 0.1, NoTools: true})
+	for _, h := range narrowed {
+		if h.Kind == "tool_use" || h.Kind == "tool_result" {
+			t.Fatalf("NoTools let a %s through", h.Kind)
+		}
+	}
+	// Without vectors hybrid says so, as meaning does; it does not quietly become keyword search.
+	if _, err := Hybrid(ctx, proseArchive(t).Store, e, q, Options{}); !errors.Is(err, ErrNoVectors) {
+		t.Fatalf("hybrid before embedding: %v", err)
+	}
+	if hits, err := Search(ctx, a.Store, e, q, Options{Mode: ModeHybrid}); err != nil || len(hits) != len(words) {
+		t.Fatalf("hybrid through Search: %d %v", len(hits), err)
+	}
+}
+
+// TestVectorsHeldInMemoryAnswerTheSame: a query through the in-memory vectors
+// returns exactly what a query that reads the index does, for every way of
+// narrowing; the index is read once for many queries and again only when its
+// vectors change.
+func TestVectorsHeldInMemoryAnswerTheSame(t *testing.T) {
+	a, e := embedded(t)
+	ctx := context.Background()
+	held := &Vectors{}
+	cases := []Options{
+		{NoGate: true},
+		{NoGate: true, Kind: "prompt"},
+		{NoGate: true, Kinds: []string{"assistant", "thinking"}},
+		{NoGate: true, NoTools: true, Limit: 3},
+		{NoGate: true, Session: proseID},
+		{NoGate: true, Session: "another"},
+		{NoGate: true, Project: "XXXX-work"},
+		{NoGate: true, Project: "elsewhere"},
+		{MinCosine: 0.2},
+	}
+	for i, opt := range cases {
+		want, err := Meaning(ctx, a.Store, e, "a retention sweep deletes the session files", opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		opt.Vectors = held
+		got, err := Meaning(ctx, a.Store, e, "a retention sweep deletes the session files", opt)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(got) != len(want) {
+			t.Fatalf("case %d: %d hits from memory, %d from the index", i, len(got), len(want))
+		}
+		for j := range got {
+			if got[j].seg != want[j].seg || got[j].Cosine != want[j].Cosine || got[j].Z != want[j].Z || got[j].Snippet != want[j].Snippet {
+				t.Fatalf("case %d, hit %d differs:\n  memory %+v\n  index  %+v", i, j, got[j], want[j])
+			}
+		}
+	}
+	if held.loaded != 1 || held.Held() != 11 {
+		t.Fatalf("the index was read %d times for %d queries and %d pieces are held; want 1 and 11", held.loaded, len(cases), held.Held())
+	}
+
+	// The index changes (a session is re-indexed and embedded again): the next
+	// query reads it again, once.
+	s, _, err := a.Load(proseID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := a.Store.ReplaceSegments(proseID, archive.Segments(s)[:6]); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := a.Embed(ctx, e, nil); err != nil {
+		t.Fatal(err)
+	}
+	fresh, err := Meaning(ctx, a.Store, e, "retention", Options{NoGate: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := Meaning(ctx, a.Store, e, "retention", Options{NoGate: true, Vectors: held})
+	if err != nil || len(got) != len(fresh) || held.Held() >= 11 {
+		t.Fatalf("after the index changed: %d hits from memory, %d from the index, %d held (%v)", len(got), len(fresh), held.Held(), err)
+	}
+	loads := held.loaded
+	Meaning(ctx, a.Store, e, "retention", Options{NoGate: true, Vectors: held})
+	if held.loaded != loads {
+		t.Fatal("an unchanged index was read again")
+	}
+
+	// Idle: the memory is let go, and the next query takes it up again.
+	idle := &Vectors{Idle: 30 * time.Millisecond}
+	if _, err := Meaning(ctx, a.Store, e, "retention", Options{NoGate: true, Vectors: idle}); err != nil || idle.Held() == 0 {
+		t.Fatalf("nothing held after a query: %v", err)
+	}
+	deadline := time.Now().Add(3 * time.Second)
+	for idle.Held() != 0 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if idle.Held() != 0 {
+		t.Fatal("the vectors were not let go after the idle time")
+	}
+	if hits, err := Meaning(ctx, a.Store, e, "retention", Options{NoGate: true, Vectors: idle}); err != nil || len(hits) != len(fresh) {
+		t.Fatalf("after letting go: %d hits %v", len(hits), err)
 	}
 }

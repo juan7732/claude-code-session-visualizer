@@ -350,6 +350,23 @@ func TestSidecarReportsWhyItDidNotStart(t *testing.T) {
 	if _, err := FindBinary(filepath.Join(t.TempDir(), "nope")); err == nil {
 		t.Fatal("FindBinary accepted a path with nothing at it")
 	}
+
+	// Under launchd PATH has no Homebrew in it: the binary is found where
+	// Homebrew puts it, and its absence is still said plainly.
+	brew := filepath.Join(t.TempDir(), "llama-server")
+	if err := os.WriteFile(brew, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", "/usr/bin:/bin")
+	defer func(saved []string) { homebrewBinaries = saved }(homebrewBinaries)
+	homebrewBinaries = []string{filepath.Join(t.TempDir(), "absent"), brew}
+	if got, err := FindBinary(""); err != nil || got != brew {
+		t.Fatalf("FindBinary with Homebrew off PATH = %q, %v; want %q", got, err, brew)
+	}
+	homebrewBinaries = nil
+	if _, err := FindBinary(""); err == nil || !strings.Contains(err.Error(), "brew install llama.cpp") {
+		t.Fatalf("FindBinary with no llama-server anywhere = %v; want the hint", err)
+	}
 }
 
 func TestReapStopsAnOrphanAndSparesTheOwned(t *testing.T) {
@@ -461,5 +478,20 @@ func TestEmbedderRestartsAfterTheSidecarDies(t *testing.T) {
 	}
 	if e.starts != 2 {
 		t.Fatalf("starts = %d, want 2", e.starts)
+	}
+}
+
+func TestDotPackedEqualsDotOfUnpacked(t *testing.T) {
+	a, b := embedtest.Vector("the retention sweep deletes old transcripts"), embedtest.Vector("retention of transcripts and the sweep")
+	packed := Pack(b)
+	back := make([]float32, Dimensions)
+	if err := Unpack(back, packed); err != nil {
+		t.Fatal(err)
+	}
+	if got, want := DotPacked(a, packed), Dot(a, back); got != want {
+		t.Fatalf("DotPacked = %g, Dot of the unpacked vector = %g", got, want)
+	}
+	if DotPacked(a, packed[:10]) != 0 {
+		t.Fatal("a vector cut short must not be read past its end")
 	}
 }

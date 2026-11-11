@@ -34,12 +34,18 @@ the same words: write the query as you would ask it. It covers prompts, replies,
 thinking and compaction summaries (run 'skit embed' first), starts a local
 llama-server for the query, and sends nothing off the machine. Each hit shows
 the cosine similarity of its closest passage and z, how far that stands above
-everything else for this query. A passage is a match when its cosine or its z
-reaches a threshold; when none does, the answer is that nothing was found, not
-the nearest passages. --all shows them anyway; --min-cosine and --min-z move
-the thresholds.
+everything else for this query. A passage is a match when its cosine reaches a
+threshold; when none does, the answer is that nothing was found, not the
+nearest passages. A query that is only an id or a version matches a passage
+only if the passage contains it. --all shows the nearest passages anyway;
+--min-cosine moves the threshold, and --min-z lets a passage through on z too.
 
-Narrowing works the same in both modes: --session (an id or a unique prefix),
+--mode hybrid gives both: first the passages close in meaning, nearest first,
+then the keyword hits that are not among them. A hit says which it is
+(meaning, both, or keyword). When nothing is close in meaning, what is left is
+keyword hits only.
+
+Narrowing works the same in every mode: --session (an id or a unique prefix),
 --project, --kind (one or several, comma-separated) and --no-tools, which
 leaves out tool calls and their results.`,
 		Example: "  skit search retention sweep\n  skit search ENOTFOUND --kind assistant\n  skit search zstd --project tools --no-tools --json\n  skit search --mode meaning why does my history disappear after a month\n  skit search --mode meaning --session 36086585 --kind prompt,assistant how sessions are stored",
@@ -109,7 +115,7 @@ leaves out tool calls and their results.`,
 				if h.Tool != "" {
 					kind += ":" + h.Tool
 				}
-				if h.Match == search.ModeMeaning {
+				if h.Match == search.ModeMeaning || h.Match == search.MatchBoth {
 					fmt.Fprintf(w, "  %-20s %-12s cos %.2f  z %4.1f  %s\n", where, truncate(kind, 12), h.Cosine, h.Z, truncate(h.Snippet, 100))
 					continue
 				}
@@ -118,7 +124,7 @@ leaves out tool calls and their results.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringVar(&opt.Mode, "mode", search.ModeKeyword, "keyword (the words) or meaning (what it says; needs `skit embed`)")
+	cmd.Flags().StringVar(&opt.Mode, "mode", search.ModeKeyword, "keyword (the words), meaning (what it says; needs `skit embed`) or hybrid (meaning first, then the words)")
 	cmd.Flags().IntVarP(&opt.Limit, "limit", "n", 20, "maximum hits")
 	cmd.Flags().StringVarP(&opt.Project, "project", "p", "", "only projects whose slug contains this text")
 	cmd.Flags().StringVar(&opt.Session, "session", "", "only this session (id or unique prefix)")
@@ -126,7 +132,7 @@ leaves out tool calls and their results.`,
 	cmd.Flags().BoolVar(&opt.NoTools, "no-tools", false, "leave out tool calls and their results")
 	cmd.Flags().BoolVar(&opt.NoGate, "all", false, "meaning mode: return the nearest passages even when none is close enough to be a match")
 	cmd.Flags().Float64Var(&opt.MinCosine, "min-cosine", 0, fmt.Sprintf("meaning mode: a passage matches at this cosine (default %.2f)", search.DefaultMinCosine))
-	cmd.Flags().Float64Var(&opt.MinZ, "min-z", 0, fmt.Sprintf("meaning mode: or at this z (default %.1f)", search.DefaultMinZ))
+	cmd.Flags().Float64Var(&opt.MinZ, "min-z", 0, "meaning mode: also let a passage through at this z (off by default)")
 	cmd.Flags().BoolVar(&opt.PrefixLast, "prefix", false, "treat the last word as a prefix (while typing)")
 	return cmd
 }

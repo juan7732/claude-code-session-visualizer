@@ -75,6 +75,24 @@ func (a *Archive) Chunk(ctx context.Context) (int, error) {
 	}
 }
 
+// EmbedPending cuts what is not cut and reports how many distinct texts have
+// no vector made by source yet. It needs no model, so a caller can ask before
+// deciding to start one. When the stored vectors come from another source,
+// every text is pending.
+func (a *Archive) EmbedPending(ctx context.Context, source string) (int, error) {
+	if _, err := a.Chunk(ctx); err != nil {
+		return 0, err
+	}
+	c, err := a.Store.VectorCounts()
+	if err != nil {
+		return 0, err
+	}
+	if c.Source != "" && c.Source != source {
+		return c.Texts, nil
+	}
+	return c.Texts - c.Vectors, nil
+}
+
 // Embed brings the vectors up to date with the segments: it cuts what is not
 // cut, embeds every distinct text that has no vector, and drops vectors
 // nothing uses. It is safe to stop and run again; each batch is kept as it
@@ -134,6 +152,9 @@ func (a *Archive) Embed(ctx context.Context, e Embedder, progress func(done, tot
 	}
 	if err == nil {
 		res.Pruned, err = a.Store.PruneVectors()
+	}
+	if err == nil {
+		err = a.Store.MarkEmbedded(time.Now())
 	}
 	// The counts are reported even when the run stopped early: what landed is kept.
 	if counts, cerr := a.Store.VectorCounts(); cerr == nil {

@@ -151,7 +151,7 @@ struct PaletteView: View {
         for session in sessions.prefix(lower.isEmpty ? 4 : 6) {
             out.append(PaletteItem(id: "s:" + session.id, section: "Sessions", label: session.title,
                                    sub: Format.middleEllipsis(Format.homeRelative(session.cwd ?? ""), max: 60), trailing: Format.ago(session.lastAt)) {
-                window.page = .session(session.id)
+                window.open(session: session.id, view: .summary)
             })
         }
         if mentionsFor == needle, !mentions.isEmpty {

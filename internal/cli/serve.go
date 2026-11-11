@@ -22,7 +22,7 @@ import (
 func newServe() *cobra.Command {
 	var socket string
 	var noWatch, quiet bool
-	var settle time.Duration
+	var settle, embedEvery time.Duration
 	cmd := &cobra.Command{
 		Use:   "serve",
 		Short: "Serve the engine over HTTP on a Unix socket",
@@ -33,8 +33,12 @@ projects directory and archives a session a few seconds after it stops changing,
 so the archive and search stay current while it runs. On start, and every hour
 after, it also archives whatever changed while no skit was running.
 
-/v0/search?mode=meaning starts a local llama-server with the first such query
-and stops it after ten minutes without one ('skit embed' prepares the index).
+/v0/search?mode=meaning (and hybrid) starts a local llama-server with the first
+such query and stops it after ten minutes without one. Once 'skit embed' has
+downloaded the model, serve also keeps the vectors current by itself: after
+its first sweep and then every --embed-every, it embeds whatever text has no
+vector yet, starting the model only when there is something to do and stopping
+it afterwards. It never downloads the model.
 
 'skit service install' keeps it running from login on, so nothing depends on
 remembering to start it.
@@ -86,6 +90,9 @@ Try it:  curl --unix-socket ~/.sessionkit/skit.sock http://skit/v0/status`,
 					go s.SweepEvery(ctx, time.Hour)
 				}
 			}
+			if embedEvery > 0 {
+				go s.EmbedEvery(ctx, embedEvery)
+			}
 			fmt.Fprintf(cmd.ErrOrStderr(), "skit serve: listening on %s (watch=%v)\n", socket, !noWatch)
 			return s.Serve(ctx, ln, socket)
 		},
@@ -94,5 +101,6 @@ Try it:  curl --unix-socket ~/.sessionkit/skit.sock http://skit/v0/status`,
 	cmd.Flags().BoolVar(&noWatch, "no-watch", false, "do not watch ~/.claude/projects for changes")
 	cmd.Flags().BoolVar(&quiet, "quiet", false, "do not log each request (archiving and errors are still logged)")
 	cmd.Flags().DurationVar(&settle, "settle", 3*time.Second, "how long a transcript must be quiet before it is archived")
+	cmd.Flags().DurationVar(&embedEvery, "embed-every", 30*time.Minute, "how often new text is given vectors for meaning search, once the model is downloaded (0: never)")
 	return cmd
 }

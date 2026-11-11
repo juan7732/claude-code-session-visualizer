@@ -518,9 +518,11 @@ public struct SearchHit: Codable, Sendable, Equatable {
     public var snippet: String
     /// Why it is here: "keyword" (it has the words) or "meaning".
     public var match: String?
+    /// On a meaning hit: how close its passage is to the query, 1 being the same.
+    public var cosine: Double?
 
     public init(session: String, project: String? = nil, title: String? = nil, agent: String? = nil, turn: Int, action: Int,
-                kind: String, tool: String? = nil, at: Date? = nil, snippet: String, match: String? = nil) {
+                kind: String, tool: String? = nil, at: Date? = nil, snippet: String, match: String? = nil, cosine: Double? = nil) {
         self.session = session
         self.project = project
         self.title = title
@@ -532,5 +534,6 @@ public struct SearchHit: Codable, Sendable, Equatable {
         self.at = at
         self.snippet = snippet
         self.match = match
+        self.cosine = cosine
     }
 }

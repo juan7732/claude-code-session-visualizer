@@ -1,11 +1,13 @@
 package store
 
 import (
+	"context"
 	"crypto/sha256"
 	"database/sql"
 	"errors"
 	"fmt"
 	"strings"
+	"time"
 )
 
 // Meaning search keeps three things in the index (schema 5):
@@ -113,6 +115,11 @@ func (s *Store) PutChunks(segments []int64, chunks []Chunk) error {
 			return err
 		}
 	}
+	if len(chunks) > 0 {
+		if err := bumpVectorGeneration(tx); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
@@ -168,6 +175,11 @@ func (s *Store) PutVectors(hashes [][]byte, vecs [][]byte) error {
 			return err
 		}
 	}
+	if len(hashes) > 0 {
+		if err := bumpVectorGeneration(tx); err != nil {
+			return err
+		}
+	}
 	return tx.Commit()
 }
 
@@ -209,18 +221,87 @@ func (s *Store) UseVectorSource(source string) (dropped int, err error) {
 	if _, err := tx.Exec(`INSERT INTO meta(key, value) VALUES('vector_source', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`, source); err != nil {
 		return 0, err
 	}
+	if err := bumpVectorGeneration(tx); err != nil {
+		return 0, err
+	}
 	return int(n), tx.Commit()
 }
 
 // PruneVectors deletes vectors no chunk points at any more and returns how
 // many went.
 func (s *Store) PruneVectors() (int, error) {
+	// No generation bump: a vector no chunk points at was not in anyone's view.
 	res, err := s.db.Exec(`DELETE FROM vectors WHERE NOT EXISTS (SELECT 1 FROM chunks c WHERE c.hash = vectors.hash)`)
 	if err != nil {
 		return 0, err
 	}
 	n, _ := res.RowsAffected()
 	return int(n), nil
+}
+
+// The vector generation is a counter that moves whenever the set of pieces
+// with vectors changes: chunks written or removed, vectors stored or dropped.
+// A process that keeps the vectors in memory (skit serve) compares it before
+// each query and reads the index again only when it moved. It lives in the
+// index, so a change made by another process is seen too.
+
+type execer interface {
+	Exec(query string, args ...any) (sql.Result, error)
+}
+
+func bumpVectorGeneration(tx execer) error {
+	_, err := tx.Exec(`INSERT INTO meta(key, value) VALUES('vectors_gen', '1')
+		ON CONFLICT(key) DO UPDATE SET value = CAST(value AS INTEGER) + 1`)
+	return err
+}
+
+// VectorGeneration returns the counter; 0 before anything was ever cut.
+func (s *Store) VectorGeneration() (int64, error) {
+	var v int64
+	err := s.db.QueryRow(`SELECT CAST(value AS INTEGER) FROM meta WHERE key = 'vectors_gen'`).Scan(&v)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, nil
+	}
+	return v, err
+}
+
+// Piece is one chunk with its vector and what a search may narrow by.
+type Piece struct {
+	Segment    int64
+	Start, Len int
+	Vec        []byte // packed; valid only during the callback
+	Session    string
+	Project    string
+	Kind       string
+}
+
+// EachPiece calls fn for every chunk that has a vector, segment by segment.
+func (s *Store) EachPiece(ctx context.Context, fn func(Piece) error) error {
+	rows, err := s.db.QueryContext(ctx, `SELECT c.segment, c.start, c.len, v.vec, g.session, s.project, g.kind
+		FROM chunks c JOIN vectors v ON v.hash = c.hash JOIN segments g ON g.id = c.segment JOIN sessions s ON s.id = g.session
+		ORDER BY c.segment, c.ord`)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var p Piece
+		if err := rows.Scan(&p.Segment, &p.Start, &p.Len, &p.Vec, &p.Session, &p.Project, &p.Kind); err != nil {
+			return err
+		}
+		if err := fn(p); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+// MarkEmbedded records that an embedding pass just brought the vectors up to
+// date. VectorCounts reports it.
+func (s *Store) MarkEmbedded(at time.Time) error {
+	_, err := s.db.Exec(`INSERT INTO meta(key, value) VALUES('vectors_pass_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value`,
+		at.UTC().Format(time.RFC3339))
+	return err
 }
 
 // VectorCounts says how much of the index has vectors.
@@ -230,6 +311,9 @@ type VectorCounts struct {
 	Texts   int    `json:"texts"`   // distinct pieces (the same text appears once)
 	Vectors int    `json:"vectors"` // distinct pieces that have a vector
 	Bytes   int64  `json:"bytes"`   // size of the stored vectors
+	// EmbeddedAt is when an embedding pass last finished with nothing left to
+	// do (RFC 3339), "" if none has.
+	EmbeddedAt string `json:"embedded_at,omitempty"`
 }
 
 // VectorCounts reports vector coverage.
@@ -243,6 +327,9 @@ func (s *Store) VectorCounts() (VectorCounts, error) {
 		return c, err
 	}
 	if err := s.db.QueryRow(`SELECT count(*), coalesce(sum(length(vec)), 0) FROM vectors v WHERE EXISTS (SELECT 1 FROM chunks c WHERE c.hash = v.hash)`).Scan(&c.Vectors, &c.Bytes); err != nil {
+		return c, err
+	}
+	if err := s.db.QueryRow(`SELECT value FROM meta WHERE key = 'vectors_pass_at'`).Scan(&c.EmbeddedAt); err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return c, err
 	}
 	return c, nil

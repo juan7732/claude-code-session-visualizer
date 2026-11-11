@@ -1,7 +1,8 @@
 # Plan
 
-The milestones, done and to come, and the choices behind them. v0 ends at M9. This file is the source of truth for what
-is in scope; the workspace session log only records what happened.
+The milestones, done and to come, and the choices behind them. v0 ends at M9. v1 is M0 to M16 complete, M16 being the
+release itself, and v1 is what gets shared (Juan, 2026-11-10). M17 to M19 come after it. This file is the source of
+truth for what is in scope; the workspace session log only records what happened.
 
 Decisions already taken: Go engine runs as a process (not linked into Swift). IDL deferred until a second face needs it;
 the contract for v0 is "one CLI subcommand = one engine function = one service endpoint, same names, JSON shapes". Not
@@ -186,6 +187,12 @@ subagent step, the `/compactions/{n}` detail in the drawer, a ⚙ popover per vi
 - Search: the simplified Finder (hits grouped by session with a strip of where they fall, the text of the selected hit
   beside them, Open in Transcript or Session Summary), kinds with their counts as a scope bar, live after a pause,
   recent searches. A hit opens its session with find-in-session already on that hit.
+- After Juan's first use: a search that finds several sessions lists them folded, one line each, to choose from; a click
+  or Return shows a session's hits, "Show All Hits" and "Fold to Sessions" (⌥⌘→, ⌥⌘←) do it for all and the choice is
+  kept. A **Keyword / Meaning** switch beside the field (M14's client half, in its plain form: the engine's
+  `mode=meaning`, each hit with how close it is). **Back and Forward** (⌘[, ⌘]) follow where the window has been: Back
+  from a Transcript is the Summary it was opened from, Back from a hit is the Search page. A session opened from a list
+  starts on its Summary.
 - ⌘K palette: sessions, mentions (the engine's search), commands; ⌘O opens it too.
 - Export Session as Markdown (⇧⌘E), Copy Turn as Markdown. The text is the engine's (`skit export`).
 - `client/SessionVisualizer/build.sh` (`just client-app`, `just client-app-install`): a signed `.app` with `skit` in
@@ -195,9 +202,9 @@ subagent step, the `/compactions/{n}` detail in the drawer, a ⚙ popover per vi
 Engine, for it: `commits` in `/relations`, `in_turns` in stats, `skit export` and `/export`, `/actions/{n}?agent=`
 (`relations-and-client-routes.md`). Still missing: the model's context-window limit (a setting stands in), fork parent
 and child ids ("How it ran" shows the number of branch points). Open after M9: an app icon; a Developer ID, without
-which the app runs only on the Mac that built it; a ⚙ popover per view (the options are Settings tabs); the Meaning
-scope in the Finder (M14's client half). Done when: for any session, what it was about, what happened when, and whether
-X was discussed can be answered from the app in /Applications. This closes v0's definition of done, item 6.
+which the app runs only on the Mac that built it; a ⚙ popover per view (the options are Settings tabs); `hybrid` mode
+in the Finder once the engine has it. Done when: for any session, what it was about, what happened when, and whether X
+was discussed can be answered from the app in /Applications. This closes v0's definition of done, item 6.
 
 **M10 Canvas: Braid.** Mock: `?view=canvas`, layout Braid; lab in `ux-mocks/canvas/`.
 
@@ -255,12 +262,71 @@ to M13.
 Done when: a question that shares no words with the transcript finds the turn, hybrid beats keyword on the eval, and
 nothing leaves the machine but the one model download.
 
-State, 2026-11-10 (`meaning-search.md`): the `embed` package, index schema 5 (chunks and vectors keyed by a hash of the
-text, where ADR 0005 said "on the segment row"), `skit embed`, `skit eval` and an eval of 33 queries, meaning search
-with a gate that lets it say nothing was found (`skit search --mode meaning`, `/v0/search?mode=meaning`), and narrowing
-by session, project, kinds and "no tool calls" in both modes are built. Open: `hybrid` mode (keyword stays its own mode
-and the default), vectors for tool output (issue #4), embedding without being asked (issue #3), vectors held in memory
-by `serve`.
+State, 2026-11-10 (`meaning-search.md`): the engine half is built and waits for Juan's pass. The `embed` package; index
+schema 5 (chunks and vectors keyed by a hash of the text, where ADR 0005 said "on the segment row"); `skit embed`;
+`skit eval` and an eval of 53 queries; meaning search with a gate that lets it say nothing was found; `hybrid` (meaning
+matches first, then keyword hits), which beats keyword on every measure of the eval (R@1 0.62 → 0.69, R@5 0.77 → 0.81,
+R@10 0.85 → 0.88, MRR 0.68 → 0.75); narrowing by session, project, kinds and "no tool calls" in every mode; `serve`
+embedding new text by itself every thirty minutes and holding the vectors in memory between queries. The Finder has a
+Keyword / Meaning switch (built with M9); offering `hybrid` there is what is left.
+
+Kept as it is, on purpose (2026-11-10: live with it for now): a near miss gets related hits, because a cosine floor
+cannot tell "same subject" from "answers this", and keyword and hybrid still answer a question about an absent subject
+from tool output. Both are what M18 is for.
+
+### After the client: the release, and what comes after it
+
+| #   | Milestone                 | Ends with                                                                             |
+| --- | ------------------------- | ------------------------------------------------------------------------------------- |
+| M15 | (declined)                | "Other people's machines" was proposed and declined on 2026-11-10; see below          |
+| M16 | Release 1.0               | A stranger with an Apple silicon Mac can install it, understand it, remove it. **v1** |
+| M17 | Insights from the vectors | Things the archive can say across sessions, with no new model                         |
+| M18 | A second small model      | A model that reads a question and a passage together, as an opt-in download           |
+| M19 | A small language model    | Text written by a local model (summaries, titles), as a further opt-in download       |
+
+**M15, declined.** Hardening for other people's machines (other Claude Code versions, far larger archives, Intel and
+CPU-only, strangers' archives) was proposed and declined. The tool supports Apple silicon Macs only and is shared as it
+comes, without warranty. Juan's other two Macs, each with its own sessions, are where it gets used beyond this one.
+
+**M16 Release 1.0 (v1).** What makes the tool something to hand to someone else.
+
+- JSON shapes frozen as `v1` and `serve` moved from `/v0/` to `/v1/` (`decisions/0004-json-shapes.md` says this happens
+  at 1.0); the client and its contract tests move with it.
+- The app signed with a Developer ID and notarised, with `skit` and `llama-server` in `Contents/Helpers/` and their
+  licences in the bundle. To settle first: this needs an Apple Developer Program membership; without one the app stays
+  ad hoc signed and the README says how to open it.
+- A first run that explains, before doing any of them: the archive and where it lives, the background agent, and the one
+  download (what it is, its size, its terms, that nothing else uses the network).
+- Release binaries of `skit` for people who only want the CLI (Apple silicon).
+- A README and docs written for a stranger: what it is, what it reads and never writes, what it keeps and where, that it
+  supports Apple silicon Macs only and comes without warranty.
+- An uninstall that removes the agent and the app and says where the data is, leaving the archive unless asked.
+- A check before a session is exported or a link is copied for what should not leave the machine (keys and tokens by
+  pattern).
+- The open issues each closed or left open on purpose (#1 the pricing table, #2 `/relations` memoised).
+
+Done when: the release, installed from nothing on Juan's other Mac, archives that Mac's sessions and answers a question
+about them, and removing it leaves nothing running.
+
+**M17 Insights from the vectors.** After v1. Mining what the sessions say across sessions, with the vectors already
+there and no new model (`roadmap.md`, "Models on top of the archive"). A session's own summary vector (the user's name
+for a thing against the transcript's); chapters, where the subject changes inside a session; "you have been here
+before", the nearest earlier turns to a prompt; a map of subjects across all sessions, which is also what the registry
+of projects needs; a ranking that learns from which hits get opened and pinned; a Claude Code skill that answers from
+the archive through `skit` with the turns cited. Each is judged on the eval or on a measure written down before it is
+built.
+
+**M18 A second small model.** After M17. A reranker or decision model that reads a query and a passage together, as an
+explicit, opt-in download with its own line in `doctor`. Answer or near miss (the eval's eight near misses and nineteen
+"nothing" queries are its test); what kind of turn this is (a decision, a question, a correction, a dead end), and from
+that a register of decisions across sessions and facets in the Finder; the rest of the check before export (names,
+grades, health). Starts with a spike on the eval through `llama-server`'s reranking mode, as M5 did for embedding.
+
+**M19 A small language model.** After M18, its own milestone because it is the heaviest thing the app would carry: a
+generative model, opt-in, never loaded because another feature was turned on, its work done in the background pass and
+not at query time. What a tool call did, embedded with the call (issue #4); titles and abstracts for sessions Claude
+Code never titled and a line per turn for the Summary; a query rewritten before it is searched. Starts with a spike that
+settles which model, how much memory and how long per call, before any of it is promised.
 
 **Not scheduled.** Continue from here (embedded terminal, fork at a turn; needs the feasibility probe in `NOTES.md`).
 Plugins (ergo, git) through the extension points. Image tiers B and C, the hooks installer, HTML export. The pricing
@@ -281,6 +347,8 @@ Mac. Declined on 2026-11-09: live tailing, subagents as sessions, retention sign
 | Archive location | `~/.sessionkit/`                                                                                        |
 | Tests            | hermetic dockerized integration suite modelled on ergo's, plus unit tests; `just` as the task runner    |
 | Tenets           | `docs/tenets.md`, written for this project in the style of ergo's                                       |
+| Platforms        | Apple silicon Macs only (2026-11-10). Other machines may work and are not supported.                    |
+| Warranty         | None. It is shared as it comes (2026-11-10); the MIT licence already says so.                           |
 
 ## Inputs
 

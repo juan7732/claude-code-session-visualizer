@@ -24,7 +24,8 @@ skit archive [id...]           copy sessions losslessly into ~/.sessionkit/archi
                                --verify checks every copy against the index and changes nothing
 skit search <words> [--kind K] find turns across archived sessions; a query of ids or codes weighs exact words more;
                                --mode meaning ranks by what the text says, shared words or not (after `skit embed`), and
-                               says so when nothing is close; --session, --project, --kind, --no-tools narrow either mode
+                               says so when nothing is close; --mode hybrid lists those first and the keyword hits after;
+                               --session, --project, --kind, --no-tools narrow any mode
 skit embed                     give archived prose vectors for meaning search, with EmbeddingGemma 2 in a local
                                llama-server; the first run downloads the model once (310 MB, checksum verified)
 skit eval <queries.json>       measure search against queries whose answers are known: R@1, R@5, R@10, MRR per mode
@@ -47,9 +48,12 @@ plain JSONL under zstd: `zstd -dc <file>` gives the transcript back without skit
 did: if a transcript shrinks or is replaced, the fuller copy stays beside the new one as `<copy>.prev-<time>`
 (`docs/decisions/0008-the-archive-never-shrinks.md`).
 
-Meaning search (`docs/meaning-search.md`) is being built: `skit embed` and `skit search --mode meaning` work, the
-ranking is plain cosine similarity and not yet tuned. It needs `llama-server` (`brew install llama.cpp`). Nothing leaves
-the machine; the only network use in skit is the one model download that `skit embed` makes.
+Meaning search (`docs/meaning-search.md`): after `skit embed` has downloaded the model once,
+`skit search --mode meaning` and `--mode hybrid` work, and `skit serve` keeps the vectors current by itself. It needs
+`llama-server` (`brew install llama.cpp`). Nothing leaves the machine; the only network use in skit is that one
+download.
+
+Apple silicon Macs only. It is shared as it comes, without warranty.
 
 ## Build and test
 

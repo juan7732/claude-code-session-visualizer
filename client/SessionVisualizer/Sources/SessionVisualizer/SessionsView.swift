@@ -187,9 +187,9 @@ private struct SessionRow: View {
             try? await Task.sleep(for: .milliseconds(250))
             if !Task.isCancelled { await store.loadModel(session.id) }
         }
-        .onTapGesture { window.page = .session(session.id) }
+        .onTapGesture { window.open(session: session.id, view: .summary) }
         .contextMenu {
-            Button("Open") { window.page = .session(session.id) }
+            Button("Open") { window.open(session: session.id, view: .summary) }
             Button("Open in New Window") { openWindow(value: session.id) }
             Divider()
             Button(note.pinned ? "Unpin" : "Pin") { Task { await store.togglePin(session.id) } }
@@ -202,7 +202,7 @@ private struct SessionRow: View {
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)
-        .accessibilityAction { window.page = .session(session.id) }
+        .accessibilityAction { window.open(session: session.id, view: .summary) }
     }
 
     private var size: String {

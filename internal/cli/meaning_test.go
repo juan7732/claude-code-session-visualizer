@@ -188,8 +188,19 @@ func TestMeaningSearchFromNothing(t *testing.T) {
 	  {"q": "quantum chromodynamics lattice", "expect": []}]}`), 0o644)
 	var rep search.EvalReport
 	runJSON(t, &rep, "eval", evalFile, "--all")
-	if len(rep.Modes) != 2 || rep.Modes[0].Overall.N != 2 || rep.Modes[0].Overall.R1 != 0.5 || rep.Modes[1].Outcomes[0].Rank != 1 || rep.Modes[1].Nothing.Answered != 1 {
+	if len(rep.Modes) != 3 || rep.Modes[0].Overall.N != 2 || rep.Modes[0].Overall.R1 != 0.5 || rep.Modes[1].Outcomes[0].Rank != 1 || rep.Modes[1].Nothing.Answered != 1 ||
+		rep.Modes[2].Mode != "hybrid" || rep.Modes[2].Outcomes[0].Rank != 1 {
 		t.Fatalf("eval = %+v", rep)
+	}
+	// Hybrid from the command line: with the real gate the stand-in passes
+	// nothing, so what comes back is keyword's hits, each saying so.
+	runJSON(t, &hits, "search", "--mode", "hybrid", "retention", "sweep")
+	if len(hits) == 0 || hits[0].Match != "keyword" {
+		t.Fatalf("hybrid search = %+v", hits)
+	}
+	runJSON(t, &hits, "search", "--mode", "hybrid", "--min-cosine", "0.1", "retention", "sweep")
+	if len(hits) == 0 || (hits[0].Match != "both" && hits[0].Match != "meaning") || hits[0].Cosine == 0 {
+		t.Fatalf("hybrid search with a gate the stand-in can pass = %+v", hits[0])
 	}
 	out, err = run(t, "eval", evalFile, "--mode", "keyword", "--misses")
 	if err != nil || !strings.Contains(out, "keyword   all") || strings.Contains(out, "meaning") || !strings.Contains(out, "not in top 10") || !strings.Contains(out, "want bbbbbbbb@4") {

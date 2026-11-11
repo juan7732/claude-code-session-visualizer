@@ -7,6 +7,9 @@
 // By meaning (Meaning, in meaning.go): the query and every piece of prose in
 // the index have a vector; the nearest pieces win, shared words or not.
 //
+// Both (Hybrid, in hybrid.go): what is close in meaning first, then what has
+// the words.
+//
 // Evaluate (eval.go) measures either against queries with known answers, which
 // is how a scoring change is judged.
 package search
@@ -39,14 +42,16 @@ type Hit struct {
 	Snippet  string    `json:"snippet"`
 	Coverage float64   `json:"coverage"` // share of the query's words found in the text
 	Score    float64   `json:"score"`    // what the hits are ordered by; comparable within one result only
-	// Match says why the hit is here: "keyword" (it has the words) or "meaning"
-	// (its text is close to the query's).
+	// Match says why the hit is here: "keyword" (it has the words), "meaning"
+	// (its text is close to the query's) or, in hybrid mode, "both".
 	Match string `json:"match"`
 	// Cosine and Z are set on meaning hits: the similarity of the closest piece
 	// of the segment, and how many standard deviations that stands above the
 	// mean over every piece scored for this query. The snippet is that piece.
 	Cosine float64 `json:"cosine,omitempty"`
 	Z      float64 `json:"z,omitempty"`
+
+	seg int64 // the segment's row, so two modes' hits for one segment can be told to be the same
 }
 
 // Options narrow a search.
@@ -60,11 +65,17 @@ type Options struct {
 	NoTools    bool     // leave out tool calls and their results
 	PrefixLast bool     // the last word is still being typed
 
-	// The gate of meaning search (see Meaning). Zero means the default.
+	// The gate of meaning search (see DefaultMinCosine). MinCosine zero means
+	// the default. MinZ, when set, lets a piece through on z as well; it is
+	// off unless asked for.
 	MinCosine float64
 	MinZ      float64
 	// NoGate returns the nearest pieces however far they are.
 	NoGate bool
+
+	// Vectors, when set, keeps the index's vectors in memory between meaning
+	// queries. A long-lived process passes the same one every time.
+	Vectors *Vectors
 }
 
 // Kinds are the kinds of segment a search can be narrowed to.
@@ -242,7 +253,7 @@ func Run(st *store.Store, query string, opt Options) ([]Hit, error) {
 	}
 	where := append([]string{"fts MATCH ?"}, conds...)
 	args := append([]any{FTSQuery(terms, opt.PrefixLast)}, condArgs...)
-	q := `SELECT g.session, s.project, s.title, g.agent, g.turn, g.action, g.kind, g.tool, g.at, g.text,
+	q := `SELECT g.id, g.session, s.project, s.title, g.agent, g.turn, g.action, g.kind, g.tool, g.at, g.text,
 	             snippet(fts, 0, '«', '»', '…', 14), bm25(fts)
 	      FROM fts JOIN segments g ON g.id = fts.rowid JOIN sessions s ON s.id = g.session
 	      WHERE ` + strings.Join(where, " AND ") + ` ORDER BY bm25(fts) LIMIT 1000`
@@ -264,7 +275,7 @@ func Run(st *store.Store, query string, opt Options) ([]Hit, error) {
 		var at sql.NullString
 		var text string
 		var bm float64
-		if err := rows.Scan(&h.Session, &h.Project, &h.Title, &h.Agent, &h.Turn, &h.Action, &h.Kind, &h.Tool, &at, &text, &h.Snippet, &bm); err != nil {
+		if err := rows.Scan(&h.seg, &h.Session, &h.Project, &h.Title, &h.Agent, &h.Turn, &h.Action, &h.Kind, &h.Tool, &at, &text, &h.Snippet, &bm); err != nil {
 			return nil, err
 		}
 		if at.Valid {

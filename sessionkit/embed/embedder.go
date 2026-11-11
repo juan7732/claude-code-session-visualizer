@@ -128,6 +128,18 @@ func (e *Embedder) release() {
 	}
 }
 
+// StopIfIdle stops the backend now unless a request is using it. For a caller
+// that started it for a batch of work and knows the work is over.
+func (e *Embedder) StopIfIdle() {
+	e.mu.Lock()
+	if e.timer != nil {
+		e.timer.Stop()
+		e.timer = nil
+	}
+	e.mu.Unlock()
+	e.stopIfIdle()
+}
+
 func (e *Embedder) stopIfIdle() {
 	e.mu.Lock()
 	defer e.mu.Unlock()

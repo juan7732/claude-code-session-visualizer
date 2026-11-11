@@ -40,6 +40,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/annotate"
@@ -49,6 +50,7 @@ import (
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/export"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/search"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/stats"
+	"github.com/juan7732/claude-code-session-visualizer/sessionkit/store"
 	"github.com/juan7732/claude-code-session-visualizer/sessionkit/transcript"
 )
 
@@ -65,18 +67,33 @@ type Server struct {
 	// LogRequests logs one line per request. Off for the launchd agent, whose
 	// log would otherwise grow with every click in the client.
 	LogRequests bool
-	// Embedder embeds queries for /v0/search?mode=meaning. Nil means this
-	// server cannot search by meaning.
-	Embedder search.QueryEmbedder
+	// Embedder embeds queries for /v0/search?mode=meaning and hybrid, and the
+	// archive's new text in the background (EmbedEvery). Nil means this server
+	// cannot search by meaning.
+	Embedder Embedder
+
+	vectors      search.Vectors // the index's vectors, held between meaning queries
+	embedding    atomic.Bool    // a background pass is running
+	swept        chan struct{}  // closed when the first sweep has finished
+	sweptOnce    sync.Once
+	lastEmbedErr string // the last background failure logged, so it is logged once
 
 	annMu   sync.Mutex
 	started time.Time
 }
 
+// Embedder is what the server needs from package embed: vectors for queries
+// and for the archive's text.
+type Embedder interface {
+	Source() string
+	Query(ctx context.Context, text string) ([]float32, error)
+	Documents(ctx context.Context, texts []string) ([][]float32, error)
+}
+
 // New makes a server over an open archive.
 func New(version string, a *archive.Archive) *Server {
 	a.EnableCache(archive.DefaultCacheBytes)
-	return &Server{Version: version, Archive: a, Inspect: catalog.Inspect, Logf: func(string, ...any) {}, LogRequests: true, started: time.Now()}
+	return &Server{Version: version, Archive: a, Inspect: catalog.Inspect, Logf: func(string, ...any) {}, LogRequests: true, started: time.Now(), swept: make(chan struct{}), vectors: search.Vectors{Idle: cacheIdle}}
 }
 
 // Handler returns the HTTP handler (for a socket listener or for tests).
@@ -122,6 +139,11 @@ type Status struct {
 	Live      []catalog.LiveSession `json:"live"`
 	Sessions  int                   `json:"sessions_on_disk"`
 	Cached    int                   `json:"cached_sessions"` // parsed sessions held in memory
+	// Vectors says how much of the indexed text can be searched by meaning
+	// and when it was last brought up to date.
+	Vectors store.VectorCounts `json:"vectors"`
+	// VectorsHeld is how many vectors are in memory right now.
+	VectorsHeld int `json:"vectors_held"`
 }
 
 // IndexCounts mirrors store.Counts for JSON.
@@ -160,8 +182,10 @@ func (s *Server) status(w http.ResponseWriter, _ *http.Request) {
 	if live == nil {
 		live = []catalog.LiveSession{}
 	}
+	vc, _ := s.Archive.Store.VectorCounts()
 	writeJSON(w, http.StatusOK, Status{Version: s.Version, Uptime: stats.FormatDuration(time.Since(s.started)), ClaudeDir: rep.ClaudeDir,
-		SkitHome: s.Archive.Home, Index: IndexCounts(c), Live: live, Sessions: rep.Totals.Sessions, Cached: s.Archive.CachedSessions()})
+		SkitHome: s.Archive.Home, Index: IndexCounts(c), Live: live, Sessions: rep.Totals.Sessions, Cached: s.Archive.CachedSessions(),
+		Vectors: vc, VectorsHeld: s.vectors.Held()})
 }
 
 func (s *Server) sessions(w http.ResponseWriter, r *http.Request) {
@@ -476,7 +500,8 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	}
 	opt.MinCosine, _ = strconv.ParseFloat(q.Get("min_cosine"), 64)
 	opt.MinZ, _ = strconv.ParseFloat(q.Get("min_z"), 64)
-	hits, err := search.Search(r.Context(), s.Archive.Store, s.Embedder, q.Get("q"), opt)
+	opt.Vectors = &s.vectors
+	hits, err := search.Search(r.Context(), s.Archive.Store, s.queryEmbedder(), q.Get("q"), opt)
 	switch {
 	case err == nil:
 	case errors.Is(err, search.ErrNoEmbedder), errors.Is(err, search.ErrNoVectors), errors.Is(err, search.ErrStaleVectors):
@@ -489,7 +514,7 @@ func (s *Server) search(w http.ResponseWriter, r *http.Request) {
 	default:
 		// Meaning search can fail for reasons that are not the caller's: the
 		// model is missing, llama-server did not start.
-		if q.Get("mode") == search.ModeMeaning {
+		if m := q.Get("mode"); m == search.ModeMeaning || m == search.ModeHybrid {
 			writeError(w, http.StatusServiceUnavailable, err.Error())
 			return
 		}
@@ -598,6 +623,7 @@ func (s *Server) ingestKeepingMode(l catalog.Located) (archive.Result, error) {
 // changed while no skit was running, and anything a file event missed. Cheap
 // when nothing changed: one stat and one index row per session.
 func (s *Server) Sweep() (changed, failed int) {
+	defer s.sweptOnce.Do(func() { close(s.swept) })
 	rep, err := s.Inspect()
 	if err != nil {
 		s.Logf("sweep: %v", err)
@@ -638,6 +664,87 @@ func (s *Server) SweepEvery(ctx context.Context, interval time.Duration) {
 			return
 		case <-tick.C:
 		}
+	}
+}
+
+// queryEmbedder hands the embedder to search, keeping "none" a nil interface.
+func (s *Server) queryEmbedder() search.QueryEmbedder {
+	if s.Embedder == nil {
+		return nil
+	}
+	return s.Embedder
+}
+
+// EmbedEvery keeps meaning search level with the archive: once the first
+// sweep has finished (or after two minutes, if nothing sweeps), and then at
+// every interval, it gives vectors to whatever text has none.
+//
+// SPEC: issue #3 and docs/decisions/0009-background-agent.md: background work
+// is the tool's to manage. It runs on a period and not on every change, so the
+// model is not loaded again each time a live transcript grows.
+func (s *Server) EmbedEvery(ctx context.Context, interval time.Duration) {
+	select {
+	case <-ctx.Done():
+		return
+	case <-s.swept:
+	case <-time.After(2 * time.Minute):
+	}
+	tick := time.NewTicker(interval)
+	defer tick.Stop()
+	for {
+		s.EmbedPass(ctx)
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+// EmbedPass embeds what has no vector yet and returns how many texts it
+// embedded. It asks the index first, so the model is started only when there
+// is work, and it stops a sidecar it started once the work is done. It never
+// downloads anything: without the model or llama-server it does nothing and
+// says why in the log, once.
+func (s *Server) EmbedPass(ctx context.Context) int {
+	if s.Embedder == nil || !s.embedding.CompareAndSwap(false, true) {
+		return 0
+	}
+	defer s.embedding.Store(false)
+	pending, err := s.Archive.EmbedPending(ctx, s.Embedder.Source())
+	if err != nil {
+		s.logEmbedFailure(err)
+		return 0
+	}
+	if pending == 0 {
+		return 0
+	}
+	// A sidecar that was already up is serving someone's searches; leave it.
+	type lifecycle interface {
+		Running() bool
+		StopIfIdle()
+	}
+	if lc, ok := s.Embedder.(lifecycle); ok && !lc.Running() {
+		defer lc.StopIfIdle()
+	}
+	res, err := s.Archive.Embed(ctx, s.Embedder, nil)
+	if err != nil {
+		if ctx.Err() == nil {
+			s.logEmbedFailure(err)
+		}
+		return res.Embedded
+	}
+	s.lastEmbedErr = ""
+	s.Logf("embed: %d texts in %.1fs; %d of %d have vectors", res.Embedded, res.Seconds, res.Vectors, res.Texts)
+	return res.Embedded
+}
+
+// logEmbedFailure logs a background failure when it is new. A missing model
+// would otherwise be reported at every interval for as long as it is missing.
+func (s *Server) logEmbedFailure(err error) {
+	if msg := err.Error(); msg != s.lastEmbedErr {
+		s.lastEmbedErr = msg
+		s.Logf("embed: %v", err)
 	}
 }
 

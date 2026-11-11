@@ -45,5 +45,10 @@ vectors (cosine 0.9999), half the size.
 - Only `skit embed` downloads the model. Nothing else reaches the network.
 - "DigUp's z-scaled fusion" is not built yet: meaning search ranks by plain cosine until the eval exists.
 
+- Later the same day: the fusion built is not DigUp's. `hybrid` lists what passes meaning search's gate first and the
+  keyword hits after it; the gate is a cosine floor, not a z-score, because z rises with the size of the archive. And
+  "CPU-only machines are supported" no longer holds as a promise: the tool supports Apple silicon Macs only
+  (`../plan-v0.md`, Choices); `--cpu` remains and is not tested.
+
 **Consequences.** Text, image and audio search ship without writing or maintaining llama.cpp bindings. The `embed`
 package is a client for one well-documented HTTP API plus process management and model downloads.

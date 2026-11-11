@@ -40,7 +40,9 @@ A target is a session id or a unique prefix of one, then @N for an agent turn
 hit in that session counts. Reaching any one target is enough. Places are
 counted in distinct turns, so several hits from one turn take one place. A
 query with an empty "expect" should find nothing: eval reports how many of
-those were answered anyway.
+those were answered anyway, per tag. Tag them "nothing" when the archive has
+nothing on the subject and "near-miss" when it has something next to it, so
+that related hits for a near miss are not counted against the gate.
 
 Beside "queries" the file may hold "exclude": a list of session id prefixes
 whose hits are dropped before anything is counted. Put the sessions in which
@@ -53,7 +55,7 @@ Every target must be an archived session, or eval stops before running.
 The remaining flags are search's own (--no-tools, --kind, --all, --min-cosine,
 --min-z), applied to every query, so two settings can be compared by running
 the same file twice.`,
-		Example: "  skit eval queries.json\n  skit eval queries.json --mode keyword --misses\n  skit eval queries.json --mode meaning --min-cosine 0.75 --min-z 99\n  skit eval queries.json --json | jq '.modes[] | {mode, overall}'",
+		Example: "  skit eval queries.json\n  skit eval queries.json --mode keyword --misses\n  skit eval queries.json --mode meaning --min-cosine 0.75\n  skit eval queries.json --json | jq '.modes[] | {mode, overall}'",
 		Args:    cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			for _, m := range modes {
@@ -98,9 +100,11 @@ the same file twice.`,
 					fmt.Fprintf(w, "%-9s %-16s %4d  %5.2f  %5.2f  %5.2f  %5.2f\n", m.Mode, truncate(s.Tag, 16), s.N, s.R1, s.R5, s.R10, s.MRR)
 				}
 			}
+			// Queries with no expected answer, by tag: "nothing" is the gate's
+			// test; a "near-miss" that gets related hits is not its failure.
 			for _, m := range rep.Modes {
-				if m.Nothing.N > 0 {
-					fmt.Fprintf(w, "\n%s: %d of %d queries that should find nothing got an answer", m.Mode, m.Nothing.Answered, m.Nothing.N)
+				for _, n := range m.NothingTags {
+					fmt.Fprintf(w, "\n%s: %d of %d %q queries (no answer expected) got one", m.Mode, n.Answered, n.N, n.Tag)
 				}
 			}
 			if rep.Modes[0].Nothing.N > 0 {
@@ -136,12 +140,12 @@ the same file twice.`,
 			return nil
 		},
 	}
-	cmd.Flags().StringSliceVar(&modes, "mode", search.Modes, "modes to measure, comma-separated: keyword, meaning")
+	cmd.Flags().StringSliceVar(&modes, "mode", search.Modes, "modes to measure, comma-separated: "+strings.Join(search.Modes, ", "))
 	cmd.Flags().BoolVar(&misses, "misses", false, "list the queries whose expected turn did not come first, with what did")
 	cmd.Flags().StringSliceVar(&knobs.Kinds, "kind", nil, "search only these kinds, comma-separated: "+strings.Join(search.Kinds, ", "))
 	cmd.Flags().BoolVar(&knobs.NoTools, "no-tools", false, "search without tool calls and their results")
 	cmd.Flags().BoolVar(&knobs.NoGate, "all", false, "meaning mode without its gate")
 	cmd.Flags().Float64Var(&knobs.MinCosine, "min-cosine", 0, fmt.Sprintf("meaning mode: a passage matches at this cosine (default %.2f)", search.DefaultMinCosine))
-	cmd.Flags().Float64Var(&knobs.MinZ, "min-z", 0, fmt.Sprintf("meaning mode: or at this z (default %.1f)", search.DefaultMinZ))
+	cmd.Flags().Float64Var(&knobs.MinZ, "min-z", 0, "meaning mode: also let a passage through at this z (off by default)")
 	return cmd
 }

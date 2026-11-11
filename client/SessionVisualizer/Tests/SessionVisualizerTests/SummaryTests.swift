@@ -124,6 +124,85 @@ import Testing
         #expect(groups.flatMap { $0.rows.map(\.index) } == [0, 1, 2, 3, 4], "the cursor counts through the groups")
     }
 
+    @Test func aFoldedSessionIsOneStopOfTheCursor() {
+        func hit(_ session: String, _ n: Int) -> SearchHit {
+            SearchHit(session: session, turn: n, action: n, kind: "assistant", snippet: "«x»")
+        }
+        let hits = [hit("a", 0), hit("a", 1), hit("a", 2), hit("b", 0), hit("b", 1), hit("c", 0)]
+        #expect(SearchPage.stops(hits, folded: []) == [0, 1, 2, 3, 4, 5])
+        // A folded session is stopped at once, on its first hit: the one its preview shows.
+        #expect(SearchPage.stops(hits, folded: ["a", "c"]) == [0, 3, 4, 5])
+        #expect(SearchPage.stops(hits, folded: ["a", "b", "c"]) == [0, 3, 5])
+
+        let state = SearchState()
+        state.hits = hits
+        state.selected = 4
+        state.setAllFolded(true)
+        #expect(state.folded == ["a", "b", "c"] && state.selected == 3, "the cursor stays on its session, at its line")
+        state.setAllFolded(false)
+        #expect(state.folded.isEmpty && state.selected == 3)
+
+        // What is being asked for: the mode, the words, the scope. A search is current when it carries the same stamp.
+        state.query = "  ergo "
+        state.kind = "prompt"
+        #expect(state.stamp == "\nergo\nprompt")
+        state.mode = "meaning"
+        #expect(state.stamp == "meaning\nergo\nprompt")
+    }
+
+    @Test func backGoesWhereTheWindowWas() throws {
+        let model = try ModelTests.model()
+        let window = WindowState()
+        #expect(!window.canGoBack && !window.canGoForward)
+
+        // Sessions → a session's Summary → its Transcript (by a link on the Summary).
+        window.open(session: model.doc.id, view: .summary)
+        window.reveal(.turn(1), in: model)
+        #expect(window.sessionView == .transcript)
+        #expect(window.backTarget == WindowState.Place(page: .session(model.doc.id), view: .summary))
+        window.goBack()
+        #expect(window.page == .session(model.doc.id) && window.sessionView == .summary, "Back from the Transcript is the Summary, not the list")
+        window.goBack()
+        #expect(window.page == .sessions)
+        #expect(!window.canGoBack && window.canGoForward)
+        window.goForward()
+        window.goForward()
+        #expect(window.page == .session(model.doc.id) && window.sessionView == .transcript && !window.canGoForward)
+
+        // Search → a hit → Back is the Search page, with what was asked still there.
+        window.search.query = "ergo"
+        window.page = .search
+        window.open(session: "elsewhere", at: .action(3), query: "ergo")
+        #expect(window.page == .session("elsewhere") && window.sessionView == .transcript)
+        window.goBack()
+        #expect(window.page == .search && window.search.query == "ergo")
+        // Opening a session is one step, not two (the page, then the view).
+        window.goBack()
+        #expect(window.page == .session(model.doc.id) && window.sessionView == .transcript)
+
+        // Going somewhere new forgets what was ahead.
+        window.page = .sessions
+        #expect(!window.canGoForward)
+
+        // A window opened on a page with nothing behind it still has a way out.
+        let fresh = WindowState()
+        fresh.go(to: .search)
+        fresh.goBack()
+        #expect(fresh.page == .sessions)
+        let alone = WindowState()
+        alone.goBack()
+        #expect(alone.page == .sessions && !alone.canGoForward)
+    }
+
+    @Test func aSessionOpenedFromAListStartsOnItsSummary() {
+        let window = WindowState()
+        window.open(session: "a", at: .action(1))
+        #expect(window.sessionView == .transcript, "a hit means the Transcript")
+        window.page = .sessions
+        window.open(session: "b", view: .summary)
+        #expect(window.sessionView == .summary, "the list does not inherit the last session's view")
+    }
+
     @Test func snippetsCarryTheirMarks() {
         #expect(Snippet.marks("the «Docker» suite and «docker» again, then «integration»") == ["integration", "docker"])
         #expect(Snippet.marks("no marks") == [])
@@ -132,6 +211,11 @@ import Testing
         #expect(cut == "…" + String(repeating: "a", count: 9) + " needle " + String(repeating: "b", count: 13) + "…")
         #expect(Snippet.window("short text", marks: ["text"]) == "short text")
         #expect(Snippet.window("nothing marked", marks: []) == "nothing marked")
+        // A meaning hit marks no word: the window opens where its passage begins.
+        let reply = String(repeating: "x", count: 400) + "\n\nErgo is clear: a TOML defines repos." + String(repeating: "y", count: 2000)
+        let around = Snippet.window(reply, marks: [], passage: "Ergo is clear: a TOML defines repos…", before: 500, after: 900)
+        #expect(around.hasPrefix("…" + String(repeating: "x", count: 118) + "\n\nErgo is clear") && around.hasSuffix("…"))
+        #expect(Snippet.window("short reply", marks: [], passage: "not in it") == "short reply")
     }
 
     @Test func linksRoundTrip() throws {

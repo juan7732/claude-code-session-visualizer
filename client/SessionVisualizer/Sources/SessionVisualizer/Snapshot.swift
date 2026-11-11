@@ -29,6 +29,12 @@ struct SnapshotRequest {
     var fold = false
     /// Opens the ⌘K palette, with `query` typed into it.
     var palette = false
+    /// On the Search page: the scope chosen after the first results arrived.
+    var kind: String?
+    /// On the Search page: "meaning" searches by what the text says.
+    var mode: String?
+    /// On the Search page: every session's hits shown, whatever the setting.
+    var unfold = false
 
     init?(arguments: [String]) {
         guard let at = arguments.firstIndex(of: "--snapshot"), at + 1 < arguments.count else { return nil }
@@ -75,6 +81,9 @@ struct SnapshotRequest {
         openCalls = arguments.contains("--open-calls")
         fold = arguments.contains("--fold")
         palette = arguments.contains("--palette")
+        kind = value("--kind")
+        mode = value("--mode")
+        unfold = arguments.contains("--unfold")
     }
 }
 
@@ -165,10 +174,17 @@ enum Snapshot {
                 }
             }
             if request.page == .search, let query = request.query {
+                if let mode = request.mode { state.search.mode = mode }
                 state.search.query = query
                 // The search, then the preview's session.
                 for _ in 0..<80 where state.search.searched.isEmpty { try? await Task.sleep(for: .milliseconds(100)) }
                 try? await Task.sleep(for: .milliseconds(2500))
+                if let kind = request.kind {
+                    // The way a person does it: results first, then a click on a scope.
+                    state.search.kind = kind
+                    try? await Task.sleep(for: .milliseconds(2500))
+                }
+                if request.unfold { state.search.setAllFolded(false) }
             }
             if request.palette {
                 state.paletteShown = true
@@ -195,8 +211,12 @@ enum Snapshot {
 }
 
 /// A window that may sit off every screen: AppKit otherwise pulls it back on.
+/// It never takes the keyboard: a snapshot with a focused field would otherwise
+/// receive what the person is typing elsewhere.
 private final class OffscreenWindow: NSWindow {
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
 }
 
 private struct SnapshotFlyoutKey: EnvironmentKey {

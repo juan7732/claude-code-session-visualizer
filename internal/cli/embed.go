@@ -79,7 +79,11 @@ func printMeaning(w io.Writer, rep meaningReport) {
 	case rep.Vectors.Vectors < rep.Vectors.Texts:
 		state = "behind"
 	}
-	fmt.Fprintf(w, "Meaning search     %s · %d of %d texts have vectors (%s)\n", state, rep.Vectors.Vectors, rep.Vectors.Texts, humanBytes(rep.Vectors.Bytes))
+	last := ""
+	if t, err := time.Parse(time.RFC3339, rep.Vectors.EmbeddedAt); err == nil {
+		last = " · brought up to date " + archive.Since(t)
+	}
+	fmt.Fprintf(w, "Meaning search     %s · %d of %d texts have vectors (%s)%s\n", state, rep.Vectors.Vectors, rep.Vectors.Texts, humanBytes(rep.Vectors.Bytes), last)
 	pad := "                   "
 	if rep.LlamaServer == "" {
 		fmt.Fprintf(w, "%s%s\n", pad, rep.ServerDetail)
@@ -98,7 +102,7 @@ func printMeaning(w io.Writer, rep meaningReport) {
 	case rep.Stale:
 		fmt.Fprintf(w, "%sthe index holds vectors from %q; run `skit embed` to replace them\n", pad, rep.Vectors.Source)
 	case rep.LlamaServer != "" && rep.ModelFile.Present && rep.Vectors.Vectors < rep.Vectors.Texts:
-		fmt.Fprintf(w, "%srun `skit embed` to cover the rest\n", pad)
+		fmt.Fprintf(w, "%sthe background agent covers the rest within half an hour; `skit embed` does it now\n", pad)
 	case rep.LlamaServer != "" && rep.ModelFile.Present && rep.Vectors.Texts == 0:
 		fmt.Fprintf(w, "%srun `skit embed` (after `skit archive`) to index for meaning\n", pad)
 	}

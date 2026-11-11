@@ -66,7 +66,8 @@ Options: `--page sessions|session:<id>|search|stats|claude`, `--view summary|tra
 `--appearance light|dark|oled`, `--size 1500x940`, `--socket <path>`, `--flyout`, and inside a session
 `--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>`,
 `--tab details|io|note`, `--query <text>` (find in the Transcript, the Summary's search box, or the Search page),
-`--open-calls`, `--fold`, `--palette`.
+`--open-calls`, `--fold`, `--palette`, and on the Search page `--mode meaning`, `--kind <kind>` (chosen after the first
+results, as a click would), `--unfold` (every session's hits shown). The offscreen window never takes the keyboard.
 
 `--measure <session id>` prints how long each step of opening a session takes (fetch, decode, build), twice: once as
 found and once with the session in the engine's memory. One known limit: the toolbar's glass controls draw as white

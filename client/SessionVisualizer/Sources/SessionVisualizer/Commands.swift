@@ -26,7 +26,9 @@ enum AppActions {
         for (index, view) in SessionView.allCases.enumerated() where view.arrives == nil {
             out.append(AppAction(title: view.title, shortcut: "⌘\(index + 1)", enabled: id != nil) { window.sessionView = view })
         }
-        out.append(AppAction(title: "Go to Sessions", shortcut: "⌘[") { window.page = .sessions })
+        out.append(AppAction(title: "Back", shortcut: "⌘[", enabled: window.canGoBack) { window.goBack() })
+        out.append(AppAction(title: "Forward", shortcut: "⌘]", enabled: window.canGoForward) { window.goForward() })
+        out.append(AppAction(title: "Go to Sessions") { window.page = .sessions })
         out.append(AppAction(title: "Go to Search", shortcut: "⇧⌘F") { showSearch(window) })
         out.append(AppAction(title: "Find in This Session", shortcut: "⌘F", enabled: id != nil) { find(window) })
         out.append(AppAction(title: "Export Session as Markdown…", shortcut: "⇧⌘E", enabled: session != nil) {
@@ -38,8 +40,13 @@ enum AppActions {
         out.append(AppAction(title: "Copy Link", shortcut: "⇧⌘C", enabled: id != nil) { copyLink(window, store) })
         out.append(AppAction(title: sidebar ? "Hide Sidebar" : "Show Sidebar", shortcut: "⌃⌘S") { defaults.set(!sidebar, forKey: SettingsKey.sidebar) })
         out.append(AppAction(title: inspector ? "Hide Inspector" : "Show Inspector", shortcut: "⌥⌘I", enabled: id != nil) { defaults.set(!inspector, forKey: SettingsKey.inspector) })
-        out.append(AppAction(title: "Show All Tool Calls", shortcut: "⌥⌘→", enabled: inTranscript) { setAllFolded(false, window, model) })
-        out.append(AppAction(title: "Fold All Tool Calls", shortcut: "⌥⌘←", enabled: inTranscript) { setAllFolded(true, window, model) })
+        if window.page == .search {
+            out.append(AppAction(title: "Show All Hits", shortcut: "⌥⌘→") { setSearchFolded(false, window) })
+            out.append(AppAction(title: "Fold to Sessions", shortcut: "⌥⌘←") { setSearchFolded(true, window) })
+        } else {
+            out.append(AppAction(title: "Show All Tool Calls", shortcut: "⌥⌘→", enabled: inTranscript) { setAllFolded(false, window, model) })
+            out.append(AppAction(title: "Fold All Tool Calls", shortcut: "⌥⌘←", enabled: inTranscript) { setAllFolded(true, window, model) })
+        }
         out.append(AppAction(title: "Open in New Window", enabled: id != nil) { if let id { openWindow(id) } })
         out.append(AppAction(title: id.map { store.annotation($0).pinned } == true ? "Unpin" : "Pin", enabled: id != nil) {
             if let id { Task { await store.togglePin(id) } }
@@ -72,6 +79,13 @@ enum AppActions {
         store.notice = "Link copied." + (Bundle.main.bundleURL.pathExtension == "app" ? "" : " It opens in the installed app.")
     }
 
+    /// On the Search page: every session to its one line, or every hit shown.
+    /// The choice is kept for the searches that follow.
+    static func setSearchFolded(_ folded: Bool, _ window: WindowState) {
+        UserDefaults.standard.set(folded, forKey: SettingsKey.searchFolded)
+        window.search.setAllFolded(folded)
+    }
+
     /// Folds every turn's tool calls into one line per run, or shows them all again.
     static func setAllFolded(_ folded: Bool, _ window: WindowState, _ model: SessionModel?) {
         guard let model else { return }
@@ -93,6 +107,7 @@ struct AppCommands: Commands {
     private var session: SessionSummary? { sessionID.flatMap { store.session($0) } }
     private var model: SessionModel? { sessionID.flatMap { store.model($0) } }
     private var inTranscript: Bool { sessionID != nil && window?.sessionView == .transcript }
+    private var onSearch: Bool { window?.page == .search }
 
     var body: some Commands {
         CommandGroup(after: .newItem) {
@@ -130,10 +145,17 @@ struct AppCommands: Commands {
             Button(inspector ? "Hide Inspector" : "Show Inspector") { inspector.toggle() }
                 .keyboardShortcut("i", modifiers: [.command, .option])
             Divider()
-            Button("Show All Tool Calls") { if let window { AppActions.setAllFolded(false, window, model) } }
-                .keyboardShortcut(.rightArrow, modifiers: [.command, .option]).disabled(!inTranscript)
-            Button("Fold All Tool Calls") { if let window { AppActions.setAllFolded(true, window, model) } }
-                .keyboardShortcut(.leftArrow, modifiers: [.command, .option]).disabled(!inTranscript)
+            // One pair of keys for "everything open" and "everything folded", on whichever list is in front.
+            Button(onSearch ? "Show All Hits" : "Show All Tool Calls") {
+                guard let window else { return }
+                if onSearch { AppActions.setSearchFolded(false, window) } else { AppActions.setAllFolded(false, window, model) }
+            }
+            .keyboardShortcut(.rightArrow, modifiers: [.command, .option]).disabled(!inTranscript && !onSearch)
+            Button(onSearch ? "Fold to Sessions" : "Fold All Tool Calls") {
+                guard let window else { return }
+                if onSearch { AppActions.setSearchFolded(true, window) } else { AppActions.setAllFolded(true, window, model) }
+            }
+            .keyboardShortcut(.leftArrow, modifiers: [.command, .option]).disabled(!inTranscript && !onSearch)
             Divider()
             Button("Zoom In") {}.keyboardShortcut("+").disabled(true) // M10
             Button("Zoom Out") {}.keyboardShortcut("-").disabled(true)
@@ -153,9 +175,14 @@ struct AppCommands: Commands {
             Divider()
             Button("Archive Now") { if let sessionID { Task { await store.archiveNow(sessionID) } } }.disabled(sessionID == nil)
             Divider()
-            Button("Back to Sessions") { window?.page = .sessions }
+            Button("Back") { window?.goBack() }
                 .keyboardShortcut("[", modifiers: .command)
-                .disabled(sessionID == nil)
+                .disabled(window?.canGoBack != true)
+            Button("Forward") { window?.goForward() }
+                .keyboardShortcut("]", modifiers: .command)
+                .disabled(window?.canGoForward != true)
+            Button("Go to Sessions") { window?.page = .sessions }
+                .disabled(window == nil || window?.page == .sessions)
         }
         CommandGroup(replacing: .help) {
             Button("Keyboard Shortcuts") { window?.transcript.helpShown.toggle() }

@@ -42,7 +42,8 @@ type Sidecar struct {
 }
 
 // FindBinary locates llama-server: the explicit path when one is given, else
-// the app bundle's Helpers directory beside this executable, else PATH.
+// the app bundle's Helpers directory beside this executable, else PATH, else
+// where Homebrew installs it.
 func FindBinary(explicit string) (string, error) {
 	if explicit != "" {
 		if fi, err := os.Stat(explicit); err != nil || fi.IsDir() {
@@ -61,8 +62,21 @@ func FindBinary(explicit string) (string, error) {
 	if p, err := exec.LookPath("llama-server"); err == nil {
 		return p, nil
 	}
+	// DECISION: Homebrew's directories are named outright. The background
+	// agent runs under launchd, whose PATH is /usr/bin:/bin:/usr/sbin:/sbin, so
+	// a `brew install llama.cpp` that every shell finds was invisible to
+	// `skit serve` and meaning search failed only from the app.
+	for _, p := range homebrewBinaries {
+		if fi, err := os.Stat(p); err == nil && !fi.IsDir() {
+			return p, nil
+		}
+	}
 	return "", errors.New("llama-server not found (install it with `brew install llama.cpp`, or point SKIT_LLAMA_SERVER at the binary)")
 }
+
+// homebrewBinaries is where `brew install llama.cpp` puts llama-server: Apple
+// silicon first, then Intel. A variable so a test can point it elsewhere.
+var homebrewBinaries = []string{"/opt/homebrew/bin/llama-server", "/usr/local/bin/llama-server"}
 
 // StartSidecar runs llama-server on a free loopback port with a random API key
 // and returns once it answers /health. ctx bounds the start only.

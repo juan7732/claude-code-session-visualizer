@@ -89,14 +89,21 @@ struct RootView: View {
                 Label(sidebar ? "Hide Sidebar" : "Show Sidebar", systemImage: "sidebar.leading")
             }
             .help(sidebar ? "Hide Sidebar (⌃⌘S)" : "Show Sidebar (⌃⌘S)")
-            if window.sessionID != nil {
-                Button {
-                    window.page = .sessions
-                } label: {
-                    Label("Back to Sessions", systemImage: "chevron.backward")
-                }
-                .help("Back to Sessions")
+            // Two plain buttons: a ControlGroup here is moved to the trailing edge.
+            Button {
+                window.goBack()
+            } label: {
+                Label("Back", systemImage: "chevron.backward")
             }
+            .disabled(!window.canGoBack)
+            .help(Self.backHelp(window))
+            Button {
+                window.goForward()
+            } label: {
+                Label("Forward", systemImage: "chevron.forward")
+            }
+            .disabled(!window.canGoForward)
+            .help("Forward (⌘])")
         }
         if let id = window.sessionID {
             ToolbarItem(placement: .principal) {
@@ -127,6 +134,19 @@ struct RootView: View {
                 .help("More")
             }
         }
+    }
+
+    /// "Back to the Summary", "Back to Search": where the button leads.
+    static func backHelp(_ window: WindowState) -> String {
+        let target = window.backTarget
+        let place: String = switch target.page {
+        case .sessions: "Sessions"
+        case .search: "Search"
+        case .stats: "Stats"
+        case .claude: "Claude"
+        case .session(let id): id == window.sessionID ? "the \(target.view.title)" : "the session you came from"
+        }
+        return "Back to \(place) (⌘[)"
     }
 
     @ViewBuilder private var notice: some View {

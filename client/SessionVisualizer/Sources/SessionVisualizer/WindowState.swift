@@ -92,16 +92,35 @@ final class SearchState {
     var query = ""
     /// "" for everything, else prompt | assistant | thinking | tool_use | tool_result.
     var kind = ""
+    /// "" for keyword, "meaning" for what the text says.
+    var mode = ""
     /// Every hit for the query, and the ones of the chosen kind.
     var all: [SearchHit] = []
     var hits: [SearchHit] = []
-    /// The query and kind the hits belong to.
+    /// The mode and query `all` belongs to.
+    var allFor = ""
+    /// The stamp of the search the hits belong to.
     var searched = ""
+    /// The hit the cursor is on; for a folded session, its first.
     var selected = 0
+    /// Sessions folded to their one line.
+    var folded: Set<String> = []
     var searching = false
     var failure: String?
     /// Bumped to move the keyboard into the field.
     var focusRequests = 0
+
+    /// What is being asked for now: a search is current when `searched` equals it.
+    var stamp: String { mode + "\n" + query.trimmingCharacters(in: .whitespaces) + "\n" + kind }
+
+    /// Folds every session to its line, or shows every hit. The cursor stays on its session.
+    func setAllFolded(_ fold: Bool) {
+        folded = fold ? Set(hits.map(\.session)) : []
+        if fold, hits.indices.contains(selected) {
+            let session = hits[selected].session
+            selected = hits.firstIndex { $0.session == session } ?? selected
+        }
+    }
 }
 
 /// What one window is looking at. Windows share the store and nothing else.
@@ -110,12 +129,77 @@ final class WindowState {
     var page: Page = .sessions {
         didSet {
             if page != oldValue {
+                if !travelling { remember(Place(page: oldValue, view: sessionView)) }
                 selection = nil
                 transcript = TranscriptState()
             }
         }
     }
-    var sessionView: SessionView = .summary
+    var sessionView: SessionView = .summary {
+        didSet {
+            // Inside a session, the view is part of where you are: Back from the Transcript is the Summary.
+            if sessionView != oldValue, !travelling, sessionID != nil { remember(Place(page: page, view: oldValue)) }
+        }
+    }
+
+    // MARK: Where the window has been
+
+    /// A place the window can be: a page, and inside a session the view of it.
+    struct Place: Equatable {
+        var page: Page
+        var view: SessionView
+    }
+
+    private(set) var backStack: [Place] = []
+    private(set) var forwardStack: [Place] = []
+    /// Set while Back, Forward or `go` moves the window, so the move is not itself remembered twice.
+    @ObservationIgnored private var travelling = false
+
+    var place: Place { Place(page: page, view: sessionView) }
+    /// With nowhere remembered, Back still leads out of a page to Sessions.
+    var canGoBack: Bool { !backStack.isEmpty || page != .sessions }
+    var canGoForward: Bool { !forwardStack.isEmpty }
+    /// Where Back leads.
+    var backTarget: Place { backStack.last ?? Place(page: .sessions, view: sessionView) }
+
+    private func remember(_ place: Place) {
+        if backStack.last != place { backStack.append(place) }
+        if backStack.count > 100 { backStack.removeFirst(backStack.count - 100) }
+        forwardStack.removeAll()
+    }
+
+    private func travel(to place: Place) {
+        travelling = true
+        page = place.page
+        sessionView = place.view
+        travelling = false
+    }
+
+    /// Moves to a page and a view of it as one step of the history.
+    func go(to page: Page, view: SessionView? = nil) {
+        let from = place
+        travelling = true
+        self.page = page
+        if let view { sessionView = view }
+        travelling = false
+        if place != from { remember(from) }
+    }
+
+    /// Back to where the window was before: the Summary a Transcript was opened
+    /// from, the Search a hit was opened from, the list a session was opened from.
+    func goBack() {
+        guard canGoBack else { return }
+        let from = place
+        let target = backStack.popLast() ?? Place(page: .sessions, view: sessionView)
+        forwardStack.append(from)
+        travel(to: target)
+    }
+
+    func goForward() {
+        guard let target = forwardStack.popLast() else { return }
+        backStack.append(place)
+        travel(to: target)
+    }
     /// The selected node of the open session, shared by its views and shown in the drawer.
     var selection: NodeKey?
     var inspectorTab = InspectorTab.details
@@ -134,11 +218,11 @@ final class WindowState {
         var select = false
     }
 
-    /// Opens a session on a node of its Transcript: the session loads first,
-    /// then `applyPending` lands on the node.
-    func open(session id: String, at key: NodeKey?, query: String? = nil, select: Bool = false, view: SessionView = .transcript) {
-        page = .session(id)
-        sessionView = view
+    /// Opens a session, on a node of it when one is given: the session loads
+    /// first, then `applyPending` lands on the node. A session opened from a
+    /// list starts on its Summary; a hit or a link says which view it means.
+    func open(session id: String, at key: NodeKey? = nil, query: String? = nil, select: Bool = false, view: SessionView = .transcript) {
+        go(to: .session(id), view: view)
         if let query { transcript.query = query }
         pending = key.map { Pending(session: id, key: $0, query: query, select: select) }
     }

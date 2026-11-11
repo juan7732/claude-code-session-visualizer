@@ -3,6 +3,7 @@ package serve
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -362,5 +363,80 @@ func TestSearchByMeaning(t *testing.T) {
 	fake.Close()
 	if code := get(t, h, q, &e); code != 503 {
 		t.Fatalf("embedder down: %d %v", code, e)
+	}
+}
+
+// TestEmbedPassKeepsMeaningSearchCurrent: the background pass embeds what has
+// no vector, asks the model for nothing when there is nothing to do, and is
+// what makes hybrid and meaning search work without anyone running skit embed.
+func TestEmbedPassKeepsMeaningSearchCurrent(t *testing.T) {
+	s, _ := newTestServer(t)
+	h := s.Handler()
+	var logged []string
+	s.Logf = func(format string, args ...any) { logged = append(logged, fmt.Sprintf(format, args...)) }
+
+	if n := s.EmbedPass(context.Background()); n != 0 {
+		t.Fatalf("without an embedder the pass does nothing, embedded %d", n)
+	}
+	fake := &embedtest.Server{}
+	srv := httptest.NewServer(fake)
+	defer srv.Close()
+	s.Embedder = embed.NewClientEmbedder(&embed.Client{BaseURL: srv.URL}, "fake v1")
+	if n := s.EmbedPass(context.Background()); n != 0 || fake.Requests.Load() != 0 {
+		t.Fatalf("an empty archive: embedded %d with %d requests to the model", n, fake.Requests.Load())
+	}
+
+	rec := httptest.NewRecorder()
+	h.ServeHTTP(rec, httptest.NewRequest("POST", "/v0/archive", strings.NewReader(`{}`)))
+	if rec.Code != 200 {
+		t.Fatalf("archive: %d", rec.Code)
+	}
+	n := s.EmbedPass(context.Background())
+	if n == 0 {
+		t.Fatal("the archived session's text should have been embedded")
+	}
+	asked := fake.Requests.Load()
+	if again := s.EmbedPass(context.Background()); again != 0 || fake.Requests.Load() != asked {
+		t.Fatalf("a second pass with nothing new: embedded %d, requests %d → %d", again, asked, fake.Requests.Load())
+	}
+	found := false
+	for _, l := range logged {
+		found = found || strings.HasPrefix(l, "embed: ")
+	}
+	if !found {
+		t.Fatalf("the pass should say what it did: %q", logged)
+	}
+
+	// Status says how far the vectors reach, when they were brought up to
+	// date, and that a meaning query left them in memory.
+	var st Status
+	if code := get(t, h, "/v0/status", &st); code != 200 || st.Vectors.Vectors != n || st.Vectors.Vectors != st.Vectors.Texts || st.Vectors.EmbeddedAt == "" || st.VectorsHeld != 0 {
+		t.Fatalf("status before a query: %d %+v held=%d", code, st.Vectors, st.VectorsHeld)
+	}
+	var hits []map[string]any
+	if code := get(t, h, "/v0/search?mode=hybrid&all=1&q=continued+from+a+previous+conversation", &hits); code != 200 || len(hits) == 0 {
+		t.Fatalf("hybrid: %d %v", code, hits)
+	}
+	if code := get(t, h, "/v0/status", &st); code != 200 || st.VectorsHeld != st.Vectors.Chunks {
+		t.Fatalf("after a query the vectors are held: %d of %d", st.VectorsHeld, st.Vectors.Chunks)
+	}
+
+	// A failure is logged once, not at every interval.
+	srv.Close()
+	if _, err := s.Archive.Store.UseVectorSource("another model"); err != nil { // makes every text pending again
+		t.Fatal(err)
+	}
+	s.Embedder = embed.NewClientEmbedder(&embed.Client{BaseURL: srv.URL}, "fake v1")
+	before := len(logged)
+	s.EmbedPass(context.Background())
+	s.EmbedPass(context.Background())
+	failures := 0
+	for _, l := range logged[before:] {
+		if strings.HasPrefix(l, "embed: ") {
+			failures++
+		}
+	}
+	if failures != 1 {
+		t.Fatalf("the same failure twice should be logged once, got %d: %q", failures, logged[before:])
 	}
 }
