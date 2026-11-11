@@ -68,4 +68,32 @@ import Testing
         #expect(custom.binaryCandidates.filter { $0 == "/x/skit" }.count == 1)
         #expect(EngineLocator(environment: [:], homeDirectory: "/nonexistent-\(getpid())").findBinary() == nil || true)
     }
+
+    /// The app that ships starts the `skit` inside it and no other: not `$SKIT_BIN`, not one on the PATH.
+    @Test func theShippedAppStartsOnlyItsOwnHelper() throws {
+        let bundle = NSTemporaryDirectory() + "sk-app-\(getpid())-\(UInt32.random(in: 0...UInt32.max))"
+        let helpers = bundle + "/Contents/Helpers"
+        try FileManager.default.createDirectory(atPath: helpers, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(atPath: bundle) }
+        let planted = bundle + "/planted-skit"
+        for path in [helpers + "/skit", planted] {
+            try Data("#!/bin/sh\n".utf8).write(to: URL(fileURLWithPath: path))
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: path)
+        }
+        let environment = ["SKIT_BIN": planted, "PATH": bundle]
+
+        let shipped = EngineLocator(environment: environment, homeDirectory: "/Users/me", helpersDirectory: helpers, trustsOnlyItsHelper: true)
+        #expect(shipped.binaryCandidates == [helpers + "/skit"])
+        #expect(shipped.findBinary() == helpers + "/skit")
+
+        // A debug build keeps the developer's override, and so does a run without a bundle (`swift run`).
+        let debug = EngineLocator(environment: environment, homeDirectory: "/Users/me", helpersDirectory: helpers, trustsOnlyItsHelper: false)
+        #expect(debug.findBinary() == planted)
+        let unbundled = EngineLocator(environment: environment, homeDirectory: "/Users/me", helpersDirectory: bundle + "/no-helpers", trustsOnlyItsHelper: true)
+        #expect(unbundled.findBinary() == planted)
+
+        // A helper that is there and cannot be run is not replaced by something else on the Mac.
+        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: helpers + "/skit")
+        #expect(shipped.findBinary() == nil && shipped.binaryCandidates == [helpers + "/skit"])
+    }
 }

@@ -277,10 +277,13 @@ private struct ScrollMap: View {
         case .gap: 3
         case .compaction, .systemTurn, .event: 3
         case .turnEnd: 1.5
-        case .prompt(let turn): 4 + min(14, CGFloat(model.prompt(ofTurn: turn)?.text.count ?? 0) / 90)
+        // The lengths were counted when the model was built: the map is redrawn with every scroll.
+        case .prompt(let turn): 4 + min(14, CGFloat(model.promptLength(ofTurn: turn)) / 90)
         case .work: 2.6
         case .action(let n):
-            model.action(n).map { 1 + min(30, CGFloat($0.text.count) / 110) + (folded.contains($0.turn) ? 0 : CGFloat($0.toolUseIDs.count) * 2.2) } ?? 2
+            model.action(n).flatMap { action in
+                model.prose(n).map { 1 + min(30, CGFloat($0.length) / 110) + (folded.contains(action.turn) ? 0 : CGFloat($0.calls) * 2.2) }
+            } ?? 2
         }
     }
 

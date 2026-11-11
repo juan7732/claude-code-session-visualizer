@@ -12,6 +12,17 @@ feed the next action. A **subagent** is a nested turn under the Agent tool call 
 `requestId` is an action; `tool_result` user records continue the turn; a non-human `turnOrigin` (a task notification)
 opens a system-originated turn. "Request" in counts means action.
 
+Claude Code 2.1.263 and 2.1.267 left `turnOrigin` out of some user records and wrote `origin: {"kind": "human"}` (or
+`"task-notification"`) instead. The parser reads `turnOrigin` first and `origin.kind` when it is absent, with the hyphen
+turned into the underscore `turnOrigin` uses. Read by `turnOrigin` alone, 13 of one session's 36 prompts were not
+prompts (found 2026-11-11). A user record with neither is a slash command, its output or an interrupt marker, and opens
+no turn.
+
+A field whose type is not the one expected (a string where a list was, an object where a string was) costs that field
+and not the record: the record is kept with everything else it holds and counted in `mismatched`. A line that is not
+JSON is kept as a `<malformed>` record and counted in `malformed`. Both counts are in the session's stats, so a session
+that was not read whole says so.
+
 ## Record types
 
 | type                       | count | what it is                                                                                                                                                                                                                | timeline?                                                                           |
@@ -116,7 +127,11 @@ abandoned. Subagents are separate files under `<session>/subagents/`, in the sam
 
 A `tool_result` block has `tool_use_id` → the `tool_use.id` in an earlier assistant record (0 orphans observed), and
 `content` is a string (711), a list with `image` blocks (18: the Read tool on a PNG), or `tool_reference` (13). Large
-outputs are truncated in place with a pointer to `<session>/tool-results/<id>.txt`.
+outputs are truncated in place with a pointer to `<session>/tool-results/<id>.txt`: the result opens with
+`<persisted-output>` and names the file after "Full output saved to:", and `toolUseResult.persistedOutputPath` holds the
+same path. skit follows the pointer only for a result that opens that way, and only to a regular file in a directory
+named `tool-results`; it reads at most 8 MiB of it. The sentence alone is something any tool can print, and six results
+on this machine merely quoted it.
 
 ## `assistant` and request splitting
 

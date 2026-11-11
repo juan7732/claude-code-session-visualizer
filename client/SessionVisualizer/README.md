@@ -70,14 +70,16 @@ answers, it looks for `skit` (`$SKIT_BIN`, the bundle's `Contents/Helpers`, `PAT
 `build.sh` puts the release build and `skit` into `SessionVisualizer.app` and signs it. The bundle declares the
 `skit-visualizer` scheme: Edit › Copy Link (⇧⌘C) copies `skit-visualizer://session/<id>?view=…` with the selected node,
 and opening such a link brings the app to that node. Run from the build directory the app can copy links but nothing
-routes them to it. Opened links are logged (`log stream --predicate 'subsystem == "dev.sessionkit.SessionVisualizer"'`).
+routes them to it. Opened links are logged (`log stream --predicate 'subsystem == "dev.sessionkit.SessionVisualizer"'`)
+by session, view and kind of node; the address itself is not in the log.
 
 ## Snapshots
 
-`--snapshot` renders a page offscreen and exits. It only attaches to a running engine and never installs anything.
-Options: `--page sessions|session:<id>|search|stats|claude|primitives|now`,
-`--view summary|transcript|canvas|timeline|files`, `--appearance light|dark|oled`, `--size 1500x940`, `--socket <path>`,
-`--flyout`, and inside a session
+`--snapshot` renders a page offscreen and exits. It only attaches to a running engine and never installs anything. It is
+in debug builds only, with `--set`, `--scroll-through` and `SKIT_EXERCISE` (`just client-snapshot` and
+`just client-exercise` build one); `--measure` and `--measure-canvas` are in every build. Options:
+`--page sessions|session:<id>|search|stats|claude|primitives|now`, `--view summary|transcript|canvas|timeline|files`,
+`--appearance light|dark|oled`, `--size 1500x940`, `--socket <path>`, `--flyout`, and inside a session
 `--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>`,
 `--tab details|io|note`, `--query <text>` (find in the Transcript, the Summary's search box, or the Search page),
 `--open-calls`, `--fold`, `--palette`, `--set <key>=<value>` (a setting for this picture only), `--scroll-through`, and

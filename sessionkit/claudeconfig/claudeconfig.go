@@ -6,6 +6,11 @@
 // DECISION: a whitelist. ~/.claude.json holds the account, tokens and ids next
 // to the flags. Only named, harmless fields are copied; for identity the
 // snapshot says "set" or "not set" and nothing else.
+//
+// The settings layers cannot be a whitelist: their keys are Claude Code's to
+// add. They are copied with their credentials replaced (redact.go): a value
+// whose name says key, token, secret or helper, every header, and any value
+// that looks like a credential wherever it sits.
 package claudeconfig
 
 import (
@@ -123,6 +128,8 @@ func Read(claudeDir string, roots []string) (*Snapshot, error) {
 			var m map[string]any
 			b, _ := os.ReadFile(l.Path)
 			if json.Unmarshal(b, &m) == nil {
+				// Redacted before anything is built from it: the layer and the effective list both come from m.
+				m = redactSettings(m)
 				mt := st.ModTime()
 				l.Exists, l.Modified, l.Settings = true, &mt, m
 				for k, v := range flatten("", m) {

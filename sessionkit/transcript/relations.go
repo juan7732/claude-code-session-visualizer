@@ -183,7 +183,7 @@ func firstLine(s string, max int) string {
 		s = s[:i]
 	}
 	if len(s) > max {
-		s = s[:max-1] + "…"
+		s = clip(s, max-1) + "…"
 	}
 	return s
 }
@@ -687,16 +687,20 @@ func errorText(raw json.RawMessage) string {
 
 // ImageRef describes one image in the session without its bytes.
 type ImageRef struct {
-	Index     int       `json:"index"`
-	Turn      int       `json:"turn"`
-	At        time.Time `json:"at"`
-	Where     string    `json:"where"` // "prompt" or "tool_result"
-	ToolID    string    `json:"tool_id,omitempty"`
-	MediaType string    `json:"media_type"`
-	Size      int       `json:"size"` // decoded bytes
+	Index int       `json:"index"`
+	Turn  int       `json:"turn"`
+	At    time.Time `json:"at"`
+	Where string    `json:"where"` // "prompt" or "tool_result"
+	// Agent is the id of the subagent whose transcript holds the image, ""
+	// for the session's own. Turn is then the turn that started the subagent.
+	Agent     string `json:"agent,omitempty"`
+	ToolID    string `json:"tool_id,omitempty"`
+	MediaType string `json:"media_type"`
+	Size      int    `json:"size"` // decoded bytes
 }
 
-// Images lists every inline image in file order, without payloads.
+// Images lists every inline image, without payloads: the session's own in
+// file order, then each subagent's.
 func (s *Session) Images() []ImageRef {
 	refs, _ := s.images(-1)
 	return refs
@@ -714,17 +718,17 @@ func (s *Session) ImageData(n int) (mediaType, b64 string, err error) {
 	return refs[n].MediaType, data, nil
 }
 
+// images lists what Images lists and returns the payload of image want.
+//
+// DECISION: the subagents' images are listed with the session's. The count
+// beside them (stats.Summary.Images) has always added the subagents', so a
+// session whose subagent read two pictures said "Images 2" over an empty list
+// (seen 2026-11-11). They are the session's work and worth seeing; one level
+// of subagents, as the count goes.
 func (s *Session) images(want int) ([]ImageRef, string) {
 	refs := []ImageRef{}
 	data := ""
-	turn := 0
-	promptTurn := map[string]int{}
-	for _, t := range s.Turns {
-		if t.Prompt != nil {
-			promptTurn[t.Prompt.UUID] = t.Index
-		}
-	}
-	add := func(r *Record, b Block, where, toolID string) {
+	add := func(r *Record, b Block, turn int, where, agent, toolID string) {
 		if b.Type != "image" || b.Source == nil {
 			return
 		}
@@ -735,23 +739,50 @@ func (s *Session) images(want int) ([]ImageRef, string) {
 		if len(refs) == want {
 			data = b.Source.Data
 		}
-		refs = append(refs, ImageRef{Index: len(refs), Turn: turn, At: r.Timestamp, Where: where, ToolID: toolID, MediaType: b.Source.MediaType, Size: size})
+		refs = append(refs, ImageRef{Index: len(refs), Turn: turn, At: r.Timestamp, Where: where, Agent: agent, ToolID: toolID, MediaType: b.Source.MediaType, Size: size})
 	}
-	for _, r := range s.Records {
-		if r.Type != "user" || r.Message == nil {
-			continue
-		}
-		if t, ok := promptTurn[r.UUID]; ok {
-			turn = t
-		}
-		for _, b := range r.Message.Content {
-			add(r, b, "prompt", "")
-			if b.Type == "tool_result" {
-				for _, inner := range b.Content {
-					add(r, inner, "tool_result", b.ToolUseID)
+	// walk adds the images of one transcript. turnOf says which turn a record
+	// belongs to, given the turn of the record before it.
+	walk := func(sess *Session, agent string, turnOf func(r *Record, turn int) int, turn int) {
+		for _, r := range sess.Records {
+			if r.Type != "user" || r.Message == nil {
+				continue
+			}
+			turn = turnOf(r, turn)
+			for _, b := range r.Message.Content {
+				add(r, b, turn, "prompt", agent, "")
+				if b.Type == "tool_result" {
+					for _, inner := range b.Content {
+						add(r, inner, turn, "tool_result", agent, b.ToolUseID)
+					}
 				}
 			}
 		}
+	}
+	promptTurn := map[string]int{}
+	for _, t := range s.Turns {
+		if t.Prompt != nil {
+			promptTurn[t.Prompt.UUID] = t.Index
+		}
+	}
+	walk(s, "", func(r *Record, turn int) int {
+		if t, ok := promptTurn[r.UUID]; ok {
+			return t
+		}
+		return turn
+	}, 0)
+	// A subagent's images sit in the turn whose tool call started it.
+	started := map[string]int{}
+	for _, c := range s.ToolCalls {
+		if c.Subagent != nil {
+			started[c.Subagent.AgentID] = c.Turn
+		}
+	}
+	for _, sa := range s.Subagents {
+		if sa.Session == nil {
+			continue
+		}
+		walk(sa.Session, sa.AgentID, func(_ *Record, turn int) int { return turn }, started[sa.AgentID])
 	}
 	return refs, data
 }

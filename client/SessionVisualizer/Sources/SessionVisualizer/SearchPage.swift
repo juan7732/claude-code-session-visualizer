@@ -11,6 +11,7 @@ struct SearchPage: View {
     @Environment(WindowState.self) private var window
     @Environment(\.palette) private var palette
     @AppStorage(SettingsKey.recentSearches) private var recent = ""
+    @AppStorage(SettingsKey.keepRecentSearches) private var keepsRecent = true
     @AppStorage(SettingsKey.searchFolded) private var startFolded = true
     @FocusState private var focused: Bool
 
@@ -78,7 +79,7 @@ struct SearchPage: View {
     }
 
     private func idle(_ state: SearchState) -> some View {
-        let past = recent.split(separator: "\n").map(String.init)
+        let past = keepsRecent ? recent.split(separator: "\n").map(String.init) : []
         return VStack(alignment: .leading, spacing: 10) {
             if !past.isEmpty {
                 FlowLayout(spacing: 6) {
@@ -240,8 +241,12 @@ struct SearchPage: View {
         // Live as you type, after a short pause.
         try? await Task.sleep(for: .milliseconds(350))
         if Task.isCancelled { return }
+        // A search that was overtaken ends later than the one that overtook it began: only the
+        // newest one says when searching is over.
+        state.run += 1
+        let run = state.run
         state.searching = true
-        defer { state.searching = false }
+        defer { if state.run == run { state.searching = false } }
         // Everything first, for the counts on the scope bar; then the chosen kind on its own.
         let allFor = mode + "\n" + needle
         if state.allFor != allFor {
@@ -306,11 +311,10 @@ struct SearchPage: View {
         window.open(session: hit.session, at: SessionModel.key(for: hit), query: needle)
     }
 
-    /// The last six searches that led somewhere, newest first.
+    /// The last six searches that led somewhere, newest first; none when Settings says to keep none.
     private func remember(_ query: String) {
-        guard query.count >= 2 else { return }
-        let past = recent.split(separator: "\n").map(String.init).filter { $0 != query }
-        recent = ([query] + past).prefix(6).joined(separator: "\n")
+        let kept = RecentSearches.adding(query, to: recent, keeping: keepsRecent)
+        if kept != recent { recent = kept }
     }
 }
 

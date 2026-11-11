@@ -195,10 +195,7 @@ private struct SessionRow: View {
             Button(note.pinned ? "Unpin" : "Pin") { Task { await store.togglePin(session.id) } }
             Button("Archive Now") { Task { await store.archiveNow(session.id) } }
             Divider()
-            Button("Copy Session ID") {
-                NSPasteboard.general.clearContents()
-                NSPasteboard.general.setString(session.id, forType: .string)
-            }
+            Button("Copy Session ID") { Exporter.copy(session.id) }
         }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(.isButton)

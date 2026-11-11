@@ -73,11 +73,12 @@ import Testing
     }
 
     @Test func openNamesTheApplication() {
-        #expect(FileOpener.title("") == "Open")
-        #expect(FileOpener.title("com.example.not-installed") == "Open", "an application that is not there falls back to the default")
-        #expect(FileOpener.title("/Applications/Nowhere.app") == "Open")
+        // A path with nothing at it: Open has only Finder to offer (SafetyTests has the rule for real files).
+        let nowhere = "/nonexistent-\(getpid())/a.txt"
+        #expect(FileOpener.title("", for: nowhere) == "Show in Finder")
+        #expect(FileOpener.title("com.example.not-installed", for: nowhere) == "Show in Finder", "an application that is not there falls back to the default")
         // TextEdit is on every Mac.
-        #expect(FileOpener.title("com.apple.TextEdit") == "Open in TextEdit")
+        #expect(FileOpener.title("com.apple.TextEdit", for: nowhere) == "Open in TextEdit")
         #expect(FileOpener.installed().contains { $0.id == "com.apple.TextEdit" })
         #expect(FileOpener.application("/System/Applications/TextEdit.app") != nil && FileOpener.name("/System/Applications/TextEdit.app") == "TextEdit")
     }

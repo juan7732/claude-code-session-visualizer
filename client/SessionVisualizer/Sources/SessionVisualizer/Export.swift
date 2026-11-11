@@ -33,9 +33,10 @@ enum Exporter {
         }
     }
 
-    static func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
+    /// Puts text on the pasteboard: the one place the app does (an id, a path, a link, a turn).
+    static func copy(_ text: String, to pasteboard: NSPasteboard = .general) {
+        pasteboard.clearContents()
+        pasteboard.setString(text, forType: .string)
     }
 
     /// "Ergo-workspace-CLAUDE.md-setup.md": the title, safe for a file name.

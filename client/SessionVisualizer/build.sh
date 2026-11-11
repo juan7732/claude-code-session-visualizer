@@ -32,7 +32,8 @@ mkdir -p "$app/Contents/MacOS" "$app/Contents/Helpers"
 cp "$bin/SessionVisualizer" "$app/Contents/MacOS/SessionVisualizer"
 
 echo "building skit $commit"
-(cd "$repo" && CGO_ENABLED=0 go build -ldflags "-X main.version=$commit" -o "$app/Contents/Helpers/skit" ./cmd/skit)
+# -trimpath: the helper is shipped, and without it holds the builder's home and checkout paths.
+(cd "$repo" && CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=$commit" -o "$app/Contents/Helpers/skit" ./cmd/skit)
 
 # The icon: every size the Dock, the Finder and Spotlight ask for, from the one drawing
 # (Resources/AppIcon.png, made from the logo by Scripts/make-icon.swift).

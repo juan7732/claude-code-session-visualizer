@@ -457,7 +457,7 @@ private struct Picture: View {
             do {
                 let data = try await store.client.image(session: sessionID, index)
                 if Task.isCancelled { return }
-                let side = full ? nil : Pictures.thumbnailSide
+                let side = full ? Pictures.fullSide : Pictures.thumbnailSide
                 guard let made = await Task.detached(priority: .userInitiated, operation: { Pictures.decode(data, maxSide: side) }).value else {
                     failure = "Not an image the Mac can draw"
                     return
@@ -474,6 +474,13 @@ private struct Picture: View {
 /// The pictures already decoded, and the gate that keeps a screenful from being fetched all at once.
 enum Pictures {
     static let thumbnailSide = 640
+    /// The longest side the lightbox decodes to.
+    ///
+    /// DECISION: a fixed 8192 pixels, not the screen's size. A transcript's image is whatever a tool
+    /// returned, and a small file can declare a picture of a billion pixels; undecoded size is not a
+    /// bound. 8192 keeps every screenshot whole (Copy puts on the pasteboard what was decoded) and
+    /// holds one decoded picture to 256 MB at the very worst.
+    nonisolated static let fullSide = 8192
     static let cache: NSCache<NSString, NSImage> = {
         let cache = NSCache<NSString, NSImage>()
         cache.totalCostLimit = 256 << 20
@@ -485,11 +492,11 @@ enum Pictures {
         "\(sessionID)/\(index)/\(full ? "full" : "thumb")"
     }
 
-    /// The image, or with `maxSide` a smaller copy no longer than that on its long side, decoded now and not at first draw.
-    nonisolated static func decode(_ data: Data, maxSide: Int?) -> NSImage? {
+    /// The image, no longer than `maxSide` pixels on its long side (a smaller one is left as it is), decoded now and not at first draw.
+    nonisolated static func decode(_ data: Data, maxSide: Int) -> NSImage? {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil) else { return nil }
-        var options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true]
-        if let maxSide { options[kCGImageSourceThumbnailMaxPixelSize] = maxSide }
+        let options: [CFString: Any] = [kCGImageSourceCreateThumbnailFromImageAlways: true, kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceShouldCacheImmediately: true,
+                                        kCGImageSourceThumbnailMaxPixelSize: maxSide]
         guard let made = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return nil }
         return NSImage(cgImage: made, size: NSSize(width: made.width, height: made.height))
     }
@@ -664,7 +671,8 @@ nonisolated enum FilesContent {
     }
 
     static func place(_ image: SessionImage) -> String {
-        image.place == "prompt" ? "in your prompt" : "from a tool"
+        if image.agent != nil { return image.place == "prompt" ? "given to a subagent" : "from a subagent's tool" }
+        return image.place == "prompt" ? "in your prompt" : "from a tool"
     }
 
     /// 950 B, 75 kB, 1.3 MB.

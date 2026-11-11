@@ -10,7 +10,9 @@ import (
 	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 // Session is a parsed transcript: the records, the uuid tree, and the
@@ -57,6 +59,13 @@ type Session struct {
 	Totals Totals `json:"totals"`
 
 	byUUID map[string]*Record
+
+	// Built on first use and kept (a parsed session is shared and read-only):
+	// where each record is in Records, and which records hold the requests.
+	positionsOnce sync.Once
+	positions     map[*Record]int
+	requestsOnce  sync.Once
+	requests      requestRecords
 }
 
 // Prompt is one human message.
@@ -238,6 +247,7 @@ type SubagentMeta struct {
 type Totals struct {
 	Records          int `json:"records"`
 	Malformed        int `json:"malformed"`
+	Mismatched       int `json:"mismatched,omitempty"` // records kept with a field of an unexpected type left out
 	Prompts          int `json:"prompts"`
 	Requests         int `json:"requests"`
 	AssistantRecords int `json:"assistant_records"`
@@ -416,6 +426,9 @@ func Build(recs []*Record) *Session {
 			entrypoints[r.Entrypoint] = true
 		}
 
+		if r.Mismatch != nil {
+			s.Totals.Mismatched++
+		}
 		switch r.Type {
 		case MalformedType:
 			s.Totals.Malformed++
@@ -553,13 +566,8 @@ func startsTurn(r *Record) (origin string, ok bool) {
 			return "", false
 		}
 	}
-	switch r.TurnOrigin {
-	case "":
-		return "", false
-	case "human":
-		return "human", true
-	}
-	return r.TurnOrigin, true
+	origin = r.TurnStarter()
+	return origin, origin != ""
 }
 
 // groupTurns assembles Session.Turns from the records in file order.
@@ -680,7 +688,7 @@ func (s *Session) addUser(r *Record, calls map[string]*ToolCall, pending *Compac
 		}
 	}
 	s.Totals.Images += images
-	if r.TurnOrigin == "human" && !hasToolResult && !r.IsCompactSummary && !r.IsMeta {
+	if r.TurnStarter() == "human" && !hasToolResult && !r.IsCompactSummary && !r.IsMeta {
 		text, injected := splitPrompt(r.Message.Content)
 		p := &Prompt{Index: len(s.Prompts), UUID: r.UUID, At: r.Timestamp, Text: text, Images: images, Context: injected, Record: r}
 		s.Prompts = append(s.Prompts, p)
@@ -864,10 +872,23 @@ func (s *Session) markRewound() {
 	}
 }
 
+// persistedOutput is how Claude Code opens a tool result it wrote to a file
+// because it was too large for the transcript.
+const persistedOutput = "<persisted-output>"
+
 var spilledMarker = regexp.MustCompile(`Full output saved to: (\S+)`)
+
+// MaxSpilledBytes is how much of a spilled tool output is read back.
+const MaxSpilledBytes = 8 << 20
 
 // spilledPath finds the persisted-output path of a large tool result: the
 // toolUseResult's persistedOutputPath, else the marker line in the text.
+//
+// DECISION: the marker counts only in a result that opens with
+// <persisted-output>, as every real spill does (14 of 14 on 2026-11-11). The
+// sentence alone is something a tool can print: six results in the same
+// transcripts merely quoted it (a grep over this file, a page about it), and
+// each of those became a path the engine would go and read.
 func spilledPath(toolUseResult json.RawMessage, text string) string {
 	if len(toolUseResult) > 0 {
 		var t struct {
@@ -876,6 +897,9 @@ func spilledPath(toolUseResult json.RawMessage, text string) string {
 		if json.Unmarshal(toolUseResult, &t) == nil && t.Path != "" {
 			return t.Path
 		}
+	}
+	if !strings.HasPrefix(strings.TrimSpace(text), persistedOutput) {
+		return ""
 	}
 	if m := spilledMarker.FindStringSubmatch(text); m != nil {
 		return m[1]
@@ -886,20 +910,63 @@ func spilledPath(toolUseResult json.RawMessage, text string) string {
 // SpilledPath resolves a tool call's spilled output to a readable file: first
 // under this session's own companion directory (so archives and fixtures
 // work), then at the path Claude Code recorded. ok is false when neither exists.
+//
+// DECISION: the recorded path is taken only when it is a regular file in a
+// directory named tool-results, which is where Claude Code puts them. What a
+// transcript says is not trusted to name any file: a tool result, or a
+// connector's structured answer, could otherwise point the engine at
+// ~/.ssh/id_rsa and have it shown as the tool's output, or at /dev/zero.
 func (s *Session) SpilledPath(c *ToolCall) (path string, ok bool) {
 	if c == nil || c.Spilled == "" {
 		return "", false
 	}
 	if s.Path != "" {
 		local := filepath.Join(filepath.Dir(s.Path), s.ID, "tool-results", filepath.Base(c.Spilled))
-		if _, err := os.Stat(local); err == nil {
+		if isRegular(local) {
 			return local, true
 		}
 	}
-	if _, err := os.Stat(c.Spilled); err == nil {
-		return c.Spilled, true
+	recorded := filepath.Clean(c.Spilled)
+	if filepath.IsAbs(recorded) && filepath.Base(filepath.Dir(recorded)) == "tool-results" && isRegular(recorded) {
+		return recorded, true
 	}
 	return "", false
+}
+
+// isRegular reports whether path is a regular file, not following a link.
+func isRegular(path string) bool {
+	st, err := os.Lstat(path)
+	return err == nil && st.Mode().IsRegular()
+}
+
+// SpilledText reads a tool call's spilled output, at most MaxSpilledBytes of
+// it. path is where it was read from; ok is false when there is none to read.
+func (s *Session) SpilledText(c *ToolCall) (text, path string, truncated, ok bool) {
+	path, ok = s.SpilledPath(c)
+	if !ok {
+		return "", "", false, false
+	}
+	f, err := os.Open(path)
+	if err != nil {
+		return "", path, false, false
+	}
+	defer f.Close()
+	b, err := io.ReadAll(io.LimitReader(f, MaxSpilledBytes+1))
+	if err != nil {
+		return "", path, false, false
+	}
+	if len(b) > MaxSpilledBytes {
+		b, truncated = b[:MaxSpilledBytes], true
+		// Do not end inside a character: back to the last one's first byte, and drop it when it is cut.
+		i := len(b) - 1
+		for i > 0 && i > len(b)-utf8.UTFMax && !utf8.RuneStart(b[i]) {
+			i--
+		}
+		if !utf8.FullRune(b[i:]) {
+			b = b[:i]
+		}
+	}
+	return string(b), path, truncated, true
 }
 
 // isContinuation reports whether r is a conversation step that could start a

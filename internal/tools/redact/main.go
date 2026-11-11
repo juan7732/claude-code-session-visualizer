@@ -15,6 +15,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"unicode"
 )
@@ -23,23 +24,44 @@ import (
 var keepKeys = map[string]bool{
 	"type": true, "uuid": true, "parentUuid": true, "logicalParentUuid": true, "sessionId": true, "agentId": true,
 	"requestId": true, "requestRef": true, "promptId": true, "timestamp": true, "version": true, "entrypoint": true,
-	"gitBranch": true, "slug": true, "role": true, "model": true, "id": true, "name": true, "stop_reason": true,
+	"slug": true, "role": true, "model": true, "id": true, "name": true, "stop_reason": true,
 	"status": true, "kind": true, "subtype": true, "level": true, "trigger": true, "service_tier": true, "speed": true,
 	"inference_geo": true, "tool_use_id": true, "media_type": true, "userType": true, "turnOrigin": true,
 	"decision": true, "source": true, "renderedRole": true, "permissionMode": true, "mode": true, "agentType": true,
 	"toolUseId": true, "resolvedModel": true, "requestShape": true, "pickedEffortModel": true, "effort": true,
 	"perTurnEffort": true, "advisorModel": true, "requestedModel": true, "attributionSkill": true,
 	"attributionAgent": true, "operation": true, "subagent_type": true, "skill": true, "querySource": true,
-	"signature": true, "headUuid": true, "anchorUuid": true, "tailUuid": true, "openerUuid": true, "leafUuid": true,
-	"messageId": true, "snapshotMessageId": true, "backupFileName": true,
-	"commandName": true, "prUrl": true, "prRepository": true, "deliveryId": true, "commandUuid": true,
+	"headUuid": true, "anchorUuid": true, "tailUuid": true, "openerUuid": true, "leafUuid": true,
+	"messageId": true, "snapshotMessageId": true,
+	"commandName": true, "deliveryId": true, "commandUuid": true,
 }
+
+// DECISION (2026-11-11): gitBranch, prUrl, prRepository and backupFileName are
+// no longer kept as they are. They are content: a branch and a repository say
+// what was being worked on and for whom. They are masked like any other text.
 
 // replaceKeys get a fixed placeholder instead of a shape-preserving mask: a
 // masked e-mail still reveals it was an e-mail of a given length.
+//
+// signature is the model's thinking in a form only the API can read. Nobody
+// can check what is in it, so it is never copied.
 var replaceKeys = map[string]string{
 	"userEmail": "user@example.com",
+	"signature": "sig",
 }
+
+// email finds an address wherever it sits; it is replaced before masking, so
+// not even its shape is left (the copy of userEmail inside rendered content
+// had to be fixed by hand once).
+var email = regexp.MustCompile(`[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+`)
+
+// claudeID is what an id of Claude Code or of the API looks like: a uuid, a
+// prefixed id (toolu_…, msg_…, req_…), an agent id, a short hash.
+var claudeID = regexp.MustCompile(`^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|(toolu|srvtoolu|msg|req)_[A-Za-z0-9]{1,40}|a[0-9a-f]{16}|[0-9a-f]{6,16}(@v[0-9]+)?)$`)
+
+// credential is what a key or token of the common services looks like. A
+// value like this is masked whatever key it is under.
+var credential = regexp.MustCompile(`sk-[A-Za-z0-9_-]{8,}|gh[pousr]_[A-Za-z0-9]{8,}|github_pat_|glpat-|AKIA[0-9A-Z]{12,}|ASIA[0-9A-Z]{12,}|xox[abprs]-|AIza[A-Za-z0-9_-]{16,}|hf_[A-Za-z0-9]{16,}|eyJ[A-Za-z0-9_-]{8,}\.eyJ|-----BEGIN `)
 
 // maskKeys are identifiers tied to a person or account: always masked, even
 // though they look like ids.
@@ -150,7 +172,13 @@ func redact(v any, key string) any {
 			}
 		}
 		for k, val := range x {
-			x[k] = redact(val, k)
+			red := redact(val, k)
+			// A key that is a path or an address (trackedFileBackups is keyed by file) is content too.
+			if strings.ContainsAny(k, "/@ ") {
+				delete(x, k)
+				k = mask(email.ReplaceAllString(k, "user@example.com"))
+			}
+			x[k] = red
 		}
 		return x
 	case []any:
@@ -162,11 +190,19 @@ func redact(v any, key string) any {
 		if fixed, ok := replaceKeys[key]; ok {
 			return fixed
 		}
-		if maskKeys[key] {
+		if maskKeys[key] || credential.MatchString(x) {
 			return mask(x)
 		}
 		if keepKeys[key] || looksLikeID(x) {
 			return x
+		}
+		// An address keeps neither its letters nor its shape.
+		if email.MatchString(x) {
+			parts := email.Split(x, -1)
+			for i := range parts {
+				parts[i] = mask(parts[i])
+			}
+			return strings.Join(parts, "user@example.com")
 		}
 		return mask(x)
 	default:
@@ -174,18 +210,14 @@ func redact(v any, key string) any {
 	}
 }
 
-// looksLikeID keeps short token-like strings (uuids, ids, hashes) that have no
-// spaces and would be meaningless to mask.
+// looksLikeID keeps the ids that tie records together (uuids, tool call and
+// request ids, agent ids, short hashes), which would be meaningless to mask.
+//
+// DECISION (2026-11-11): by shape, not by "short, with a digit, no space".
+// That rule kept a 40-character GitHub token, an AWS key id, a hex API key, a
+// host:port and any user name with a digit in it exactly as they were.
 func looksLikeID(s string) bool {
-	if len(s) == 0 || len(s) > 64 || strings.ContainsAny(s, " \n\t") {
-		return false
-	}
-	for _, r := range s {
-		if !(unicode.IsLetter(r) || unicode.IsDigit(r) || r == '-' || r == '_' || r == '.' || r == ':') {
-			return false
-		}
-	}
-	return strings.ContainsAny(s, "0123456789") && !strings.Contains(s, ".")
+	return claudeID.MatchString(s)
 }
 
 // mask keeps length, whitespace, punctuation and path separators; letters

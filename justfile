@@ -19,11 +19,11 @@ setup:
 
 # Build the skit binary into bin/
 build:
-    CGO_ENABLED=0 go build -ldflags "{{ldflags}}" -o bin/skit ./cmd/skit
+    CGO_ENABLED=0 go build -trimpath -ldflags "{{ldflags}}" -o bin/skit ./cmd/skit
 
 # Install skit to $GOBIN (default ~/go/bin)
 install:
-    CGO_ENABLED=0 go install -ldflags "{{ldflags}}" ./cmd/skit
+    CGO_ENABLED=0 go install -trimpath -ldflags "{{ldflags}}" ./cmd/skit
 
 # Build and run with args, e.g. just run doctor --json
 run *args:
@@ -111,8 +111,18 @@ tidy:
 tidy-check:
     go mod tidy -diff
 
-# Everything CI runs, locally: tidy-check, fmt-check, vet, race tests, integration
-check: tidy-check fmt-check vet test-race integration
+# staticcheck over everything, the integration suite included (go install honnef.co/go/tools/cmd/staticcheck@latest)
+lint:
+    staticcheck ./...
+    staticcheck -tags=integration ./test/...
+
+# Known vulnerabilities this code can reach, in the Go release and the modules (needs the network;
+# go install golang.org/x/vuln/cmd/govulncheck@latest). A finding in the standard library is fixed by raising `go` in go.mod.
+vuln:
+    govulncheck ./...
+
+# Everything CI runs, locally, but `vuln`, which needs the network: tidy-check, fmt-check, vet, lint, race tests, integration
+check: tidy-check fmt-check vet lint test-race integration
 
 # ─── Client (Swift, macOS) ────────────────────────────────────────────────────
 

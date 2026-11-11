@@ -7,3 +7,21 @@ node_modules/
 # Swift client
 client/SessionVisualizer/.build/
 client/SessionVisualizer/.swiftpm/
+
+# What skit makes and reads: never in the repository, wherever a test or a slip puts it
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+*.gguf
+*.zst
+.env
+.env.*
+*.dockerbuild
+
+# Pictures of real sessions (`just client-snapshot out.png`); the icons are under client/SessionVisualizer/Resources
+/*.png
+client/SessionVisualizer/*.png
+
+# Xcode
+DerivedData/

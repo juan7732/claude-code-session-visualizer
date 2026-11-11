@@ -65,4 +65,72 @@ import Testing
             _ = try await SkitClient(socketPath: server.path + ".gone").status()
         }
     }
+
+    /// The body is everything up to the close, and a close is also what a crash looks like: an
+    /// answer that says how long it is must be that long.
+    @Test func anAnswerShorterOrLongerThanItSaysIsNotAResult() throws {
+        func raw(_ declared: String, _ body: String) -> Data { Data("HTTP/1.0 200 OK\r\nContent-Length: \(declared)\r\n\r\n\(body)".utf8) }
+        #expect(try UnixHTTP.parse(raw("5", "hello")).body == Data("hello".utf8))
+        #expect(try UnixHTTP.parse(raw("0", "")).body.isEmpty)
+        #expect(throws: UnixHTTP.Failure.incomplete(expected: 5000, received: 5)) { try UnixHTTP.parse(raw("5000", "hello")) }
+        #expect(throws: UnixHTTP.Failure.incomplete(expected: 2, received: 5)) { try UnixHTTP.parse(raw("2", "hello")) }
+        #expect(throws: UnixHTTP.Failure.malformedResponse) { try UnixHTTP.parse(raw("many", "hello")) }
+        #expect(throws: UnixHTTP.Failure.malformedResponse) { try UnixHTTP.parse(raw("-1", "hello")) }
+        // An answer that announces no length is read to the close, as before.
+        #expect(try UnixHTTP.parse(Data("HTTP/1.0 200 OK\r\n\r\nhello".utf8)).body == Data("hello".utf8))
+    }
+
+    @Test func aCutExportIsAFailureNotAShorterExport() async throws {
+        let whole = Data(String(repeating: "# a turn\n", count: 2000).utf8)
+        let server = try StubServer { request in
+            // The engine died, or gave up, a third of the way through writing.
+            if request.hasPrefix("GET /v0/sessions/cut/") { return StubServer.http(200, whole.prefix(whole.count / 3), type: "text/markdown", length: whole.count) }
+            return StubServer.http(200, whole, type: "text/markdown", length: whole.count)
+        }
+        let client = SkitClient(socketPath: server.path)
+        #expect(try await client.markdown(session: "whole").utf8.count == whole.count)
+        await #expect(throws: SkitError.transport("the answer was cut short: \(whole.count / 3) of \(whole.count) bytes")) {
+            _ = try await client.markdown(session: "cut")
+        }
+        await #expect(throws: SkitError.transport("the answer was cut short: \(whole.count / 3) of \(whole.count) bytes")) {
+            _ = try await client.image(session: "cut", 0)
+        }
+    }
+
+    /// Nobody home, slow and broken are three different things to the app.
+    @Test func aSlowEngineIsNotAMissingOne() async throws {
+        let server = try StubServer { _ in
+            Thread.sleep(forTimeInterval: 0.6)
+            return StubServer.http(200, Data("{}".utf8))
+        }
+        let started = Date()
+        do {
+            _ = try await SkitClient(socketPath: server.path).quick(timeout: 0.15).routes()
+            Issue.record("an engine that does not answer in time must not look like an answer")
+        } catch SkitError.timedOut(let why) {
+            #expect(why == "no answer within 0.15 s")
+        }
+        #expect(Date().timeIntervalSince(started) < 0.5, "the wait is the timeout, not the engine's pace")
+        do {
+            _ = try await SkitClient(socketPath: StubServer.freshPath()).routes()
+            Issue.record("nothing is listening there")
+        } catch SkitError.unreachable {
+        }
+        #expect(SkitError(.io("read: Connection reset by peer")) == .transport("read: Connection reset by peer"))
+        #expect(SkitError(.malformedResponse) == .transport("the server's answer was not HTTP"))
+        #expect(SkitClient(socketPath: "/x").http.timeout == 30 && SkitClient(socketPath: "/x").quick().http.timeout == 5)
+    }
+
+    @Test func blockingWorkRunsOffTheCooperativePool() async throws {
+        let label = try await Blocking.run { String(cString: __dispatch_queue_get_label(nil)) }
+        #expect(label == "dev.sessionkit.blocking")
+        // More waits at once than the cooperative pool has threads: they overlap, they do not queue.
+        let started = Date()
+        try await withThrowingTaskGroup(of: Void.self) { group in
+            for _ in 0..<24 { group.addTask { try await Blocking.run { Thread.sleep(forTimeInterval: 0.2) } } }
+            try await group.waitForAll()
+        }
+        #expect(Date().timeIntervalSince(started) < 2.4, "24 waits of 0.2 s one after the other would take 4.8 s")
+        await #expect(throws: SkitError.self) { try await Blocking.run { throw SkitError.transport("x") } }
+    }
 }

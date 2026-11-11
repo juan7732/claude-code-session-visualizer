@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"syscall"
 	"time"
 )
 
@@ -69,7 +70,21 @@ func Get(home, id string) (Annotation, error) {
 }
 
 // Apply patches one session's annotation and writes the file.
+//
+// DECISION: the read, the change and the write happen under a lock file, and
+// the new file is synced before it takes the old one's place. This is the one
+// file in skit's home that a person wrote and nothing can rebuild; `skit
+// annotate` in a terminal and the app's agent both write it, and two that
+// read the same file used to lose one of the two changes.
 func Apply(home, id string, p Patch) (Annotation, error) {
+	if err := os.MkdirAll(home, 0o700); err != nil {
+		return Annotation{}, err
+	}
+	unlock, err := lock(home)
+	if err != nil {
+		return Annotation{}, err
+	}
+	defer unlock()
 	all, err := All(home)
 	if err != nil {
 		return Annotation{}, err
@@ -112,14 +127,52 @@ func Apply(home, id string, p Patch) (Annotation, error) {
 	if err != nil {
 		return Annotation{}, err
 	}
-	if err := os.MkdirAll(home, 0o700); err != nil {
-		return Annotation{}, err
+	return a, replace(Path(home), append(b, '\n'))
+}
+
+// lock takes the cross-process lock on the annotations of a skit home.
+func lock(home string) (unlock func(), err error) {
+	f, err := os.OpenFile(Path(home)+".lock", os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return nil, err
 	}
-	tmp := Path(home) + ".tmp"
-	if err := os.WriteFile(tmp, append(b, '\n'), 0o600); err != nil {
-		return Annotation{}, err
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		return nil, err
 	}
-	return a, os.Rename(tmp, Path(home))
+	return func() {
+		_ = syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}, nil
+}
+
+// replace puts b at path through a temporary file of its own name, synced
+// before the rename, so a crash leaves the old file or the new one whole.
+func replace(path string, b []byte) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), filepath.Base(path)+".*.tmp") // 0600
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name()) // nothing to remove once it is renamed
+	if _, err := tmp.Write(b); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	if err := os.Rename(tmp.Name(), path); err != nil {
+		return err
+	}
+	if dir, err := os.Open(filepath.Dir(path)); err == nil {
+		_ = dir.Sync()
+		dir.Close()
+	}
+	return nil
 }
 
 func normal(a Annotation) Annotation {

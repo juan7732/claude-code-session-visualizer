@@ -197,6 +197,13 @@ does not record that wait. The command and the app both say so.
 `action:N` or `tool:<id>`. It is a plain file apart from the index and the archive, so deleting `skit.sqlite` or
 re-archiving never loses it.
 
+## Images
+
+`skit images` and `GET /v0/sessions/{id}/images` list the session's own images in file order and then each subagent's,
+which carry `agent` (the subagent's id) and the turn that started it. The count in the stats (`images`) adds the
+subagents' images too, so the list is as long as the count says. Until 2026-11-11 the list left the subagents out, and a
+session whose subagent had read two pictures showed "Images 2" over an empty list.
+
 ## Claude Code's configuration
 
 `skit claude` is read-only and whitelisted. It reports the settings layers (user, user local, and for each `--root` the
@@ -205,6 +212,12 @@ assignments cached in `~/.claude.json` (experiment id, variation, value); the ca
 their MCP server names; memory files; skills on disk and their use counts. The account, tokens and ids in
 `~/.claude.json` are never copied: the snapshot says only whether each is set. Managed policy and command-line flags are
 not readable from here.
+
+The settings layers cannot be a whitelist, since their keys are Claude Code's to add. They are copied with their
+credentials replaced by `set (not shown)`: a value whose name says key, token, secret, password, credential, auth or
+helper (`env.ANTHROPIC_API_KEY`, `apiKeyHelper`), every value under `headers`, and any value that looks like a
+credential wherever it sits (a `sk-…` or `ghp_…` key, a URL with a password, a bearer token in a permission rule). The
+files are never changed.
 
 ## Not done yet
 

@@ -189,9 +189,11 @@ private struct ActionBlock: View {
                         .font(.system(size: 12)).foregroundStyle(action.syntheticKind == "api_error" ? palette.err : palette.muted)
                         .padding(.vertical, 4)
                 } else {
-                    if showThinking, !action.thinking.isEmpty { thought(action, state) }
-                    if !action.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        MarkdownText(blocks: MarkdownBlock.parse(action.text), query: state.query)
+                    // What the action wrote was read and split into blocks when the model was built, not here at every redraw.
+                    let prose = model.prose(index) ?? SessionModel.Prose()
+                    if showThinking, !prose.thinking.isEmpty { thought(prose, state) }
+                    if prose.hasWords {
+                        MarkdownText(blocks: prose.blocks, query: state.query)
                             .padding(.leading, model.said.contains(index) ? 10 : 0)
                             .overlay(alignment: .leading) {
                                 if model.said.contains(index) { Rectangle().fill(palette.ink).frame(width: 3) }
@@ -229,11 +231,11 @@ private struct ActionBlock: View {
         }
     }
 
-    private func thought(_ action: Action, _ state: TranscriptState) -> some View {
+    private func thought(_ prose: SessionModel.Prose, _ state: TranscriptState) -> some View {
         let open = state.openThoughts.contains(index)
         return HStack(alignment: .firstTextBaseline, spacing: 6) {
             Image(systemName: "bubble.left").font(.system(size: 10))
-            Text(InlineText(palette: palette, query: state.query).attributed(open ? action.thinking : SessionModel.firstLine(action.thinking, max: 160), markdown: false))
+            Text(InlineText(palette: palette, query: state.query).attributed(open ? prose.thinking : prose.thinkingLine, markdown: false))
                 .italic().lineSpacing(2).textSelection(.enabled)
             Spacer(minLength: 0)
         }
@@ -498,7 +500,7 @@ private struct WorkRow: View {
             let failed = calls.filter(\.isError).count
             VStack(alignment: .leading, spacing: 4) {
                 // The run opens the agent's reply when nothing was said before it.
-                if model.turn(turn)?.actionIndexes.first == first, model.action(first).map(SessionModel.hasProse) == false {
+                if model.turn(turn)?.actionIndexes.first == first, model.prose(first)?.hasWords == false {
                     Text("Claude · \(model.action(first)?.at.formatted(date: .omitted, time: .shortened) ?? "")")
                         .font(.label(11)).foregroundStyle(palette.muted).padding(.top, 10)
                 }
@@ -575,13 +577,59 @@ struct Pre: View {
     /// Results can be megabytes; a row shows the start and says how much more there is.
     var limit = 6000
 
+    /// Longer than this, what is shown is drawn by a text view of its own.
+    ///
+    /// DECISION: SwiftUI lays a `Text` out whole, and the inspector shows a result up to 200,000
+    /// characters: seconds of a stuck window for one click. The `NSTextView` the file viewer uses
+    /// lays out what is on screen. It scrolls by itself, so it has a height of its own; the line is
+    /// drawn above what a transcript row shows (6,000), which keeps scrolling panes out of the
+    /// Transcript's own scroll.
+    static let longAbove = 8000
+    static let longHeight: CGFloat = 420
+
     var body: some View {
-        let shown = text.count > limit ? String(text.prefix(limit)) + "\n… \(text.count - limit) more characters" : text
-        Text(InlineText(palette: palette, query: query).attributed(shown, markdown: false))
-            .font(.system(size: 11, design: .monospaced)).lineSpacing(2).textSelection(.enabled)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10).padding(.vertical, 9)
-            .background(palette.panel2, in: RoundedRectangle(cornerRadius: Metric.radius, style: .continuous))
+        let shown = Self.cut(text, limit: limit)
+        Group {
+            if shown.utf8.count > Self.longAbove {
+                CodeView(text: Self.styled(shown, query: query, palette: palette), background: NSColor(palette.panel2))
+                    .frame(height: Self.longHeight)
+                    .clipShape(RoundedRectangle(cornerRadius: Metric.radius, style: .continuous))
+            } else {
+                Text(InlineText(palette: palette, query: query).attributed(shown, markdown: false))
+                    .font(.system(size: 11, design: .monospaced)).lineSpacing(2).textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.horizontal, 10).padding(.vertical, 9)
+                    .background(palette.panel2, in: RoundedRectangle(cornerRadius: Metric.radius, style: .continuous))
+            }
+        }
+    }
+
+    /// The text, or its first `limit` characters and how many more there are.
+    nonisolated static func cut(_ text: String, limit: Int) -> String {
+        // A text has at most as many characters as bytes, and its bytes are counted without reading it.
+        if text.utf8.count <= limit { return text }
+        let count = text.count
+        return count > limit ? String(text.prefix(limit)) + "\n… \(count - limit) more characters" : text
+    }
+
+    /// The same look as the short form, for the text view: monospaced, the find query marked.
+    static func styled(_ text: String, query: String, palette: Palette) -> NSAttributedString {
+        let paragraph = NSMutableParagraphStyle()
+        paragraph.lineSpacing = 2
+        let out = NSMutableAttributedString(string: text, attributes: [
+            .font: NSFont.monospacedSystemFont(ofSize: 11, weight: .regular), .foregroundColor: NSColor(palette.ink), .paragraphStyle: paragraph,
+        ])
+        let needle = query.trimmingCharacters(in: .whitespaces)
+        guard needle.count >= 2 else { return out }
+        let whole = text as NSString
+        var from = 0
+        while from < whole.length {
+            let found = whole.range(of: needle, options: .caseInsensitive, range: NSRange(location: from, length: whole.length - from))
+            if found.location == NSNotFound { break }
+            out.addAttribute(.backgroundColor, value: NSColor(palette.warn).withAlphaComponent(0.35), range: found)
+            from = found.location + max(1, found.length)
+        }
+        return out
     }
 }
 
@@ -645,26 +693,21 @@ private struct NodeMenu: ViewModifier {
                 Button("Copy Turn as Markdown") { Exporter.copyTurn(turn, of: model.doc.id, store: store) }
             }
             Button("Copy Link") {
-                if let url = SessionLink.url(session: model.doc.id, view: .transcript, key: key) { copy(url.absoluteString) }
+                if let url = SessionLink.url(session: model.doc.id, view: .transcript, key: key) { Exporter.copy(url.absoluteString) }
             }
             if case .tool(let id) = key, let call = model.toolsByID[id] {
                 Divider()
-                Button("Copy Input") { copy(call.inputText) }
+                Button("Copy Input") { Exporter.copy(call.inputText) }
             }
             if case .action(let n) = key, let action = model.action(n), !action.text.isEmpty {
                 Divider()
-                Button("Copy Text") { copy(action.text) }
+                Button("Copy Text") { Exporter.copy(action.text) }
             }
             if case .turn(let n) = key, let prompt = model.prompt(ofTurn: n) {
                 Divider()
-                Button("Copy Prompt") { copy(prompt.text) }
+                Button("Copy Prompt") { Exporter.copy(prompt.text) }
             }
         }
-    }
-
-    private func copy(_ text: String) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(text, forType: .string)
     }
 }
 

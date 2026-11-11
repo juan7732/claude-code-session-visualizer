@@ -165,8 +165,46 @@ nonisolated struct SessionModel: Sendable, Equatable {
 
     /// Two models are the same when they were built from the same state of the
     /// same session; comparing megabytes of document on every view update is not worth it.
+    ///
+    /// DECISION: "the same state" is the session's last moment, its counts and `shape`. The last
+    /// moment and the action count alone miss a reload in which only what hangs off the main
+    /// transcript moved: a subagent that went on working, a file touched, a task picked up. A view
+    /// that is handed an equal model is not drawn again, so such a reload showed nothing new. A
+    /// change that keeps every count (the engine deriving the same relations differently) is still
+    /// not seen; reading the session again after the engine was replaced is what a new window is for.
     static func == (a: SessionModel, b: SessionModel) -> Bool {
         a.doc.id == b.doc.id && a.doc.lastAt == b.doc.lastAt && a.doc.actions.count == b.doc.actions.count && a.items.count == b.items.count
+            && a.shape == b.shape
+    }
+
+    /// How many of each thing the document and the relations hold, counted once when the model is built.
+    private let shape: [Int]
+
+    /// What one action wrote, read once when the model is built. `Action.text` joins the action's
+    /// blocks each time it is asked, and a transcript row asked on every redraw, then split the text
+    /// into Markdown blocks again; the scroll map asked every action for its length.
+    struct Prose: Sendable {
+        /// The text for the human, block by block (`MarkdownBlock.parse`).
+        var blocks: [MarkdownBlock] = []
+        /// Its length in characters, and whether any of it is more than blank space.
+        var length = 0
+        var hasWords = false
+        var thinking = ""
+        /// The thinking's first line, as its folded row shows it.
+        var thinkingLine = ""
+        /// How many tool calls the action made.
+        var calls = 0
+    }
+
+    /// By action index.
+    private let prose: [Prose]
+    /// The length of each prompt's text, by prompt index.
+    private let promptLengths: [Int]
+
+    func prose(_ action: Int) -> Prose? { prose.indices.contains(action) ? prose[action] : nil }
+
+    func promptLength(ofTurn index: Int) -> Int {
+        turn(index)?.promptIndex.flatMap { promptLengths.indices.contains($0) ? promptLengths[$0] : nil } ?? 0
     }
 
     let toolsByID: [String: ToolCall]
@@ -204,6 +242,15 @@ nonisolated struct SessionModel: Sendable, Equatable {
         retriedBy = Dictionary(relations.retries.map { ($0.failed.toolId, $0.retry) }, uniquingKeysWith: { a, _ in a })
         said = Set(relations.spans.filter { $0.said == true }.map(\.action))
         spans = Dictionary(relations.spans.map { ($0.action, $0) }, uniquingKeysWith: { a, _ in a })
+
+        let prose = doc.actions.map { action in
+            let text = action.text, thinking = action.thinking
+            return Prose(blocks: MarkdownBlock.parse(text), length: text.count,
+                         hasWords: !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                         thinking: thinking, thinkingLine: Self.firstLine(thinking, max: 160), calls: action.toolUseIDs.count)
+        }
+        self.prose = prose
+        promptLengths = doc.prompts.map(\.text.count)
 
         // The rows, in time order. A compaction or an event sits before the first
         // action that came after it, wherever in a turn that is.
@@ -260,7 +307,7 @@ nonisolated struct SessionModel: Sendable, Equatable {
             let action = doc.actions[index]
             if action.synthetic == true {
                 close()
-            } else if Self.hasProse(action) {
+            } else if prose[index].hasWords {
                 close()
                 if !action.toolUseIDs.isEmpty { run = [index] }
             } else {
@@ -281,6 +328,15 @@ nonisolated struct SessionModel: Sendable, Equatable {
             }
         }
         writtenByTurn = written.mapValues { $0.sorted { $0.0 < $1.0 }.map(\.1) }
+        shape = [
+            doc.turns.count, doc.toolCalls.count, doc.compactions.count, doc.subagents.count,
+            doc.subagents.reduce(0) { $0 + ($1.session?.actions.count ?? 0) + ($1.session?.toolCalls.count ?? 0) },
+            doc.subagents.filter { $0.meta?.finished == true }.count,
+            relations.spans.count, relations.tasks.count, relations.tasks.reduce(0) { $0 + $1.pickups.count },
+            relations.handbacks.count, relations.retries.count,
+            relations.files.count, relations.files.reduce(0) { $0 + $1.touches.count },
+            relations.outside.count, relations.commits.count, relations.events.count,
+        ]
     }
 
     /// The action wrote something for the human to read.
@@ -301,7 +357,7 @@ nonisolated struct SessionModel: Sendable, Equatable {
                 out.append(item)
                 continue
             }
-            if Self.hasProse(action) { out.append(item) } // its words; its calls are in the run below
+            if prose[index].hasWords { out.append(item) } // its words; its calls are in the run below
             if runs[first]?.last == index { out.append(.work(turn: action.turn, actions: runs[first] ?? [])) }
         }
         return out
@@ -341,7 +397,7 @@ nonisolated struct SessionModel: Sendable, Equatable {
         switch key {
         case .tool(let id): toolsByID[id].map { runOfAction[$0.action] != nil } ?? false
         case .subagent, .step: true
-        case .action(let n): runOfAction[n] != nil && !(action(n).map(Self.hasProse) ?? true)
+        case .action(let n): runOfAction[n] != nil && !(prose(n)?.hasWords ?? true)
         case .turn, .compaction, .work, .file, .outside: false
         }
     }

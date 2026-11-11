@@ -1,6 +1,7 @@
 package archive
 
 import (
+	"fmt"
 	"sync"
 	"time"
 )
@@ -113,11 +114,21 @@ func (c *cache) get(key, stamp string, cost int64, load func() (Resolved, error)
 	}
 	c.mu.Unlock()
 
-	e.res, e.err = load()
-	if e.err == nil && e.res.memo == nil {
-		e.res.memo = &memo{}
-	}
-	close(e.ready)
+	func() {
+		// A load that panics still has to end: everyone waiting on this entry
+		// would otherwise wait for good, and each new request for the session
+		// would join them.
+		defer close(e.ready)
+		defer func() {
+			if p := recover(); p != nil {
+				e.err = fmt.Errorf("reading the session failed: %v", p)
+			}
+		}()
+		e.res, e.err = load()
+		if e.err == nil && e.res.memo == nil {
+			e.res.memo = &memo{}
+		}
+	}()
 	if e.err != nil {
 		c.mu.Lock()
 		for i, x := range c.entries {

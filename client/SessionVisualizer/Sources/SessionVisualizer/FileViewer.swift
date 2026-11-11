@@ -1,6 +1,7 @@
 import AppKit
 import SkitKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 /// A file a session touched, as it is on disk now: its text with the colours of
 /// its language, or why there is none (deleted, not text), a button that opens
@@ -63,9 +64,7 @@ struct FilePane: View {
             Text(FilePane.state(now)).font(.system(size: 12.5)).foregroundStyle(now.exists ? palette.ink2 : palette.err)
             Spacer(minLength: 8)
             if now.exists {
-                Button(FileOpener.title(opener)) { FileOpener.open(now.path, with: opener) }
-                    .help("Open \(now.path) (the application is chosen in Settings › General)")
-                Button("Reveal in Finder") { FileOpener.reveal(now.path) }
+                FileOpener.buttons(now.path, with: opener)
             }
             Button("Copy Path") { Exporter.copy(now.path) }
         }
@@ -194,18 +193,95 @@ enum FileOpener {
         return application(setting).map { $0.deletingPathExtension().lastPathComponent }
     }
 
-    /// "Open in Visual Studio Code", or "Open" for each file's default application.
-    static func title(_ setting: String) -> String {
-        application(setting).flatMap { _ in name(setting) }.map { "Open in \($0)" } ?? "Open"
+    /// What is known about a file before anything is asked to open it.
+    nonisolated struct Facts: Equatable {
+        /// A folder, or a bundle (an application is a directory).
+        var isDirectory = false
+        /// Somebody may execute it.
+        var isExecutable = false
+        var type: UTType?
+    }
+
+    /// What "Open" does with a file.
+    enum Handoff: Equatable {
+        /// The application chosen in Settings opens it.
+        case application(URL)
+        /// The file's own default application opens it.
+        case defaultApplication
+        /// Nothing opens it: Finder shows where it is.
+        case reveal
+    }
+
+    /// Reads the facts, following a symbolic link to what it names. Nil when there is nothing at the path.
+    nonisolated static func facts(at path: String) -> Facts? {
+        let url = URL(fileURLWithPath: path).resolvingSymlinksInPath()
+        guard let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isPackageKey, .isExecutableKey, .contentTypeKey]) else { return nil }
+        let mode = (try? FileManager.default.attributesOfItem(atPath: url.path)[.posixPermissions] as? NSNumber)?.intValue ?? 0
+        return Facts(isDirectory: values.isDirectory == true || values.isPackage == true,
+                     isExecutable: values.isExecutable == true || mode & 0o111 != 0,
+                     type: values.contentType)
+    }
+
+    /// True when the file can go to whatever application the Mac has for its type.
+    ///
+    /// DECISION: with no application chosen, "open" is LaunchServices' call, and for a `.command` file, a
+    /// program without an extension or an application that call is "run it". The files here are named by
+    /// a transcript, so only what an application merely shows goes through: text, source, data formats,
+    /// pictures and PDF, and none of them when it can be executed. A drawing in SVG and anything a
+    /// browser would open (HTML, XML) stay out, since they can carry a script. The rest is shown in Finder.
+    nonisolated static func opensByDefault(_ facts: Facts) -> Bool {
+        guard !facts.isDirectory, !facts.isExecutable, let type = facts.type else { return false }
+        // .command and .tool: Terminal runs them.
+        if type.identifier == "com.apple.terminal.shell-script" || type.conforms(to: .svg) { return false }
+        let shown: [UTType] = [.plainText, .sourceCode, .json, .yaml, .image, .pdf]
+        return shown.contains { type.conforms(to: $0) } || type.identifier == "public.toml"
+    }
+
+    /// The decision, from what is known: the chosen application when there is one, else the default
+    /// application for a file that is safe to hand over, else Finder.
+    nonisolated static func handoff(application: URL?, facts: Facts?) -> Handoff {
+        if let application { return .application(application) }
+        if let facts, opensByDefault(facts) { return .defaultApplication }
+        return .reveal
+    }
+
+    static func handoff(_ path: String, with setting: String) -> Handoff {
+        // The file is looked at only when its answer decides something.
+        if let app = application(setting) { return .application(app) }
+        return handoff(application: nil, facts: facts(at: path))
+    }
+
+    /// "Open in Visual Studio Code"; "Open" for the file's default application; "Show in Finder" for a
+    /// file that is not handed to one (`opensByDefault`).
+    static func title(_ setting: String, for path: String) -> String {
+        switch handoff(path, with: setting) {
+        case .application: name(setting).map { "Open in \($0)" } ?? "Open"
+        case .defaultApplication: "Open"
+        case .reveal: "Show in Finder"
+        }
     }
 
     static func open(_ path: String, with setting: String) {
         let file = URL(fileURLWithPath: path)
-        if let app = application(setting) {
+        switch handoff(path, with: setting) {
+        case .application(let app):
             NSWorkspace.shared.open([file], withApplicationAt: app, configuration: NSWorkspace.OpenConfiguration())
-        } else {
-            NSWorkspace.shared.open(file)
+        case .defaultApplication:
+            // What was judged is what the link names; that is what is opened.
+            NSWorkspace.shared.open(file.resolvingSymlinksInPath())
+        case .reveal:
+            reveal(path)
         }
+    }
+
+    /// The Open button and "Reveal in Finder" beside it, for a toolbar or a context menu. A file that
+    /// Open would only show in Finder has the one button: two that do the same thing say nothing.
+    @ViewBuilder static func buttons(_ path: String, with setting: String) -> some View {
+        if handoff(path, with: setting) != .reveal {
+            Button(title(setting, for: path)) { open(path, with: setting) }
+                .help("Open \(path) (the application is chosen in Settings › General)")
+        }
+        Button("Reveal in Finder") { reveal(path) }
     }
 
     static func reveal(_ path: String) {

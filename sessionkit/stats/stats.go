@@ -50,6 +50,11 @@ type Summary struct {
 	Synthetic      int               `json:"synthetic_messages"`
 	Injected       int               `json:"injected_blocks"`
 	Attachments    int               `json:"attachments"`
+	// Malformed lines were not JSON and are counted nowhere else. Mismatched
+	// records were kept, each without one field whose type was unexpected. A
+	// session that shows either was not read whole.
+	Malformed  int `json:"malformed,omitempty"`
+	Mismatched int `json:"mismatched,omitempty"`
 
 	Usage          transcript.Usage    `json:"usage"`           // parent + subagents, once per request
 	CacheHitRatio  float64             `json:"cache_hit_ratio"` // cache reads / all input
@@ -145,6 +150,7 @@ func Compute(s *transcript.Session, project string, opt Options) Summary {
 		Unpaired: t.UnpairedToolUses, Images: t.Images, Compactions: t.Compactions, APIErrors: t.APIErrors,
 		Subagents: t.Subagents, Branches: s.Branches, Usage: t.Usage, PRLinks: s.PRLinks,
 		Synthetic: t.Synthetic, Injected: t.InjectedBlocks, Attachments: t.Attachments,
+		Malformed: t.Malformed, Mismatched: t.Mismatched,
 	}
 	sum.RewoundTurns, sum.RewoundActions = t.RewoundTurns, t.RewoundActions
 	if t.RewoundActions > 0 {

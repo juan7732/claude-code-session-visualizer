@@ -78,7 +78,9 @@ type Options struct {
 type Result struct {
 	ID      string `json:"id"`
 	Project string `json:"project"`
-	Action  string `json:"action"` // archived | updated | unchanged
+	Action  string `json:"action"` // archived | updated | unchanged | failed
+	// Error says why, when Action is "failed".
+	Error   string `json:"error,omitempty"`
 	Records int    `json:"records"`
 	Bytes   int64  `json:"bytes"` // source bytes covered by the raw copy
 	Path    string `json:"path"`
@@ -337,7 +339,7 @@ func turnOfPrompt(s *transcript.Session, p *transcript.Prompt) int {
 	return -1
 }
 
-// maxSegmentText caps one segment's indexed text (runes).
+// maxSegmentText caps one segment's indexed text, in bytes (cut at a character).
 const maxSegmentText = 100_000
 
 func capText(t string) string {

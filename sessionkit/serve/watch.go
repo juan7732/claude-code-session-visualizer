@@ -2,8 +2,6 @@ package serve
 
 import (
 	"context"
-	"errors"
-	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -12,6 +10,10 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 )
+
+// waitForProjects is how often Watch looks for a projects directory that is
+// not there yet (Claude Code has never run). A variable so a test need not wait.
+var waitForProjects = 30 * time.Second
 
 // Watch keeps the archive current: it watches <claude>/projects and every
 // project directory in it, and archives a session a little after its
@@ -36,8 +38,17 @@ func (s *Server) Watch(ctx context.Context, projectsDir string, settle time.Dura
 			}
 		}
 	}
-	if err := os.MkdirAll(projectsDir, 0o755); err != nil && !errors.Is(err, fs.ErrExist) {
-		return err
+	// SPEC: AGENTS.md, "Never write under ~/.claude". The directory is Claude
+	// Code's to make; until it has, there is nothing to watch, so wait for it.
+	for {
+		if st, err := os.Stat(projectsDir); err == nil && st.IsDir() {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-time.After(waitForProjects):
+		}
 	}
 	addAll()
 

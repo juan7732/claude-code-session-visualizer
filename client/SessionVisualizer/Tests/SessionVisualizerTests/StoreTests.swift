@@ -119,9 +119,14 @@ nonisolated enum Fake {
     static let status = #"{"version":"t","uptime":"1s","claude_dir":"/c","skit_home":"/s","index":{"sessions":3,"archived":3,"segments":9,"bytes":10},"live":[{"pid":7,"sessionId":"bbb","cwd":"/Users/me/work/beta","name":"beta-1","status":"busy","version":"2"}],"sessions_on_disk":3,"cached_sessions":0}"#
 
     /// A stand-in for `skit serve` that remembers pins and tags like the real one.
-    static func engine() throws -> StubServer {
+    static func engine(path: String = StubServer.freshPath(), concurrent: Bool = false) throws -> StubServer {
+        try StubServer(path: path, concurrent: concurrent, respond: responder())
+    }
+
+    /// What the stand-in answers, for a test that wraps it (a slow engine, one that counts).
+    static func responder() -> @Sendable (String) -> Data {
         let state = Annotations()
-        return try StubServer { request in
+        return { request in
             let line = request.prefix { $0 != "\r" }
             func json(_ text: String) -> Data { StubServer.http(200, Data(text.utf8)) }
             if line.hasPrefix("GET /v0 ") { return json(routes) }

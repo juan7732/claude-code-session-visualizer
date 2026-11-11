@@ -4,11 +4,20 @@ import UserNotifications
 @main
 enum Main {
     static func main() {
+        // DECISION: the two measurements stay in every build. They read a session over the socket,
+        // print numbers and exit; README and ADR 0012 take them with a release build
+        // (`swift build -c release`), where the numbers mean something. What draws to a file, takes
+        // settings from the command line or drives a window (`--snapshot`, `--set`, `SKIT_EXERCISE`)
+        // is in debug builds only: the recipes that use it (`just client-snapshot`,
+        // `just client-exercise`) run the debug build.
         _ = Measure.run(arguments: CommandLine.arguments)
         _ = MeasureCanvas.run(arguments: CommandLine.arguments)
+        #if DEBUG
+        _ = OnboardingSnapshot.run(arguments: CommandLine.arguments)
         if let request = SnapshotRequest(arguments: CommandLine.arguments) {
             Snapshot.run(request)
         }
+        #endif
         SessionVisualizerApp.main()
     }
 }
@@ -20,7 +29,8 @@ struct SessionVisualizerApp: App {
     var body: some Scene {
         WindowGroup {
             // A skit-visualizer:// link goes to a window that is already open, not to a new one.
-            Themed { RootView() }.environment(store)
+            // Behind the first run until it has been seen: nothing connects, and no agent is installed, before that.
+            Themed { Onboarded { RootView() } }.environment(store)
                 .handlesExternalEvents(preferring: ["*"], allowing: ["*"])
         }
         .defaultSize(width: 1280, height: 860)
@@ -34,7 +44,7 @@ struct SessionVisualizerApp: App {
         .defaultSize(width: 1280, height: 860)
 
         Settings {
-            SettingsView().environment(store)
+            SettingsView().environment(store).webLinksOnly()
         }
     }
 }

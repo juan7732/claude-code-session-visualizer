@@ -73,7 +73,7 @@ func (r *Report) Find(query string) (Located, error) {
 	}
 	ids := make([]string, 0, len(matches))
 	for _, m := range matches {
-		ids = append(ids, m.File.ID[:12])
+		ids = append(ids, m.File.ID[:min(12, len(m.File.ID))])
 	}
 	return Located{}, fmt.Errorf("%q matches %d sessions: %s", query, len(matches), strings.Join(ids, ", "))
 }

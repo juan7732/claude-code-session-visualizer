@@ -2,7 +2,7 @@
 # Hermetic end-to-end suite: builds skit, then runs the integration tests
 # against the real binary in a throwaway HOME. Run with: just integration
 
-FROM golang:1.26-bookworm AS build
+FROM golang:1.26.11-bookworm AS build
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN --mount=type=cache,target=/root/.cache/go-build \
@@ -17,7 +17,7 @@ FROM debian:stable-slim AS runtime
 RUN apt-get update \
     && apt-get install -y --no-install-recommends bash ca-certificates \
     && rm -rf /var/lib/apt/lists/*
-COPY --from=golang:1.26-bookworm /usr/local/go /usr/local/go
+COPY --from=golang:1.26.11-bookworm /usr/local/go /usr/local/go
 ENV PATH=/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin GOPATH=/go GOCACHE=/root/.cache/go-build
 COPY --from=build /out/skit /usr/local/bin/skit
 WORKDIR /src

@@ -1,0 +1,17 @@
+# What the integration image does not need. Without this, `COPY . .` takes the
+# repository's history, the client's build and anything untracked into a layer
+# (and CI exports that layer to its cache).
+.git
+.github
+bin/
+node_modules/
+coverage.*
+client/SessionVisualizer/.build/
+client/SessionVisualizer/.swiftpm/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.gguf
+*.png
+.env
+.env.*

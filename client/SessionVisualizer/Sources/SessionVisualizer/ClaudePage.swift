@@ -212,8 +212,7 @@ extension ClaudePage {
                 .contentShape(Rectangle())
                 .onTapGesture(count: 2) { FileOpener.open(file.path, with: opener) }
                 .contextMenu {
-                    Button(FileOpener.title(opener)) { FileOpener.open(file.path, with: opener) }
-                    Button("Reveal in Finder") { FileOpener.reveal(file.path) }
+                    FileOpener.buttons(file.path, with: opener)
                     Button("Copy Path") { Exporter.copy(file.path) }
                 }
             }

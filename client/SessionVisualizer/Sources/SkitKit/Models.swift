@@ -457,6 +457,8 @@ public struct SessionImage: Codable, Sendable, Equatable, Identifiable {
     public var at: Date
     /// "prompt" (pasted or dropped by the human) or "tool_result" (a tool returned it).
     public var place: String
+    /// The id of the subagent whose transcript holds the image; nil for the session's own.
+    public var agent: String?
     public var toolId: String?
     public var mediaType: String
     /// Decoded size in bytes.
@@ -465,7 +467,7 @@ public struct SessionImage: Codable, Sendable, Equatable, Identifiable {
     public var id: Int { index }
 
     enum CodingKeys: String, CodingKey {
-        case index, turn, at, size
+        case index, turn, at, size, agent
         case place = "where"
         case toolId = "tool_id"
         case mediaType = "media_type"

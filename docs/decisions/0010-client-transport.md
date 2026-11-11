@@ -20,3 +20,11 @@ an image (75 kB, the one non-JSON route) in 3.1 ms; connecting to a local socket
 is out of reach of this transport: a route that pushes events (a live tail) would need its own reader, and is not
 planned. The engine is unchanged. A future web face still needs a listener of its own, with a token; that decision is
 not made here.
+
+**Changed on 2026-11-11.** "Everything after the headers" could not tell a whole body from one cut short: with the agent
+restarted in the middle of an answer, a Markdown export was saved short and reported as exported. The engine now sends
+`Content-Length` on every route (it encodes an answer whole before sending it), and the client refuses a body that is
+shorter or longer than its length says. Three more things came with it. The requests run on a queue of their own, not on
+Swift's cooperative threads, which three stalled polls could use up. The polls give up after 5 seconds where everything
+else waits 30. And a request that timed out is told apart from an engine that is not listening: only the second sends
+the windows back to "Looking for skit".

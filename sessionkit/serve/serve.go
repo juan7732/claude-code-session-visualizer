@@ -355,6 +355,8 @@ type ActionToolCall struct {
 	*transcript.ToolCall
 	Result       string `json:"result,omitempty"`
 	ResultSource string `json:"result_source,omitempty"` // "transcript" or the spilled file path
+	// ResultTruncated is true when the spilled file is longer than what is returned (transcript.MaxSpilledBytes).
+	ResultTruncated bool `json:"result_truncated,omitempty"`
 }
 
 // TurnDoc is GET /v0/sessions/{id}/turns/{n}: one agent turn with every action.
@@ -369,10 +371,8 @@ func actionDoc(sess *transcript.Session, a *transcript.Action) ActionDoc {
 		tc := ActionToolCall{ToolCall: c}
 		if c.Paired {
 			tc.Result, tc.ResultSource = c.ResultText(), "transcript"
-			if p, ok := sess.SpilledPath(c); ok {
-				if b, err := os.ReadFile(p); err == nil {
-					tc.Result, tc.ResultSource = string(b), p
-				}
+			if full, p, cut, ok := sess.SpilledText(c); ok {
+				tc.Result, tc.ResultSource, tc.ResultTruncated = full, p, cut
 			}
 		}
 		doc.ToolCalls = append(doc.ToolCalls, tc)
@@ -445,6 +445,7 @@ func (s *Server) export(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/markdown; charset=utf-8")
+	w.Header().Set("Content-Length", strconv.Itoa(text.Len()))
 	_, _ = w.Write(text.Bytes())
 }
 
@@ -543,6 +544,7 @@ func (s *Server) image(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", mt)
+	w.Header().Set("Content-Length", strconv.Itoa(len(raw)))
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write(raw)
 }
@@ -561,17 +563,17 @@ func (s *Server) annotation(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) annotate(w http.ResponseWriter, r *http.Request) {
-	s.annMu.Lock()
-	defer s.annMu.Unlock()
 	res, ok := s.resolve(w, r.PathValue("id"))
 	if !ok {
 		return
 	}
 	var p annotate.Patch
-	if err := json.NewDecoder(r.Body).Decode(&p); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(&p); err != nil {
 		writeError(w, http.StatusBadRequest, "body must be JSON: "+err.Error())
 		return
 	}
+	s.annMu.Lock()
+	defer s.annMu.Unlock()
 	a, err := annotate.Apply(s.Archive.Home, res.Session.ID, p)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, err.Error())
@@ -690,7 +692,7 @@ type ArchiveRequest struct {
 func (s *Server) archive(w http.ResponseWriter, r *http.Request) {
 	var req ArchiveRequest
 	if r.Body != nil && r.ContentLength != 0 {
-		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(&req); err != nil {
 			writeError(w, http.StatusBadRequest, "body must be JSON: "+err.Error())
 			return
 		}
@@ -741,7 +743,10 @@ func (s *Server) ingest(rep *catalog.Report, req ArchiveRequest) ([]archive.Resu
 		res, err := s.Archive.Ingest(l, archive.Options{StripRequests: req.StripRequests})
 		if err != nil {
 			s.Logf("archive %s: %v", l.File.ID, err)
-			res.Action = "failed"
+			res.Action, res.Error = "failed", err.Error()
+			if res.ID == "" {
+				res.ID, res.Project = l.File.ID, l.Project.Slug
+			}
 		}
 		results = append(results, res)
 	}
@@ -901,6 +906,9 @@ func (s *Server) logEmbedFailure(err error) {
 	}
 }
 
+// maxBody is the most a request may send: a note or a list of ids, never more.
+const maxBody = 1 << 20
+
 // cacheIdle is how long a parsed session stays in memory with nobody asking for it.
 const cacheIdle = 10 * time.Minute
 
@@ -977,12 +985,25 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener, socket string) erro
 	}
 }
 
+// writeJSON sends v with its length.
+//
+// DECISION: encoded whole, then sent with Content-Length. The client speaks
+// HTTP/1.0 and reads until the connection closes; without a length an answer
+// cut short by a restart of the agent looks complete, and a Markdown export
+// or an image was saved that way. Every route now says how long its body is.
 func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
 	// Compact: the reader is a program. `skit <command> --json` prints the same
 	// shapes indented for people.
-	_ = json.NewEncoder(w).Encode(v)
+	var body bytes.Buffer
+	if err := json.NewEncoder(&body).Encode(v); err != nil {
+		body.Reset()
+		code = http.StatusInternalServerError
+		_ = json.NewEncoder(&body).Encode(map[string]string{"error": "encoding the answer: " + err.Error()})
+	}
+	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("Content-Length", strconv.Itoa(body.Len()))
+	w.WriteHeader(code)
+	_, _ = w.Write(body.Bytes())
 }
 
 func writeError(w http.ResponseWriter, code int, msg string) {

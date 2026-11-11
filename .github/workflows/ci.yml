@@ -4,13 +4,17 @@ on:
     branches: [main]
   pull_request:
     branches: [main]
+# The workflow reads the repository and nothing else. Actions are pinned to a
+# commit: a tag can be moved to other code, a commit cannot.
+permissions:
+  contents: read
 jobs:
   check:
     name: Test & Lint
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -18,9 +22,17 @@ jobs:
         run: go mod tidy -diff
       - name: Vet
         run: go vet ./... && go vet -tags=integration ./test/...
+      - name: Lint (staticcheck)
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@v0.8.2
+          staticcheck ./... && staticcheck -tags=integration ./test/...
+      - name: Known vulnerabilities (govulncheck)
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@v1.9.0
+          govulncheck ./...
       - name: Format check (gofmt)
         run: test -z "$(gofmt -l .)" || (echo "Files need formatting:" && gofmt -l . && exit 1)
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 24
           cache: npm
@@ -33,14 +45,14 @@ jobs:
           set -euo pipefail
           for target in darwin/arm64 darwin/amd64 linux/amd64 linux/arm64; do
             os="${target%/*}"; arch="${target#*/}"
-            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -ldflags "-X main.version=ci" -o "bin/skit-$os-$arch" ./cmd/skit
+            GOOS="$os" GOARCH="$arch" CGO_ENABLED=0 go build -trimpath -ldflags "-X main.version=ci" -o "bin/skit-$os-$arch" ./cmd/skit
           done
   client:
     name: Client (Swift, macOS)
     runs-on: macos-26
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version-file: go.mod
           cache: true
@@ -57,9 +69,11 @@ jobs:
     name: Integration (docker)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/build-push-action@v6
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        env:
+          DOCKER_BUILD_RECORD_UPLOAD: false # no build record kept as an artifact of the run
         with:
           context: .
           file: test/integration/Dockerfile

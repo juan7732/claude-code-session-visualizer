@@ -2,8 +2,7 @@ import Foundation
 import Observation
 import SkitKit
 
-/// The pages of the app. Search, Stats and Claude are on the rail from the
-/// start; their pages arrive in M9 and M13.
+/// The pages of the app.
 enum Page: Hashable {
     case sessions
     case session(String)
@@ -23,12 +22,6 @@ enum SessionView: String, CaseIterable, Identifiable {
     case summary, transcript, canvas, timeline, files
     var id: String { rawValue }
     var title: String { rawValue.capitalized }
-    /// The milestone that brings the view, for the ones not built yet.
-    var arrives: String? {
-        switch self {
-        case .summary, .transcript, .canvas, .timeline, .files: nil
-        }
-    }
 }
 
 enum SessionSort: String, CaseIterable, Identifiable {
@@ -232,6 +225,8 @@ final class SearchState {
     /// Sessions folded to their one line.
     var folded: Set<String> = []
     var searching = false
+    /// Counts the searches started, so that an overtaken one can tell it is no longer the newest.
+    @ObservationIgnored var run = 0
     var failure: String?
     /// Bumped to move the keyboard into the field.
     var focusRequests = 0
@@ -503,6 +498,17 @@ final class WindowState {
 
     var sessionID: String? {
         if case .session(let id) = page { id } else { nil }
+    }
+
+    /// The sessions whose documents this window draws from now: the store keeps those loaded.
+    var shownSessions: [String] {
+        switch page {
+        case .session(let id): [id]
+        case .compare: [compare.first, compare.second].compactMap { $0 }
+        // The preview beside the hits reads the session of the hit the cursor is on.
+        case .search: search.hits.indices.contains(search.selected) ? [search.hits[search.selected].session] : []
+        case .sessions, .stats, .claude, .now, .primitives: []
+        }
     }
 
     /// The rows of the Sessions page: filtered, pinned first, then by the chosen order.

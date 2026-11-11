@@ -5,7 +5,7 @@
 1. **Pasted or attached by the user.** A `user` record with `turnOrigin: human`, content `[image, text]` or
    `[text, image, text]`, `imagePasteIds: [n]`, the image as
    `{"type":"image","source":{"type":"base64","media_type": "image/png"|"image/jpeg","data":"…"}}`. Observed 30 KB to
-   360 KB of base64 each. The text usually refers to it ("This is the TA's feedback…").
+   360 KB of base64 each. The text usually refers to it ("This is the error I get…").
 2. **Read by a tool.** `Read` on a PNG returns a `tool_result` whose `content` is a list with an `image` block (18 of
    the 25). Same base64 shape.
 3. **Returned by MCP tools.** Per the docs, full-size copies land in `<session>/tool-results/` (none observed here).
@@ -21,7 +21,7 @@ them:
 
 | Option                            | How                                                                                                                                                                                                                                                                                                      | Cost                                                       | Finds                                                            |
 | --------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- | ---------------------------------------------------------------- |
-| **A. Proxy text (v0)**            | Embed the surrounding text: the user's words in the same message, and the assistant's next text/thinking (it almost always describes what it saw). Store the image bytes + a thumbnail for display.                                                                                                      | zero extra model                                           | "the session where I pasted the TA feedback screenshot"          |
+| **A. Proxy text (v0)**            | Embed the surrounding text: the user's words in the same message, and the assistant's next text/thinking (it almost always describes what it saw). Store the image bytes + a thumbnail for display.                                                                                                      | zero extra model                                           | "the session where I pasted the screenshot of the error"         |
 | **B. OCR → keyword index**        | Apple Vision in the Swift client (free, on-device) or Tesseract in Go. Text goes to FTS5 only. DigUp found OCR _vectors_ made screenshots outrank better matches; keyword-only is the right use.                                                                                                         | ~0.25 s/image                                              | exact strings: error codes, file names, UI labels in screenshots |
 | **C. True image vectors (later)** | EmbeddingGemma 2 is multimodal: the `mmproj` encoder (555 MB more) puts images in the **same 768-d space** as text, so "screenshot of a red error dialog" matches the picture. Measured: `llama-server --mmproj` does it through `/v1/embeddings`, ~45 ms per image on an M4 Max (`embedding-spike.md`). | 555 MB download, +0.55 GB sidecar memory, no custom worker | content of the image itself                                      |
 

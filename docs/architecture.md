@@ -28,8 +28,8 @@ sessionkit/       the engine (import path …/sessionkit/<pkg>). No printing, no
                   Embed() cut prose segments and give every distinct piece a vector (meaning-search.md).
   search          by words: FTS5 + bm25 candidates, coverage of the query's words, lookup queries weigh words more.
                   By meaning: cosine of the query's vector against every stored vector, best piece per segment
-                  (plain form; the fusion and the gate are not built). Eval: queries with known answers → R@1, R@5,
-                  R@10, MRR per mode.
+                  that passes the gate. Hybrid: the meaning hits that pass the gate, then keyword's. Eval: queries
+                  with known answers → R@1, R@5, R@10, MRR per mode.
   embed           the pinned model file and its one download into ~/.sessionkit/models/, the llama-server sidecar
                   (start on a loopback port with a random key, health, stop, reap one whose owner died), the client
                   for /v1/embeddings, prompt framing, the chunker, float16 vectors

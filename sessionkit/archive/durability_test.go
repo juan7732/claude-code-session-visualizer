@@ -394,7 +394,8 @@ func TestMemoisedPerParsedSession(t *testing.T) {
 	}
 
 	// Without a cache nothing is kept: every call derives afresh.
-	if one := resolve(); one.Relations() == one.Relations() {
+	one := resolve()
+	if first, again := one.Relations(), one.Relations(); first == again {
 		t.Fatal("a one-shot Resolved has nowhere to keep its relations")
 	}
 

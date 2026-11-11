@@ -26,7 +26,7 @@ struct SessionPage: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            if inspector, window.sessionView.arrives == nil, let key = window.selection, let model = store.model(id) {
+            if inspector, let key = window.selection, let model = store.model(id) {
                 Drawer(model: model, key: key).transition(.move(edge: .bottom))
             }
         }
@@ -39,6 +39,10 @@ struct SessionPage: View {
         .onChange(of: window.pending) {
             // A link to a node of the session that is already open.
             if let model = store.model(id) { window.applyPending(in: model) }
+        }
+        .onChange(of: store.models[id] == nil) { _, missing in
+            // The store keeps what a window shows; should the document go all the same, it is read again.
+            if missing { Task { await store.loadModel(id) } }
         }
     }
 
@@ -81,17 +85,17 @@ struct Facts: View {
     }
 }
 
-/// A page or view that a later milestone brings.
+/// A page that has nothing to draw, and why: no such session, an empty one, one that could not be read.
+/// (The name is from when it stood in for the views a later milestone brought.)
 struct ComingPage: View {
     @Environment(\.palette) private var palette
     var title: String
-    var milestone = ""
-    var detail: String?
+    var detail: String
 
     var body: some View {
         VStack(spacing: 6) {
             Text(title).font(.display(22))
-            Text(detail ?? "Not built yet. It arrives with \(milestone) of the plan.").foregroundStyle(palette.muted)
+            Text(detail).foregroundStyle(palette.muted)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(palette.bg)

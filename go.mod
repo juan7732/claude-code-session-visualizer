@@ -1,6 +1,6 @@
 module github.com/juan7732/claude-code-session-visualizer
 
-go 1.26.0
+go 1.26.11
 
 require (
 	github.com/fsnotify/fsnotify v1.10.1

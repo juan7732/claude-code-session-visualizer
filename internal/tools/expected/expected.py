@@ -58,8 +58,11 @@ def main(fixture_dir):
                     cc = b.get("content")
                     for x in (cc if isinstance(cc, list) else []):
                         if x.get("type") == "image": e["images"] += 1
-            if not has_result and not r.get("isCompactSummary") and not r.get("isMeta") and r.get("turnOrigin"):
-                if r.get("turnOrigin") == "human":
+            # Who started the turn: turnOrigin, or origin.kind where Claude Code 2.1.26x left turnOrigin out.
+            origin = r.get("origin")
+            starter = r.get("turnOrigin") or (origin.get("kind") if isinstance(origin, dict) else origin if isinstance(origin, str) else None)
+            if not has_result and not r.get("isCompactSummary") and not r.get("isMeta") and starter:
+                if starter == "human":
                     e["prompts"] += 1; e["turns"] += 1
                 else:
                     e["system_turns"] += 1

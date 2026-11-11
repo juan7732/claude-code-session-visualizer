@@ -674,3 +674,126 @@ func TestResolvePath(t *testing.T) {
 		}
 	}
 }
+
+// What a transcript says is not trusted to name a file: only a result that
+// opens as Claude Code's own spill does, and only a file in a tool-results directory.
+func TestSpilledPathIsNotAnyPath(t *testing.T) {
+	dir := t.TempDir()
+	secret := filepath.Join(dir, "id_rsa")
+	os.WriteFile(secret, []byte("PRIVATE"), 0o600)
+	os.MkdirAll(filepath.Join(dir, "elsewhere", "tool-results"), 0o700)
+	real := filepath.Join(dir, "elsewhere", "tool-results", "toolu_9.txt")
+	os.WriteFile(real, []byte(strings.Repeat("é", 10)), 0o600)
+	os.Symlink(secret, filepath.Join(dir, "elsewhere", "tool-results", "link.txt"))
+
+	// A result that only quotes the sentence is not a spill.
+	if got := spilledPath(nil, "grep found: Full output saved to: "+secret); got != "" {
+		t.Fatalf("a quoted marker became a path: %q", got)
+	}
+	if got := spilledPath(nil, "<persisted-output>\nOutput too large (1MB). Full output saved to: "+real+"\n\nPreview"); got != real {
+		t.Fatalf("a real spill's path = %q, want %q", got, real)
+	}
+	s := &Session{ID: "s", Path: filepath.Join(dir, "s.jsonl")}
+	for _, path := range []string{secret, "/dev/zero", filepath.Join(dir, "elsewhere", "tool-results", "link.txt"), "tool-results/relative.txt", dir} {
+		if p, ok := s.SpilledPath(&ToolCall{Spilled: path}); ok {
+			t.Errorf("SpilledPath accepted %q as %q", path, p)
+		}
+		if text, _, _, ok := s.SpilledText(&ToolCall{Spilled: path}); ok || text != "" {
+			t.Errorf("SpilledText read %q", path)
+		}
+	}
+	text, p, cut, ok := s.SpilledText(&ToolCall{Spilled: real})
+	if !ok || p != real || cut || text != strings.Repeat("é", 10) {
+		t.Fatalf("a spill in a tool-results directory: %q %q %v %v", text, p, cut, ok)
+	}
+}
+
+// Claude Code 2.1.263 and 2.1.267 wrote who started a turn in origin.kind and
+// left turnOrigin out. Those prompts are prompts.
+func TestPromptsAreReadFromOriginWhenTurnOriginIsAbsent(t *testing.T) {
+	in := `{"type":"user","uuid":"u1","origin":{"kind":"human"},"promptSource":"typed","timestamp":"2026-11-08T01:00:00Z","message":{"role":"user","content":"first"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T01:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"one"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"n1","parentUuid":"a1","origin":{"kind":"task-notification"},"timestamp":"2026-11-08T01:00:02Z","message":{"role":"user","content":"<task-notification>done</task-notification>"}}
+{"type":"assistant","uuid":"a2","parentUuid":"n1","requestId":"r2","timestamp":"2026-11-08T01:00:03Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"noted"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"u2","parentUuid":"a2","turnOrigin":"human","origin":{"kind":"human"},"timestamp":"2026-11-08T01:00:04Z","message":{"role":"user","content":"second"}}
+{"type":"assistant","uuid":"a3","parentUuid":"u2","requestId":"r3","timestamp":"2026-11-08T01:00:05Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"two"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"c1","parentUuid":"a3","timestamp":"2026-11-08T01:00:06Z","message":{"role":"user","content":"<local-command-stdout>ok</local-command-stdout>"}}
+{"type":"user","uuid":"m1","parentUuid":"c1","isMeta":true,"origin":"human","timestamp":"2026-11-08T01:00:07Z","message":{"role":"user","content":"injected"}}
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Totals.Prompts != 2 || len(s.Prompts) != 2 || s.Prompts[0].Text != "first" || s.Prompts[1].Text != "second" {
+		t.Fatalf("prompts = %d %+v, want first and second", s.Totals.Prompts, s.Prompts)
+	}
+	if len(s.Turns) != 3 || s.Turns[0].Origin != "human" || s.Turns[1].Origin != "task_notification" || s.Turns[2].Origin != "human" {
+		t.Fatalf("turns = %d, want human, task_notification, human", len(s.Turns))
+	}
+	if len(s.Turns[2].Actions) != 1 {
+		t.Fatalf("a record with neither field, and a meta record, open no turn: %+v", s.Turns[2])
+	}
+}
+
+// A field of a type this parser does not expect costs that field, not the record.
+func TestRecordsSurviveAFieldOfAnotherType(t *testing.T) {
+	in := `{"type":"user","uuid":"u1","turnOrigin":"human","imagePasteIds":"one,two","timestamp":"2026-11-08T01:00:00Z","message":{"role":"user","content":"look at this"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T01:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"web_search_tool_result","tool_use_id":"srv_1","content":{"type":"web_search_tool_result_error","error_code":"unavailable"}},{"type":"search_result","source":"https://example.com","text":"a page"},"a bare string",{"type":"text","text":"answer"}],"usage":{"input_tokens":3,"output_tokens":500,"cache_creation":"none"}}}
+{"type":"user","uuid":"u2","parentUuid":"a1","turnOrigin":"human","cwd":17,"timestamp":"2026-11-08T01:00:02Z","message":{"role":"user","content":"again"}}
+not json at all
+`
+	s, err := Parse(strings.NewReader(in))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Totals.Malformed != 1 || s.Totals.Mismatched != 2 {
+		t.Fatalf("malformed %d mismatched %d, want 1 and 2 (the blocks are read by their own rules)", s.Totals.Malformed, s.Totals.Mismatched)
+	}
+	if s.Totals.Prompts != 2 || s.Totals.Requests != 1 || s.Totals.Usage.OutputTokens != 500 {
+		t.Fatalf("prompts %d requests %d output %d: nothing but the odd fields is lost", s.Totals.Prompts, s.Totals.Requests, s.Totals.Usage.OutputTokens)
+	}
+	blocks := s.Actions[0].Records[0].Message.Content
+	if len(blocks) != 4 || blocks[0].Type != "web_search_tool_result" || len(blocks[0].Content) != 1 || blocks[0].Content[0].Type != "web_search_tool_result_error" ||
+		blocks[1].Text != "a page" || blocks[1].Source != nil || blocks[2].Text != "a bare string" || blocks[3].Text != "answer" {
+		t.Fatalf("blocks = %+v", blocks)
+	}
+}
+
+// The images a subagent read are listed with the session's own, so the list
+// is as long as the count beside it (which has always added the subagents').
+func TestImagesIncludeTheSubagents(t *testing.T) {
+	parent, err := Parse(strings.NewReader(`{"type":"user","uuid":"u1","turnOrigin":"human","timestamp":"2026-11-08T01:00:00Z","message":{"role":"user","content":"start"}}
+{"type":"assistant","uuid":"a1","parentUuid":"u1","requestId":"r1","timestamp":"2026-11-08T01:00:01Z","message":{"model":"m","role":"assistant","content":[{"type":"text","text":"ok"}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"u2","parentUuid":"a1","turnOrigin":"human","timestamp":"2026-11-08T01:00:02Z","message":{"role":"user","content":[{"type":"image","source":{"type":"base64","media_type":"image/png","data":"UEFSRU5U"}},{"type":"text","text":"look"}]}}
+{"type":"assistant","uuid":"a2","parentUuid":"u2","requestId":"r2","timestamp":"2026-11-08T01:00:03Z","message":{"model":"m","role":"assistant","content":[{"type":"tool_use","id":"t1","name":"Agent","input":{}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"r1","parentUuid":"a2","timestamp":"2026-11-08T01:00:09Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t1","content":"done"}]}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	child, err := Parse(strings.NewReader(`{"type":"user","uuid":"c1","timestamp":"2026-11-08T01:00:04Z","message":{"role":"user","content":"look at the icon"}}
+{"type":"assistant","uuid":"c2","parentUuid":"c1","requestId":"q1","timestamp":"2026-11-08T01:00:05Z","message":{"model":"m","role":"assistant","content":[{"type":"tool_use","id":"t9","name":"Read","input":{}}],"usage":{"input_tokens":1,"output_tokens":1}}}
+{"type":"user","uuid":"c3","parentUuid":"c2","timestamp":"2026-11-08T01:00:06Z","message":{"role":"user","content":[{"type":"tool_result","tool_use_id":"t9","content":[{"type":"image","source":{"type":"base64","media_type":"image/jpeg","data":"Q0hJTEQ="}}]}]}}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	parent.AttachSubagent(&Subagent{AgentID: "abc", ToolUseID: "t1", Session: child})
+
+	imgs := parent.Images()
+	if len(imgs) != parent.Totals.Images+child.Totals.Images || len(imgs) != 2 {
+		t.Fatalf("%d images listed, %d + %d counted", len(imgs), parent.Totals.Images, child.Totals.Images)
+	}
+	if imgs[0].Agent != "" || imgs[0].Where != "prompt" || imgs[0].Turn != 1 || imgs[0].Index != 0 {
+		t.Fatalf("the session's own image: %+v", imgs[0])
+	}
+	if imgs[1].Agent != "abc" || imgs[1].Where != "tool_result" || imgs[1].ToolID != "t9" || imgs[1].Turn != 1 || imgs[1].Index != 1 || imgs[1].MediaType != "image/jpeg" {
+		t.Fatalf("the subagent's image, in the turn that started it: %+v", imgs[1])
+	}
+	if mt, data, err := parent.ImageData(1); err != nil || mt != "image/jpeg" || data != "Q0hJTEQ=" {
+		t.Fatalf("the subagent's image by its index: %q %q %v", mt, data, err)
+	}
+	if _, _, err := parent.ImageData(2); err == nil {
+		t.Fatal("there is no third image")
+	}
+}

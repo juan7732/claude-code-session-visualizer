@@ -1,8 +1,20 @@
 #!/bin/sh
-# Pre-commit: gofmt on staged Go files, Prettier on staged docs/config. Installed by `just setup`.
+# Pre-commit: gofmt on staged Go files, Prettier on staged docs/config, and a
+# look for keys in what is about to be committed. Installed by `just setup`.
 set -e
 staged=$(git diff --cached --name-only --diff-filter=ACM)
 [ -z "$staged" ] && exit 0
+
+# A key or a token in an added line. The shapes are the real ones (length
+# included), so a test's "sk-ant-SECRET" placeholder does not trip it.
+leaks=$(git diff --cached -U0 --diff-filter=ACM | grep -E '^\+[^+]' | grep -E \
+  'sk-ant-[a-z0-9]+-[A-Za-z0-9_-]{20,}|gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{40,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{20,}|-----BEGIN [A-Z ]*PRIVATE KEY' || true)
+if [ -n "$leaks" ]; then
+  echo "pre-commit: this looks like a key or a token in a staged line:" >&2
+  printf '%s\n' "$leaks" | cut -c1-80 >&2
+  echo "remove it (and rotate it if it is real), or commit with --no-verify if it is not one" >&2
+  exit 1
+fi
 
 gofiles=$(printf '%s\n' "$staged" | grep '\.go$' || true)
 if [ -n "$gofiles" ]; then
@@ -21,6 +33,21 @@ if [ -n "$docfiles" ]; then
     echo "pre-commit: prettier not installed; run: just setup" >&2
     exit 1
   fi
-  node_modules/.bin/prettier --write $docfiles >/dev/null
-  git add $docfiles
+  fail=0
+  for f in $docfiles; do
+    if git diff --quiet -- "$f"; then
+      # All of the file is staged: format it and stage the result.
+      node_modules/.bin/prettier --write "$f" >/dev/null
+      git add "$f"
+    elif ! node_modules/.bin/prettier --check "$f" >/dev/null 2>&1; then
+      # Part of the file is staged. Staging it again after formatting would
+      # commit the part that was left out on purpose, so it is not touched.
+      echo "pre-commit: $f needs formatting and has changes that are not staged" >&2
+      fail=1
+    fi
+  done
+  if [ "$fail" = 1 ]; then
+    echo "run: just fmt, then stage what you mean to commit" >&2
+    exit 1
+  fi
 fi

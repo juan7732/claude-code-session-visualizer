@@ -21,6 +21,8 @@ private struct GeneralSettings: View {
     @AppStorage(SettingsKey.sidebar) private var sidebar = true
     @AppStorage(SettingsKey.fileOpener) private var chosen: String?
     @AppStorage(SettingsKey.nowReminderMinutes) private var reminderMinutes = 5
+    @AppStorage(SettingsKey.keepRecentSearches) private var keepsRecent = true
+    @AppStorage(SettingsKey.recentSearches) private var recent = ""
 
     var body: some View {
         Form {
@@ -44,6 +46,13 @@ private struct GeneralSettings: View {
                     ForEach([2, 5, 10, 15], id: \.self) { Text("\($0) minutes left").tag($0) }
                 }
                 Text("For the sessions whose bell is on, on the Now page. After a session's prompt cache expires, its next prompt pays for the whole context again.")
+                    .font(.footnote).foregroundStyle(.secondary)
+            }
+            Section("Search") {
+                Toggle("Remember recent searches", isOn: $keepsRecent)
+                    .onChange(of: keepsRecent) { _, keeps in if !keeps { recent = "" } }
+                Button("Clear Recent Searches") { recent = "" }.disabled(recent.isEmpty)
+                Text("The last six searches that led somewhere, offered again on the Search page. They are kept in this app's settings on this Mac; off, none are kept and the ones there are removed.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
             Section("Appearance") {
@@ -173,8 +182,15 @@ private struct EngineSettings: View {
                     if let binary = status.binary { LabeledContent("Runs", value: Format.homeRelative(binary)) }
                     if let detail = status.detail { Text(detail).font(.footnote).foregroundStyle(.secondary) }
                 }
+                if let mismatch = store.versionMismatch {
+                    Text("The agent runs skit \(mismatch.running); this app carries \(mismatch.bundled). Restarting it here brings the two together.")
+                        .font(.footnote).foregroundStyle(.secondary)
+                }
                 Button(working ? "Installing…" : "Install or Restart the Agent") { Task { await install() } }
-                    .disabled(working || store.locator.findBinary() == nil)
+                    .disabled(working || store.locator.findBinary() == nil || store.installRefusal != nil)
+                if let place = store.installRefusal {
+                    Text(AppStore.moveAdvice(place)).font(.footnote).foregroundStyle(.secondary)
+                }
                 Text("The agent keeps skit running from login on, so every session is archived without being asked.")
                     .font(.footnote).foregroundStyle(.secondary)
             }
@@ -189,21 +205,17 @@ private struct EngineSettings: View {
             return
         }
         do {
-            service = .loaded(try await Task.detached { try SkitCommand(binary: binary).serviceStatus() }.value)
+            service = .loaded(try await Blocking.run { try SkitCommand(binary: binary).serviceStatus() })
         } catch {
             service = .failed("\(error)")
         }
     }
 
+    /// Through the store: one install at a time, whichever window or page asked for it.
     private func install() async {
-        guard let binary = store.locator.findBinary() else { return }
         working = true
         defer { working = false }
-        do {
-            service = .loaded(try await Task.detached { try SkitCommand(binary: binary).installService() }.value)
-            await store.connect()
-        } catch {
-            service = .failed("\(error)")
-        }
+        await store.restartAgent()
+        await check()
     }
 }

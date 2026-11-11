@@ -2,6 +2,7 @@ import AppKit
 import SkitKit
 import SwiftUI
 
+#if DEBUG
 /// `SessionVisualizer --snapshot out.png [--page sessions|session:<id>|search|stats|claude|primitives|now]
 /// [--view summary|…] [--appearance light|dark|oled] [--size 1500x940] [--socket path] [--flyout]
 /// [--select action:6|turn:0|tool:<id>|subagent:<id>|step:<agent>:<n>|compaction:0|work:1|file:<path>|outside:<kind:name>]
@@ -106,6 +107,7 @@ struct SnapshotRequest {
         lightbox = value("--lightbox").flatMap(Int.init)
     }
 }
+#endif
 
 /// `SessionVisualizer --measure <session id> [--socket path]`: how long opening a
 /// session takes, step by step, without a window. "Measure before you tune."
@@ -258,6 +260,7 @@ extension MeasureCanvas {
 }
 
 enum Snapshot {
+    #if DEBUG
     /// This process renders one picture and exits: it reads and writes none of
     /// what a person's own windows remember (where a canvas was left).
     static let active = CommandLine.arguments.contains("--snapshot")
@@ -265,7 +268,15 @@ enum Snapshot {
     /// nothing a person's own windows remember (the exercise pans a canvas, and
     /// once left its camera in the real settings).
     static let keepsNothing = active || ProcessInfo.processInfo.environment["SKIT_EXERCISE"] != nil
+    #else
+    // The app that ships has neither mode: every run is a person's.
+    static let active = false
+    static let keepsNothing = false
+    #endif
+}
 
+#if DEBUG
+extension Snapshot {
     static func run(_ request: SnapshotRequest) -> Never {
         let app = NSApplication.shared
         app.setActivationPolicy(.accessory)
@@ -467,6 +478,8 @@ private final class OffscreenWindow: NSWindow {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
 }
+
+#endif
 
 private struct SnapshotFlyoutKey: EnvironmentKey {
     static let defaultValue = false

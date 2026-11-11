@@ -67,6 +67,10 @@ func KeepLogCapped(ctx context.Context, skitHome string, logf func(string, ...an
 	tick := time.NewTicker(time.Hour)
 	defer tick.Stop()
 	for {
+		// launchd creates the log 0644. It names sessions, projects and paths: the owner's alone to read.
+		if st, err := os.Stat(LogPath(skitHome)); err == nil && st.Mode().Perm()&0o077 != 0 {
+			_ = os.Chmod(LogPath(skitHome), 0o600)
+		}
 		if cut, err := CapLog(LogPath(skitHome), MaxLogBytes, KeepLogBytes); err != nil {
 			logf("log: %v", err)
 		} else if cut {

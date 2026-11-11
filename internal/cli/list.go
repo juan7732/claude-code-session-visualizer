@@ -45,7 +45,7 @@ calls, output tokens, Claude Code's cost figure, and the title.`,
 				if r.ArchivedOnly {
 					title += "  (archived; source gone)"
 				}
-				fmt.Fprintf(w, "%-8s  %-16s %8s %5d %7d %5d %7s %7s  %s\n", r.ID[:8], localTime(r.LastAt), r.Duration, r.Turns+r.SystemTurns, r.Requests, r.ToolCalls,
+				fmt.Fprintf(w, "%-8s  %-16s %8s %5d %7d %5d %7s %7s  %s\n", short(r.ID), localTime(r.LastAt), r.Duration, r.Turns+r.SystemTurns, r.Requests, r.ToolCalls,
 					stats.FormatTokens(r.Usage.OutputTokens), money(r.ClaudeCodeCostUSD), title)
 			}
 			if len(rows) == 0 {

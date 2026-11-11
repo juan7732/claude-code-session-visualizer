@@ -4,7 +4,7 @@ import SwiftUI
 /// blocks, soft shadows. The values are the mock's (`ux-mocks/app.css`,
 /// `[data-style="bento"]`). Light and dark follow the system; pure black for
 /// OLED displays is a setting that applies in dark mode.
-struct Palette: Equatable {
+struct Palette: Hashable {
     var bg, panel, panel2: Color
     var ink, ink2, muted, muted2: Color
     var line, line2: Color
@@ -108,6 +108,17 @@ struct Themed<Content: View>: View {
             .environment(\.palette, palette)
             .tint(palette.accent)
             .foregroundStyle(palette.ink)
+            .webLinksOnly()
+    }
+}
+
+extension View {
+    /// A link clicked in any text below opens only when it is to the web (`LinkPolicy`). `InlineText`
+    /// already takes other destinations out of what it draws; this is the same rule at the root of a
+    /// window, for text that reaches the screen some other way. The app's own `skit-visualizer://`
+    /// links arrive through `onOpenURL`, which this does not touch.
+    func webLinksOnly() -> some View {
+        environment(\.openURL, OpenURLAction { LinkPolicy.opens($0) ? .systemAction : .discarded })
     }
 }
 
@@ -163,6 +174,8 @@ enum SettingsKey {
     static let contextWindow = "summary.contextWindow"
     /// Recent searches, one per line, newest first.
     static let recentSearches = "search.recent"
+    /// Whether searches are remembered at all (on unless turned off in Settings).
+    static let keepRecentSearches = "search.keepRecent"
     /// A search that finds several sessions starts with each folded to one line.
     static let searchFolded = "search.folded"
     static let canvasBackground = "canvas.background"
@@ -184,5 +197,41 @@ enum SettingsKey {
     static let scoreScale = "canvas.score.scale"
     static let scoreFiles = "canvas.score.files"
     /// Where a session's canvas was left: one camera per session and layout.
-    static func canvasCamera(_ sessionID: String, score: Bool = false) -> String { (score ? "canvas.camera.score." : "canvas.camera.") + sessionID }
+    static func canvasCamera(_ sessionID: String, score: Bool = false) -> String { (score ? canvasCameraScorePrefix : canvasCameraPrefix) + sessionID }
+    nonisolated static let canvasCameraPrefix = "canvas.camera."
+    nonisolated static let canvasCameraScorePrefix = "canvas.camera.score."
+}
+
+/// The searches that led somewhere, kept in the defaults as one line each, newest first.
+/// They are words about the person's own work, in a file any process of theirs can read: keeping
+/// them is a setting, and they can be cleared.
+enum RecentSearches {
+    static let limit = 6
+
+    /// The list with `query` put first. Nothing is added while searches are not kept, and what was kept before goes.
+    static func adding(_ query: String, to recent: String, keeping: Bool) -> String {
+        guard keeping else { return "" }
+        guard query.count >= 2 else { return recent }
+        let past = recent.split(separator: "\n").map(String.init).filter { $0 != query }
+        return ([query] + past).prefix(limit).joined(separator: "\n")
+    }
+}
+
+/// Where canvases were left: one key per session and layout, which would otherwise stay for every session ever opened.
+enum CanvasMemory {
+    /// The camera keys among `keys` that belong to no session in `ids`.
+    static func stale(_ keys: some Sequence<String>, keeping ids: Set<String>) -> [String] {
+        keys.filter { key in
+            guard key.hasPrefix(SettingsKey.canvasCameraPrefix) else { return false }
+            let prefix = key.hasPrefix(SettingsKey.canvasCameraScorePrefix) ? SettingsKey.canvasCameraScorePrefix : SettingsKey.canvasCameraPrefix
+            return !ids.contains(String(key.dropFirst(prefix.count)))
+        }
+    }
+
+    /// Forgets the cameras of sessions the engine no longer lists. With no session listed nothing is
+    /// forgotten: an empty list is more likely an engine that has not looked yet than an empty Mac.
+    static func prune(keeping ids: Set<String>, in defaults: UserDefaults = .standard) {
+        guard !ids.isEmpty else { return }
+        for key in stale(defaults.dictionaryRepresentation().keys, keeping: ids) { defaults.removeObject(forKey: key) }
+    }
 }

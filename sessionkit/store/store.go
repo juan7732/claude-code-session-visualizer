@@ -21,14 +21,19 @@ import (
 // SchemaVersion is bumped with every migration.
 const SchemaVersion = 8
 
-// IndexedVersion is the last schema that changed what a session's summary or
-// segments hold. A session row records the one it was indexed at, and a row
-// from an earlier one is re-indexed by the next `archive` or `list`.
+// IndexedVersion is bumped whenever what a session's summary or segments hold
+// changes: by a schema that gives them new columns, or by the parser reading
+// the same transcript differently. A session row records the one it was
+// indexed at, and a row from an earlier one is re-indexed by the next
+// `archive` or `list`.
 //
 // DECISION: kept apart from SchemaVersion so that a migration which only adds
 // tables (schema 5: chunks and vectors) does not make every session be parsed
-// again for nothing.
-const IndexedVersion = 8
+// again for nothing. It is a counter of its own and may run ahead of
+// SchemaVersion: 9 is the parser reading prompts from origin.kind where
+// turnOrigin is absent, and counting malformed and mismatched records in the
+// summary, with no change to the tables (2026-11-11).
+const IndexedVersion = 9
 
 // Store is an open index.
 type Store struct {
@@ -41,17 +46,58 @@ func Open(path string) (*Store, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, err
 	}
-	db, err := sql.Open("sqlite", path+"?_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)")
+	// DECISION: _txlock=immediate. Every transaction here ends in a write, and
+	// several read first (ReplaceSegments, UseVectorSource). SQLite does not
+	// wait for the lock when a transaction that began by reading turns to
+	// writing: it fails at once with "database is locked", whatever
+	// busy_timeout says. With `skit serve` archiving beside a CLI `skit embed`
+	// that lost an ingest now and then. Taking the write lock at BEGIN makes
+	// the second writer wait its five seconds like any other.
+	db, err := sql.Open("sqlite", path+"?_txlock=immediate&_pragma=busy_timeout(5000)&_pragma=journal_mode(WAL)&_pragma=foreign_keys(ON)&_pragma=synchronous(NORMAL)")
 	if err != nil {
 		return nil, err
 	}
 	db.SetMaxOpenConns(1) // one writer, no lock dance
 	s := &Store{db: db, Path: path}
-	if err := s.migrate(); err != nil {
+	// The first statement opens the connection, which switches a new file to
+	// WAL. SQLite does not wait for that switch when another process is doing
+	// the same: it answers "busy" at once, timeout or not. So the wait is here.
+	err = s.migrate()
+	for wait := 10 * time.Millisecond; err != nil && isBusy(err) && wait < 3*time.Second; wait *= 2 {
+		time.Sleep(wait)
+		err = s.migrate()
+	}
+	if err != nil {
 		db.Close()
 		return nil, fmt.Errorf("index %s: %w", path, err)
 	}
+	s.private()
 	return s, nil
+}
+
+// private makes the index readable by its owner alone. SQLite creates the file
+// 0644 and gives the WAL and shared-memory files the same mode.
+//
+// SPEC: docs/design-principles.md: the archive inherits the transcripts'
+// sensitivity and gets the same file permissions. The index holds every
+// prompt and tool result as text. The 0700 home kept others out only when skit
+// had made that directory itself; a SKIT_HOME on a directory that was already
+// there did not.
+func (s *Store) private() {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		if st, err := os.Stat(s.Path + suffix); err == nil && st.Mode().Perm()&0o077 != 0 {
+			_ = os.Chmod(s.Path+suffix, 0o600)
+		}
+	}
+}
+
+// isBusy reports whether err is SQLite saying another connection holds the lock.
+func isBusy(err error) bool {
+	var coded interface{ Code() int }
+	if errors.As(err, &coded) {
+		return coded.Code()&0xff == 5 // SQLITE_BUSY and its extended codes
+	}
+	return false
 }
 
 // Close closes the database.
@@ -76,6 +122,19 @@ func (s *Store) migrate() error {
 		return err
 	}
 	defer tx.Rollback()
+	// Read again under the write lock: another skit (the agent restarting
+	// beside the app, after an upgrade) may have migrated between the look
+	// above and the lock, and running the same step twice fails ("table uses
+	// already exists").
+	if err := tx.QueryRow(`PRAGMA user_version`).Scan(&version); err != nil {
+		return err
+	}
+	if version > SchemaVersion {
+		return fmt.Errorf("made by a newer skit (schema %d, this skit knows %d)", version, SchemaVersion)
+	}
+	if version == SchemaVersion {
+		return nil
+	}
 	if version == 0 {
 		// A new index is created at the latest schema directly.
 		if _, err := tx.Exec(schemaLatest); err != nil {

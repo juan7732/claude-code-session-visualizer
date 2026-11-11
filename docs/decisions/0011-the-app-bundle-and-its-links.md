@@ -32,3 +32,26 @@ global addresses, and the archive is local (tenet 2). The app and its helper are
 cannot ship a client that asks for routes its own engine lacks. One thing is left open: a build that other Macs accept
 needs a Developer ID, which this Mac does not have. (The icon came on 2026-11-10: `build.sh` makes `AppIcon.icns` from
 `Resources/AppIcon.png`.)
+
+**Changed on 2026-11-11**, after the code review of that day.
+
+- **The shipped app starts only its own helper.** A release build whose bundle holds `Contents/Helpers/skit` uses that
+  and nothing else. `$SKIT_BIN` and the directories of `PATH` are still tried by a debug build and by a run from the
+  build directory. What the app finds it installs as a login agent, so what it finds must be what was signed with it.
+- **The agent follows the app, from a place that stays.** The agent's plist names the helper by its path. On every
+  launch the app compares that path with its own helper and installs again when the agent's binary is gone or is the
+  helper of another copy of the app. An agent someone installed from a `skit` of their own, still there, is kept, as
+  above. From a translocated path (`/AppTranslocation/`, where macOS runs an app opened in Downloads) or a mounted
+  volume (`/Volumes/`) nothing is installed: those paths are gone after a quit or an eject, and the agent would stop
+  archiving without a word. With no agent serving, the window asks for the app to be moved to Applications; with one
+  serving, the app works and says so.
+- **Compatibility is more than route names.** An engine that serves every route under another version than the app's own
+  helper is said once, and Settings › Engine shows both versions beside the restart. An engine whose status, sessions or
+  annotations the app cannot decode gets the same page and the same remedy as one that lacks a route.
+- **Links in a transcript open the web and nothing else.** Rendered Markdown keeps a link only when it is http or https,
+  and writes the host after a label that does not name it. A transcript is whatever a model, a tool result or a fetched
+  page put in it; `[notes](file:///…/setup.command)` must not be one click from running. The app's own
+  `skit-visualizer://` links are not affected: they arrive through the system, not through rendered text.
+- **Open does not run what a session touched.** With no application chosen in Settings, Open hands a file to its default
+  application only when it is text, source, a data format, a picture or a PDF, and is neither executable nor a directory
+  or bundle. Anything else is shown in Finder. A chosen application still gets whatever file it is given.

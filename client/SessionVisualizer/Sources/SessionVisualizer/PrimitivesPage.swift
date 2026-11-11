@@ -111,8 +111,7 @@ struct PrimitivesPage: View {
 /// Open, reveal, copy: what a definition's file can be asked for.
 @ViewBuilder private func fileMenu(_ path: String?) -> some View {
     if let path, !path.isEmpty {
-        Button(FileOpener.title(FileOpener.setting)) { FileOpener.open(path, with: FileOpener.setting) }
-        Button("Reveal in Finder") { FileOpener.reveal(path) }
+        FileOpener.buttons(path, with: FileOpener.setting)
         Button("Copy Path") { Exporter.copy(path) }
     }
 }

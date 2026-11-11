@@ -143,13 +143,12 @@ func TestChunks(t *testing.T) {
 // modelServer serves one file the way Hugging Face does (ranges honoured) and
 // counts what was asked of it.
 type modelServer struct {
-	body      []byte
-	gets      atomic.Int64
-	ranges    []string
-	cutAfter  int // when > 0, the first response stops after this many bytes
-	noRanges  bool
-	lastPath  string
-	failFirst bool
+	body     []byte
+	gets     atomic.Int64
+	ranges   []string
+	cutAfter int // when > 0, the first response stops after this many bytes
+	noRanges bool
+	lastPath string
 }
 
 func (s *modelServer) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"os"
 	"sort"
 	"strings"
 	"time"
@@ -291,14 +290,12 @@ func printAction(w io.Writer, s *transcript.Session, n, width int) error {
 					if c.IsError {
 						label = "result (error)"
 					}
-					if p, ok := s.SpilledPath(c); ok {
-						// The transcript holds a preview; the full output was spilled to a file.
-						if full, err := os.ReadFile(p); err == nil {
-							res = string(full)
-							label += " (full output from " + p + ")"
-						} else {
-							label += " (full output in " + p + ", unreadable: " + err.Error() + ")"
-						}
+					// The transcript holds a preview; the full output was spilled to a file.
+					if full, p, _, ok := s.SpilledText(c); ok {
+						res = full
+						label += " (full output from " + p + ")"
+					} else if p != "" {
+						label += " (full output in " + p + ", unreadable)"
 					}
 					fmt.Fprintf(w, "   %s after %s:\n%s\n", label, shortDuration(c.EndedAt.Sub(c.At)), indent(truncateLines(res, 40), "      "))
 					if c.Subagent != nil {

@@ -23,7 +23,7 @@ enum AppActions {
         let sidebar = defaults.object(forKey: SettingsKey.sidebar) as? Bool ?? true
         let inspector = defaults.object(forKey: SettingsKey.inspector) as? Bool ?? true
         var out: [AppAction] = []
-        for (index, view) in SessionView.allCases.enumerated() where view.arrives == nil {
+        for (index, view) in SessionView.allCases.enumerated() {
             out.append(AppAction(title: view.title, shortcut: "⌘\(index + 1)", enabled: id != nil) { window.sessionView = view })
         }
         out.append(AppAction(title: "Back", shortcut: "⌘[", enabled: window.canGoBack) { window.goBack() })
@@ -220,6 +220,8 @@ struct AppCommands: Commands {
                 .disabled(window == nil || window?.page == .sessions)
         }
         CommandGroup(replacing: .help) {
+            Button("Welcome to SessionVisualizer") { OnboardingCenter.shared.replay = true }
+            Divider()
             Button("Keyboard Shortcuts") { window?.transcript.helpShown.toggle() }
                 .keyboardShortcut("/", modifiers: [.command, .shift]).disabled(!inTranscript && !onCanvas && !onTimeline)
         }

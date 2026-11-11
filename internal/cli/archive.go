@@ -67,13 +67,16 @@ nothing and exits non-zero when a copy is missing, corrupt or the wrong length.`
 			for _, l := range targets {
 				res, err := a.Ingest(l, archive.Options{StripRequests: strip})
 				if err != nil {
-					fmt.Fprintf(cmd.ErrOrStderr(), "skit: %s: %v\n", l.File.ID[:8], err)
-					res.Action = "failed"
+					fmt.Fprintf(cmd.ErrOrStderr(), "skit: %s: %v\n", short(l.File.ID), err)
+					res.Action, res.Error = "failed", err.Error()
+					if res.ID == "" {
+						res.ID, res.Project = l.File.ID, l.Project.Slug
+					}
 				}
 				counts[res.Action]++
 				results = append(results, res)
 				if !jsonWanted(cmd) {
-					fmt.Fprintf(cmd.OutOrStdout(), "  %-9s %s  %-40s %5d records  %s\n", res.Action, res.ID[:8], truncate(l.Project.Slug, 40), res.Records, humanBytes(res.Bytes))
+					fmt.Fprintf(cmd.OutOrStdout(), "  %-9s %s  %-40s %5d records  %s\n", res.Action, short(res.ID), truncate(l.Project.Slug, 40), res.Records, humanBytes(res.Bytes))
 					for _, k := range res.Kept {
 						fmt.Fprintf(cmd.OutOrStdout(), "            kept the earlier copy, which held more: %s\n", k)
 					}
@@ -83,12 +86,15 @@ nothing and exits non-zero when a copy is missing, corrupt or the wrong length.`
 				if results == nil {
 					results = []archive.Result{}
 				}
-				return writeJSON(cmd.OutOrStdout(), results)
+				if err := writeJSON(cmd.OutOrStdout(), results); err != nil {
+					return err
+				}
+				return failedSome(counts["failed"], len(targets))
 			}
 			c, _ := a.Store.Counts()
 			fmt.Fprintf(cmd.OutOrStdout(), "\n%d archived, %d updated, %d unchanged, %d failed · index: %d sessions, %d segments, %s\n",
 				counts["archived"], counts["updated"], counts["unchanged"], counts["failed"], c.Sessions, c.Segments, humanBytes(c.Bytes))
-			return nil
+			return failedSome(counts["failed"], len(targets))
 		},
 	}
 	cmd.Flags().BoolVar(&strip, "strip-requests", false, "drop api-request* records from the raw copy (smaller; skit context then cannot explain archived actions)")
@@ -129,4 +135,17 @@ func runVerify(cmd *cobra.Command, a *archive.Archive, ids []string) error {
 		return fmt.Errorf("%d of %d archived copies have problems", bad, len(checks))
 	}
 	return nil
+}
+
+// failedSome is the error `skit archive` ends with when a session could not be
+// archived. The results are printed first: the rest of the run stands.
+//
+// DECISION: a run that left a session out exits non-zero. It used to print
+// "1 failed" and exit 0, so a script or an agent could not tell the archive
+// was incomplete (docs/design-principles.md: exit codes mean something).
+func failedSome(failed, of int) error {
+	if failed == 0 {
+		return nil
+	}
+	return fmt.Errorf("%d of %d sessions could not be archived (each one's reason is above, and in its result's \"error\")", failed, of)
 }

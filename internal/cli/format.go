@@ -11,6 +11,16 @@ import (
 )
 
 // truncate cuts s to width runes, adding an ellipsis, and flattens newlines.
+// short is the first eight characters of an id, or all of it when it has
+// fewer: an id is whatever a transcript's file is called, and `skit archive
+// ./s.jsonl` makes one of a single letter.
+func short(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
+}
+
 func truncate(s string, width int) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if utf8.RuneCountInString(s) <= width {

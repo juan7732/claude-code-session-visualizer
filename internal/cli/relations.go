@@ -205,6 +205,9 @@ func newClaude() *cobra.Command {
 the value that wins, the experiments this install is assigned to (id, variation,
 value), the cached feature flags, known projects, memory files and skills.
 Identity and tokens are never printed; the output only says whether they are set.
+That holds for the settings layers too: a value whose name says key, token,
+secret or helper, every header, and anything that looks like a credential reads
+"set (not shown)".
 --root adds a project directory whose .claude/settings*.json, CLAUDE.md and
 skills are included.`,
 		Example: "  skit claude\n  skit claude --root . --json | jq '.experiments[] | \"\\(.experiment_id)=\\(.variation_id)\"'\n  skit claude --flags | grep tengu_",

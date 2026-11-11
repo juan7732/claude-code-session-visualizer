@@ -896,29 +896,33 @@ private struct SessionNote: View {
     @Environment(AppStore.self) private var store
     @Environment(\.palette) private var palette
     var sessionID: String
-    @State private var text = ""
-    @State private var saved = ""
+    @State private var edit = NoteEdit()
 
     var body: some View {
         Card(title: "Note") {
-            TextField("Add a note on this session", text: $text, axis: .vertical)
+            TextField("Add a note on this session", text: $edit.text, axis: .vertical)
                 .textFieldStyle(.plain).font(.system(size: 13)).lineLimit(1...8)
                 .onSubmit { save() }
-            if text != saved {
-                Button("Save") { save() }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(palette.accent)
+            if edit.failed {
+                Text(edit.status(hint: "")).font(.system(size: 11.5)).foregroundStyle(palette.err)
+            }
+            if edit.dirty {
+                Button(edit.saving ? "Saving…" : "Save") { save() }.buttonStyle(.plain).font(.system(size: 12)).foregroundStyle(palette.accent).disabled(edit.saving)
             }
         }
         .onAppear {
-            saved = store.annotation(sessionID).notes["session"] ?? ""
-            text = saved
+            edit = NoteEdit(saved: store.annotation(sessionID).notes["session"] ?? "", unsaved: store.unsavedNote(sessionID, key: "session"))
         }
-        .onDisappear { if text != saved { save() } }
+        .onDisappear { if edit.dirty { save() } }
     }
 
     private func save() {
-        let (id, value) = (sessionID, text)
-        saved = value
-        Task { await store.setNote(id, key: "session", value) }
+        let (id, value) = (sessionID, edit.text)
+        edit.saving = true
+        Task {
+            let result = await store.setNote(id, key: "session", value)
+            if id == sessionID { edit.finish(result) }
+        }
     }
 }
 

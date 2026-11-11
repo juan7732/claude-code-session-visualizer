@@ -9,6 +9,7 @@ package transcript
 
 import (
 	"encoding/json"
+	"errors"
 	"strings"
 	"time"
 )
@@ -38,6 +39,7 @@ type Record struct {
 
 	// user
 	TurnOrigin         string              `json:"turnOrigin"`
+	Origin             Origin              `json:"origin"` // what Claude Code 2.1.26x wrote where turnOrigin is now
 	IsMeta             bool                `json:"isMeta"`
 	IsCompactSummary   bool                `json:"isCompactSummary"`
 	ToolUseResult      json.RawMessage     `json:"toolUseResult"`
@@ -66,6 +68,54 @@ type Record struct {
 	Offset    int64           `json:"-"` // byte offset of the line in the file
 	Line      int             `json:"-"` // 1-based line number
 	Malformed error           `json:"-"` // set when the line was not valid JSON; Type is then MalformedType
+	// Mismatch is set when the line was JSON but a field had a type this
+	// parser does not expect. The record is kept with every field that did
+	// decode; that one field is absent.
+	Mismatch error `json:"-"`
+}
+
+// Origin is who or what a user record came from. It is an object with a kind
+// in the transcripts seen; a bare string is read as the kind.
+type Origin struct {
+	Kind string `json:"kind"`
+}
+
+func (o *Origin) UnmarshalJSON(data []byte) error {
+	data = trimSpace(data)
+	if len(data) > 0 && data[0] == '"' {
+		return lenient(json.Unmarshal(data, &o.Kind))
+	}
+	type plain Origin
+	return lenient(json.Unmarshal(data, (*plain)(o)))
+}
+
+// TurnStarter is what started the turn this user record opens, "" when the
+// record does not say: "human", or what Claude Code names a message of its
+// own ("task_notification", "peer").
+//
+// DECISION: turnOrigin first, then origin.kind. Claude Code 2.1.263 and 2.1.267
+// wrote prompts with origin {"kind":"human"} and no turnOrigin (13 of the 36
+// prompts of one session on the machine this was found on, 2026-11-11); read
+// by turnOrigin alone they were not prompts, opened no turn and were not
+// indexed for search. origin spells a kind with a hyphen where turnOrigin has
+// an underscore ("task-notification"); the underscore is the one kept.
+func (r *Record) TurnStarter() string {
+	if r.TurnOrigin != "" {
+		return r.TurnOrigin
+	}
+	return strings.ReplaceAll(r.Origin.Kind, "-", "_")
+}
+
+// lenient lets a decoder keep what it could read. encoding/json fills every
+// field it can and reports the first whose type did not fit; for a format that
+// changes with each Claude Code release, one such field is not a reason to
+// lose the record. The mismatch is remembered by Record.UnmarshalJSON.
+func lenient(err error) error {
+	var te *json.UnmarshalTypeError
+	if errors.As(err, &te) {
+		return nil
+	}
+	return err
 }
 
 // MalformedType is the Type of a Record whose line could not be parsed.
@@ -78,12 +128,18 @@ func (r *Record) UnmarshalJSON(b []byte) error {
 		plain
 		Timestamp string `json:"timestamp"`
 	}
-	if err := json.Unmarshal(b, &aux); err != nil {
+	// DECISION: a field of an unexpected type costs that field, not the record.
+	// It used to make the whole line <malformed>: a user record whose
+	// imagePasteIds were strings lost its prompt, an assistant record with an
+	// unfamiliar block lost its request and its tokens, and nothing said so.
+	err := json.Unmarshal(b, &aux)
+	if lenient(err) != nil {
 		return err
 	}
 	raw, offset, line := r.Raw, r.Offset, r.Line // set by Reader before decoding; keep them
 	*r = Record(aux.plain)
 	r.Raw, r.Offset, r.Line = raw, offset, line
+	r.Mismatch = err
 	if aux.Timestamp != "" {
 		if t, err := time.Parse(time.RFC3339Nano, aux.Timestamp); err == nil {
 			r.Timestamp = t
@@ -106,8 +162,8 @@ func (r *Record) IsTimeline() bool {
 }
 
 // IsAPIRequest reports whether the record is a copy of a request body sent to
-// the model (api-request, api-request-blob, api-request-shape): bulky, and
-// only kept in debug mode.
+// the model (api-request, api-request-blob, api-request-shape): bulky, kept by
+// the archive unless it was made with --strip-requests (ADR 0007).
 func (r *Record) IsAPIRequest() bool { return strings.HasPrefix(r.Type, "api-request") }
 
 // PermissionDecision is how a tool call was allowed.
@@ -141,24 +197,51 @@ type Message struct {
 }
 
 // Blocks is message content: a list of blocks, or a bare string, which
-// becomes one text block.
+// becomes one text block. A single object (the error a server tool returns in
+// place of its list) is kept as one block; anything else is no blocks.
 type Blocks []Block
 
 func (b *Blocks) UnmarshalJSON(data []byte) error {
 	data = trimSpace(data)
-	if len(data) > 0 && data[0] == '"' {
+	if len(data) == 0 {
+		return nil
+	}
+	switch data[0] {
+	case '"':
 		var s string
 		if err := json.Unmarshal(data, &s); err != nil {
 			return err
 		}
 		*b = Blocks{{Type: "text", Text: s}}
-		return nil
+	case '[':
+		var items []json.RawMessage
+		if err := json.Unmarshal(data, &items); err != nil {
+			return err
+		}
+		list := make(Blocks, 0, len(items))
+		for _, item := range items {
+			item = trimSpace(item)
+			var blk Block
+			if len(item) > 0 && item[0] == '"' { // a string among the blocks is text
+				blk.Type = "text"
+				if err := json.Unmarshal(item, &blk.Text); err != nil {
+					return err
+				}
+			} else if err := json.Unmarshal(item, &blk); err != nil {
+				return err
+			}
+			list = append(list, blk)
+		}
+		*b = list
+	case '{':
+		var blk Block
+		if err := json.Unmarshal(data, &blk); err != nil {
+			return err
+		}
+		*b = Blocks{blk}
+	default: // null, a number, a boolean: nothing to show
+		*b = nil
 	}
-	var list []Block
-	if err := json.Unmarshal(data, &list); err != nil {
-		return err
-	}
-	*b = list
 	return nil
 }
 
@@ -189,6 +272,17 @@ type Block struct {
 
 	// image
 	Source *ImageSource `json:"source,omitempty"`
+}
+
+// UnmarshalJSON keeps the fields that fit when one does not (a search result
+// whose source is a string, where an image's is an object).
+func (b *Block) UnmarshalJSON(data []byte) error {
+	type plain Block
+	err := lenient(json.Unmarshal(data, (*plain)(b)))
+	if b.Source != nil && *b.Source == (ImageSource{}) {
+		b.Source = nil // a source that was not an object leaves an empty one behind
+	}
+	return err
 }
 
 // PlainText returns the block's text, or the concatenated text of a
@@ -264,7 +358,7 @@ func (u *Usage) UnmarshalJSON(b []byte) error {
 			Fetch  int `json:"web_fetch_requests"`
 		} `json:"server_tool_use"`
 	}
-	if err := json.Unmarshal(b, &aux); err != nil {
+	if err := lenient(json.Unmarshal(b, &aux)); err != nil {
 		return err
 	}
 	*u = Usage(aux.plain)

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"unicode/utf8"
 )
 
 // Context visibility: what the model actually received for one action.
@@ -13,9 +14,9 @@ import (
 // message body per hash) and `api-request-shape` (the system prompt and tool
 // definitions shared by requests of the same shape). Together with the
 // `attachment` records injected around the prompt, they explain the context
-// size reported in usage. These records are bulky and are dropped from the
-// archive unless it was made with --debug, so a breakdown may be unavailable
-// for an archived session.
+// size reported in usage. These records are bulky. The archive keeps them
+// unless a session was archived with --strip-requests (ADR 0007), in which
+// case its breakdown is unavailable.
 
 // ContextBreakdown explains one action's context.
 type ContextBreakdown struct {
@@ -84,9 +85,20 @@ func EstimateTokens(chars int) int { return chars / 4 }
 func head(s string) string {
 	s = strings.Join(strings.Fields(s), " ")
 	if len(s) > 100 {
-		return s[:100] + "…"
+		return clip(s, 100) + "…"
 	}
 	return s
+}
+
+// clip is at most the first n bytes of s, never ending inside a character.
+func clip(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
 }
 
 type apiRequest struct {
@@ -162,34 +174,19 @@ func (s *Session) ContextOf(n int, full bool) (ContextBreakdown, error) {
 		chars += len(txt)
 	}
 
-	// The request itself.
+	// The request itself: its record, its shape and the blobs of its tail,
+	// each decoded now from where the index says it is.
 	ref := a.Records[0].RequestRef
+	where := s.requestRecords()
 	var req *apiRequest
-	shapes := map[string]*apiShape{}
-	blobs := map[string]*apiBlob{}
-	for _, r := range s.Records {
-		switch r.Type {
-		case "api-request":
-			if req == nil && ref != "" {
-				var x apiRequest
-				if r.Decode(&x) == nil && x.ID == ref {
-					req = &x
-				}
-			}
-		case "api-request-shape":
-			var x apiShape
-			if r.Decode(&x) == nil {
-				shapes[x.ShapeHash] = &x
-			}
-		case "api-request-blob":
-			var x apiBlob
-			if r.Decode(&x) == nil {
-				blobs[x.Hash] = &x
-			}
+	if r := where.requests[ref]; r != nil && ref != "" {
+		var x apiRequest
+		if r.Decode(&x) == nil {
+			req = &x
 		}
 	}
 	if req == nil {
-		cb.Reason = "no api-request record for this action (archived without --debug, or an older Claude Code)"
+		cb.Reason = "no api-request record for this action (archived with --strip-requests, or an older Claude Code)"
 		cb.EstimatedTokens = EstimateTokens(chars)
 		return cb, nil
 	}
@@ -203,7 +200,7 @@ func (s *Session) ContextOf(n int, full bool) (ContextBreakdown, error) {
 		}
 		cb.CacheBreaks = append(cb.CacheBreaks, strings.Join(parts, "."))
 	}
-	if sh := shapes[req.ShapeHash]; sh != nil {
+	if sh := where.shape(req.ShapeHash); sh != nil {
 		var blocks []struct {
 			Text string `json:"text"`
 		}
@@ -238,9 +235,9 @@ func (s *Session) ContextOf(n int, full bool) (ContextBreakdown, error) {
 		chars += cb.ToolsChars
 	}
 	for _, h := range req.Tail {
-		b := blobs[h]
+		b := where.blob(h)
 		if b == nil {
-			cb.Messages = append(cb.Messages, MessagePart{Role: "?", Blocks: []BlockPart{{Type: "missing", Head: "blob " + h[:8] + " not in transcript"}}})
+			cb.Messages = append(cb.Messages, MessagePart{Role: "?", Blocks: []BlockPart{{Type: "missing", Head: "blob " + clip(h, 8) + " not in transcript"}}})
 			continue
 		}
 		mp := MessagePart{Role: b.Message.Role, Blocks: []BlockPart{}}
@@ -266,13 +263,84 @@ func (s *Session) ContextOf(n int, full bool) (ContextBreakdown, error) {
 	return cb, nil
 }
 
+// recordIndex is where r is in s.Records, -1 when it is not there.
 func recordIndex(s *Session, r *Record) int {
-	for i, x := range s.Records {
-		if x == r {
-			return i
+	s.positionsOnce.Do(func() {
+		s.positions = make(map[*Record]int, len(s.Records))
+		for i, x := range s.Records {
+			s.positions[x] = i
 		}
+	})
+	if i, ok := s.positions[r]; ok {
+		return i
 	}
 	return -1
+}
+
+// requestRecords says which record holds each request, shape and blob.
+//
+// DECISION: the records are found once per parsed session and decoded when
+// asked for. ContextOf used to decode every api-request* record on each call,
+// half a second on a 170 MB session for one click in the client (measured
+// 2026-11-11). Keeping them all decoded would double what a cached session
+// holds; keeping where they are costs three small maps.
+type requestRecords struct {
+	requests, shapes, blobs map[string]*Record
+}
+
+func (s *Session) requestRecords() *requestRecords {
+	s.requestsOnce.Do(func() {
+		w := requestRecords{requests: map[string]*Record{}, shapes: map[string]*Record{}, blobs: map[string]*Record{}}
+		for _, r := range s.Records {
+			if !r.IsAPIRequest() {
+				continue
+			}
+			var key struct {
+				ID        string `json:"id"`
+				ShapeHash string `json:"shapeHash"`
+				Hash      string `json:"hash"`
+			}
+			if r.Decode(&key) != nil {
+				continue
+			}
+			switch r.Type {
+			case "api-request":
+				if _, seen := w.requests[key.ID]; !seen { // the first with an id is the request
+					w.requests[key.ID] = r
+				}
+			case "api-request-shape":
+				w.shapes[key.ShapeHash] = r
+			case "api-request-blob":
+				w.blobs[key.Hash] = r
+			}
+		}
+		s.requests = w
+	})
+	return &s.requests
+}
+
+func (w *requestRecords) shape(hash string) *apiShape {
+	r := w.shapes[hash]
+	if r == nil {
+		return nil
+	}
+	var x apiShape
+	if r.Decode(&x) != nil {
+		return nil
+	}
+	return &x
+}
+
+func (w *requestRecords) blob(hash string) *apiBlob {
+	r := w.blobs[hash]
+	if r == nil {
+		return nil
+	}
+	var x apiBlob
+	if r.Decode(&x) != nil {
+		return nil
+	}
+	return &x
 }
 
 // labelFor names well-known injected blocks so a reader can see what they are.

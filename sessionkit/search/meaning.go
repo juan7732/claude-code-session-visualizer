@@ -103,8 +103,8 @@ const DefaultMinCosine = 0.73
 // a kind, so z means the same thing however small the part searched. Pieces
 // that do not pass the gate are left out unless opt.NoGate is set.
 //
-// REVIEW: it does not look at words at all. Fusing it with keyword scores is
-// the next step (docs/plan-v0.md, M14).
+// It does not look at words at all; Hybrid (hybrid.go) puts its hits together
+// with keyword search's.
 func Meaning(ctx context.Context, st *store.Store, e QueryEmbedder, query string, opt Options) ([]Hit, error) {
 	if strings.TrimSpace(query) == "" {
 		return nil, fmt.Errorf("%w in %q", ErrEmptyQuery, query)

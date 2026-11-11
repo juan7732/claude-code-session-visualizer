@@ -129,6 +129,8 @@ struct CanvasView: View {
             // Breaking every text into lines is the costly part: once per session, off the main thread.
             let model = self.model
             let built = await Task.detached(priority: .userInitiated) { BraidContent(model: model) }.value
+            // Another session, or the Score, took over while this one was being broken into lines.
+            guard !Task.isCancelled else { return }
             content = built
             relayout()
             start()

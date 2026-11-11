@@ -220,6 +220,9 @@ func readProject(dir string) (Project, error) {
 			continue
 		}
 		info, err := e.Info()
+		if errors.Is(err, fs.ErrNotExist) {
+			continue // removed since the directory was read (Claude Code's cleanup, a rename)
+		}
 		if err != nil {
 			return p, err
 		}

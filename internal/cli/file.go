@@ -59,7 +59,7 @@ Only files an archived session touched are ever looked at.`,
 			}
 			fmt.Fprintf(w, "File      %s\nNow       %s\n\nSessions (%d), latest first\n", v.Path, state, len(v.Sessions))
 			for _, h := range v.Sessions {
-				fmt.Fprintf(w, "  %s  %-16s %2d written %2d read  %s\n", h.Session[:8], localTime(h.LastAt), h.Writes, h.Reads, truncate(h.Title, 60))
+				fmt.Fprintf(w, "  %s  %-16s %2d written %2d read  %s\n", short(h.Session), localTime(h.LastAt), h.Writes, h.Reads, truncate(h.Title, 60))
 			}
 			if text {
 				switch {

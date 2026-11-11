@@ -71,3 +71,70 @@ func TestReadLayersExperimentsAndRedaction(t *testing.T) {
 		t.Fatalf("a machine without Claude Code reads as empty: %v %+v", err, s2)
 	}
 }
+
+func TestSettingsLayersNeverCarryCredentials(t *testing.T) {
+	home := t.TempDir()
+	claude := filepath.Join(home, ".claude")
+	os.MkdirAll(claude, 0o755)
+	os.WriteFile(filepath.Join(claude, "settings.json"), []byte(`{
+		"model": "claude-fable-5-1",
+		"apiKeyHelper": "security find-generic-password -s SECRET-HELPER -w",
+		"awsCredentialExport": "SECRET-EXPORT",
+		"env": {
+			"ANTHROPIC_API_KEY": "sk-ant-SECRET-APIKEY",
+			"ANTHROPIC_AUTH_TOKEN": "SECRET-AUTHTOKEN",
+			"DB_PASS": "SECRET-DBPASS",
+			"HTTPS_PROXY": "http://user:SECRET-PROXYPASS@proxy.example.com:8080",
+			"SOMETHING_ELSE": "ghp_SECRETGITHUB0123456789",
+			"OPAQUE": "0123456789abcdefSECRETOPAQUE0123456789",
+			"MAX_THINKING_TOKENS": "32000",
+			"ANTHROPIC_MODEL": "claude-fable-5-1"
+		},
+		"permissions": {"allow": ["Bash(ls)", "Bash(curl -H 'Authorization: Bearer SECRET-BEARERTOKEN' https://example.com)"], "defaultMode": "bypassPermissions"},
+		"disableBypassPermissionsMode": "disable",
+		"mcpServers": {"srv": {"url": "https://example.com/mcp", "headers": {"X-Api": "SECRET-HEADER", "Accept": "SECRET-ACCEPT"}}},
+		"hooks": {"PostToolUse": [{"matcher": "Edit", "hooks": [{"type": "command", "command": "gofmt -l ."}]}]}
+	}`), 0o644)
+	s, err := Read(claude, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b, _ := json.Marshal(s)
+	if strings.Contains(string(b), "SECRET") {
+		t.Fatalf("a settings layer leaks a credential:\n%s", b)
+	}
+	got := map[string]any{}
+	for _, e := range s.Effective {
+		got[e.Key] = e.Value
+	}
+	// What is hidden says so; what is harmless is still there to read.
+	for _, k := range []string{"apiKeyHelper", "env.ANTHROPIC_API_KEY", "env.DB_PASS", "env.HTTPS_PROXY", "env.OPAQUE", "mcpServers.srv.headers.Accept"} {
+		if got[k] != NotShown {
+			t.Errorf("%s = %v, want %q", k, got[k], NotShown)
+		}
+	}
+	for k, want := range map[string]any{"model": "claude-fable-5-1", "env.MAX_THINKING_TOKENS": "32000", "env.ANTHROPIC_MODEL": "claude-fable-5-1",
+		"permissions.defaultMode": "bypassPermissions", "disableBypassPermissionsMode": "disable", "mcpServers.srv.url": "https://example.com/mcp"} {
+		if got[k] != want {
+			t.Errorf("%s = %v, want %v", k, got[k], want)
+		}
+	}
+	allow, _ := got["permissions.allow"].([]any)
+	if len(allow) != 2 || allow[0] != "Bash(ls)" || allow[1] != NotShown {
+		t.Errorf("permissions.allow = %v: the rule with a bearer token is hidden, the other is not", allow)
+	}
+	// The file on disk is read, never rewritten.
+	if raw, _ := os.ReadFile(filepath.Join(claude, "settings.json")); !strings.Contains(string(raw), "sk-ant-SECRET-APIKEY") {
+		t.Fatal("settings.json was changed")
+	}
+}
+
+func TestSecretNames(t *testing.T) {
+	for name, want := range map[string]bool{"apiKeyHelper": true, "ANTHROPIC_API_KEY": true, "ANTHROPIC_AUTH_TOKEN": true, "awsAuthRefresh": true,
+		"otelHeadersHelper": true, "APIKey": true, "github-token": true, "MAX_THINKING_TOKENS": false, "disableBypassPermissionsMode": false,
+		"includeCoAuthoredBy": false, "model": false, "keybindings": false} {
+		if got := secretName(name); got != want {
+			t.Errorf("secretName(%q) = %v, want %v (words %v)", name, got, want, words(name))
+		}
+	}
+}

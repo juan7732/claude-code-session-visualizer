@@ -9,8 +9,10 @@
 4. **Reassemble actions by `requestId`.** Order blocks by `apiBlockIndex`. Take `usage` once. Pair `tool_use.id` with
    the later `tool_result.tool_use_id`; a `tool_use` with no result is "in flight" or interrupted. Then **group actions
    into turns**: a human prompt (or a non-human `turnOrigin` message) opens a turn, and every action until the next one
-   belongs to it. Compactions and API errors attach to the turn they happened in.
-5. **Resolve spilled tool results** from `<session>/tool-results/<id>.txt` when the result text names one.
+   belongs to it. Where `turnOrigin` is absent, `origin.kind` says the same thing (`record-anatomy.md`). Compactions and
+   API errors attach to the turn they happened in.
+5. **Resolve spilled tool results** from `<session>/tool-results/<id>.txt` when the result is a `<persisted-output>`
+   that names one. Never read a path only because a result's text mentions it.
 6. **Treat the file as live.** Claude Code appends while a session runs. Use `sessions/<pid>.json` to know which
    sessions are live, and tail from the last parsed byte offset. Partial last lines happen; keep them for the next read.
 7. **Record provenance:** Claude Code `version` per record, so a format change is diagnosable per version.

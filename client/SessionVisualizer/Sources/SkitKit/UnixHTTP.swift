@@ -20,14 +20,20 @@ public struct UnixHTTP: Sendable {
         case notListening(String)
         case pathTooLong(Int)
         case io(String)
+        /// The server is there and did not answer (or take the request) within `timeout` seconds.
+        case timedOut(TimeInterval)
         case malformedResponse
+        /// The body is not as long as `Content-Length` says: the connection closed early, or more came than was announced.
+        case incomplete(expected: Int, received: Int)
 
         public var description: String {
             switch self {
             case .notListening(let path): "nothing is listening on \(path)"
             case .pathTooLong(let n): "socket path is \(n) bytes; a Unix socket allows 103"
             case .io(let what): what
+            case .timedOut(let seconds): "no answer within \(seconds.formatted()) s"
             case .malformedResponse: "the server's answer was not HTTP"
+            case .incomplete(let expected, let received): "the answer was cut short: \(received) of \(expected) bytes"
             }
         }
     }
@@ -48,7 +54,7 @@ public struct UnixHTTP: Sendable {
         guard fd >= 0 else { throw Failure.io("socket: \(errnoText())") }
         defer { close(fd) }
 
-        var tv = timeval(tv_sec: Int(timeout), tv_usec: 0)
+        var tv = timeval(tv_sec: Int(timeout), tv_usec: Int32((timeout - timeout.rounded(.down)) * 1_000_000))
         setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
         setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
         var on: Int32 = 1
@@ -91,6 +97,9 @@ public struct UnixHTTP: Sendable {
                 break
             } else if errno == EINTR {
                 continue
+            } else if errno == EAGAIN || errno == EWOULDBLOCK {
+                // SO_RCVTIMEO ran out: the engine is there, and busy or stuck.
+                throw Failure.timedOut(timeout)
             } else {
                 throw Failure.io("read: \(errnoText())")
             }
@@ -105,6 +114,8 @@ public struct UnixHTTP: Sendable {
                 let n = write(fd, raw.baseAddress! + sent, raw.count - sent)
                 if n > 0 {
                     sent += n
+                } else if errno == EAGAIN || errno == EWOULDBLOCK {
+                    throw Failure.timedOut(timeout)
                 } else if errno != EINTR {
                     throw Failure.io("write: \(errnoText())")
                 }
@@ -113,6 +124,11 @@ public struct UnixHTTP: Sendable {
     }
 
     /// Splits a raw HTTP/1.x response into status, headers and body.
+    ///
+    /// DECISION: the body is everything up to the close, and a close is also what a crash or a
+    /// timeout on the engine's side looks like. So when the answer says how long it is
+    /// (`Content-Length`; Go sets it for every answer it has whole before writing), the body must be
+    /// exactly that long. Half an export or half an image is a failure, never a shorter result.
     static func parse(_ raw: Data) throws -> Response {
         let separator = Data("\r\n\r\n".utf8)
         guard let split = raw.range(of: separator),
@@ -128,7 +144,12 @@ public struct UnixHTTP: Sendable {
             guard let colon = line.firstIndex(of: ":") else { continue }
             headers[line[..<colon].lowercased()] = line[line.index(after: colon)...].trimmingCharacters(in: .whitespaces)
         }
-        return Response(status: status, headers: headers, body: Data(raw[split.upperBound...]))
+        let body = Data(raw[split.upperBound...])
+        if let declared = headers["content-length"] {
+            guard let expected = Int(declared), expected >= 0 else { throw Failure.malformedResponse }
+            guard body.count == expected else { throw Failure.incomplete(expected: expected, received: body.count) }
+        }
+        return Response(status: status, headers: headers, body: body)
     }
 
     private func errnoText() -> String { String(cString: strerror(errno)) }

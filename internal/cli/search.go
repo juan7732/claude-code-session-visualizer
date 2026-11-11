@@ -98,7 +98,7 @@ leaves out tool calls and their results.`,
 			last := ""
 			for _, h := range hits {
 				if h.Session != last {
-					fmt.Fprintf(w, "\n%s  %s  (%s)\n", h.Session[:8], truncate(h.Title, 60), truncate(h.Project, 40))
+					fmt.Fprintf(w, "\n%s  %s  (%s)\n", short(h.Session), truncate(h.Title, 60), truncate(h.Project, 40))
 					last = h.Session
 				}
 				where := "session"
@@ -109,7 +109,7 @@ leaves out tool calls and their results.`,
 					where += fmt.Sprintf(" · action %d", h.Action)
 				}
 				if h.Agent != "" {
-					where += " · agent " + h.Agent[:8]
+					where += " · agent " + short(h.Agent)
 				}
 				kind := h.Kind
 				if h.Tool != "" {

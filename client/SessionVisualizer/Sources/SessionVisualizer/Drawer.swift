@@ -604,33 +604,35 @@ private struct DrawerNote: View {
     @Environment(\.palette) private var palette
     var sessionID: String
     var key: NodeKey
-    @State private var text = ""
-    @State private var saved = ""
+    @State private var edit = NoteEdit()
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            TextEditor(text: $text)
+            TextEditor(text: $edit.text)
                 .font(.system(size: 13)).scrollContentBackground(.hidden)
                 .padding(8).frame(minHeight: 110)
                 .background(palette.panel, in: RoundedRectangle(cornerRadius: Metric.radius, style: .continuous))
             HStack {
-                Text(text == saved ? (saved.isEmpty ? "Add a note. It is saved with the session, on this Mac." : "Saved.") : "Not saved yet.")
-                    .font(.system(size: 11.5)).foregroundStyle(palette.muted)
+                Text(edit.status(hint: "Add a note. It is saved with the session, on this Mac."))
+                    .font(.system(size: 11.5)).foregroundStyle(edit.failed ? palette.err : palette.muted).lineLimit(2)
                 Spacer()
-                Button("Save") { save() }.disabled(text == saved).keyboardShortcut("s", modifiers: .command)
+                Button("Save") { save() }.disabled(!edit.dirty || edit.saving).keyboardShortcut("s", modifiers: .command)
             }
         }
         .onAppear {
-            saved = store.annotation(sessionID).notes[key.noteKey] ?? ""
-            text = saved
+            edit = NoteEdit(saved: store.annotation(sessionID).notes[key.noteKey] ?? "", unsaved: store.unsavedNote(sessionID, key: key.noteKey))
         }
-        .onDisappear { if text != saved { save() } }
+        .onDisappear { if edit.dirty { save() } }
     }
 
     private func save() {
-        let (id, noteKey, value) = (sessionID, key.noteKey, text)
-        saved = value
-        Task { await store.setNote(id, key: noteKey, value) }
+        let (id, noteKey, value) = (sessionID, key.noteKey, edit.text)
+        edit.saving = true
+        Task {
+            let result = await store.setNote(id, key: noteKey, value)
+            // The answer is for the note it was asked about. (Gone from the screen, the store has kept what failed.)
+            if id == sessionID, noteKey == key.noteKey { edit.finish(result) }
+        }
     }
 }
 

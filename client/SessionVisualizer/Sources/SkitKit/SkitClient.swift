@@ -2,8 +2,12 @@ import Foundation
 
 /// What went wrong talking to the engine.
 public enum SkitError: Error, Equatable, CustomStringConvertible {
-    /// Nothing answers on the socket.
+    /// Nothing is listening on the socket: no engine is running.
     case unreachable(String)
+    /// An engine is listening and did not answer in time: it is busy, or stuck.
+    case timedOut(String)
+    /// The exchange itself failed: the connection broke, or the answer was cut short or was not HTTP.
+    case transport(String)
     /// The engine answered with an error (`{"error": "..."}`).
     case engine(status: Int, message: String)
     /// The engine answered with something this client cannot read: the contract broke.
@@ -11,9 +15,31 @@ public enum SkitError: Error, Equatable, CustomStringConvertible {
 
     public var description: String {
         switch self {
-        case .unreachable(let why): why
+        case .unreachable(let why), .timedOut(let why), .transport(let why): why
         case .engine(_, let message): message
         case .undecodable(let path, let detail): "\(path): \(detail)"
+        }
+    }
+
+    /// A transport failure as the app tells them apart: nobody home, slow, or broken.
+    init(_ failure: UnixHTTP.Failure) {
+        switch failure {
+        case .notListening: self = .unreachable(failure.description)
+        case .timedOut: self = .timedOut(failure.description)
+        case .pathTooLong, .io, .malformedResponse, .incomplete: self = .transport(failure.description)
+        }
+    }
+}
+
+/// Work that blocks its thread (a socket, a child process), kept off Swift's cooperative pool:
+/// that pool has one thread per core, and a few calls waiting on a slow engine would stall every
+/// other task in the app.
+public enum Blocking {
+    private static let queue = DispatchQueue(label: "dev.sessionkit.blocking", qos: .userInitiated, attributes: .concurrent)
+
+    public static func run<T: Sendable>(_ work: @escaping @Sendable () throws -> T) async throws -> T {
+        try await withCheckedThrowingContinuation { continuation in
+            queue.async { continuation.resume(with: Result { try work() }) }
         }
     }
 }
@@ -24,8 +50,15 @@ public enum SkitError: Error, Equatable, CustomStringConvertible {
 public struct SkitClient: Sendable {
     public let http: UnixHTTP
 
-    public init(socketPath: String) {
-        self.http = UnixHTTP(socketPath: socketPath)
+    /// `timeout`: seconds to wait for an answer. Thirty for what a person asked for (a long session
+    /// is megabytes to write); the polls that keep the lists current use `quick`.
+    public init(socketPath: String, timeout: TimeInterval = 30) {
+        self.http = UnixHTTP(socketPath: socketPath, timeout: timeout)
+    }
+
+    /// The same client, giving up after `timeout` seconds: for a poll, where a late answer is worth nothing.
+    public func quick(timeout: TimeInterval = 5) -> SkitClient {
+        SkitClient(socketPath: http.socketPath, timeout: timeout)
     }
 
     /// The routes this build of the client calls. An engine without one of them
@@ -188,13 +221,13 @@ public struct SkitClient: Sendable {
 
     private func call<T: Sendable>(_ method: String, _ path: String, body: Data? = nil, decode: @escaping @Sendable (Data) throws -> T) async throws -> T {
         let http = self.http
-        // The transport blocks on the socket; keep it off the caller's actor.
-        return try await Task.detached(priority: .userInitiated) {
+        // The transport blocks on the socket: off the caller's actor, and off the cooperative pool.
+        return try await Blocking.run {
             let response: UnixHTTP.Response
             do {
                 response = try http.send(method: method, path: path, body: body)
             } catch let failure as UnixHTTP.Failure {
-                throw SkitError.unreachable(failure.description)
+                throw SkitError(failure)
             }
             guard (200..<300).contains(response.status) else {
                 let message = (try? JSONDecoder().decode([String: String].self, from: response.body))?["error"]
@@ -205,7 +238,7 @@ public struct SkitClient: Sendable {
             } catch {
                 throw SkitError.undecodable(path: path, detail: Self.describe(error))
             }
-        }.value
+        }
     }
 
     static func describe(_ error: Error) -> String {
