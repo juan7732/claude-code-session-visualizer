@@ -22,6 +22,7 @@
           "path": "/fixture/home/.claude/skills/deploy/SKILL.md",
           "description": "Ship it, for every project",
           "bytes": 68,
+          "lines": 5,
           "modified": "2026-11-10T12:00:00Z",
           "calls": 2
         },
@@ -31,6 +32,7 @@
           "path": "/fixture/home/proj/.claude/skills/deploy/SKILL.md",
           "description": "Ship this project",
           "bytes": 59,
+          "lines": 5,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],

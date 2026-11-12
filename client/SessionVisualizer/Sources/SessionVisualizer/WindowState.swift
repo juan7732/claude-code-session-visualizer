@@ -121,6 +121,50 @@ final class PrimitivesState {
     var unusedOnly = false
     /// The item open on the right, by kind.
     var selected: [String: String] = [:]
+    /// The column the list is in order of, and which way.
+    var sort = PrimitivesColumn.uses
+    var ascending = false
+}
+
+/// The columns of the Primitives page's list. Size and lines are of the definition's own file, so only
+/// the kinds that have one show them.
+nonisolated enum PrimitivesColumn: String, CaseIterable, Identifiable, Sendable {
+    case name, defined, size, lines, uses, failed, sessions, lastUsed
+    var id: String { rawValue }
+    var title: String {
+        switch self {
+        case .name: "Name"
+        case .defined: "Defined"
+        case .size: "Size"
+        case .lines: "Lines"
+        case .uses: "Uses"
+        case .failed: "Failed"
+        case .sessions: "Sessions"
+        case .lastUsed: "Last used"
+        }
+    }
+    /// Words read from the start; numbers line up at the end.
+    var numeric: Bool { self != .name && self != .defined }
+    var width: CGFloat? {
+        switch self {
+        // Each fits its heading with the mark of the sort beside it; the name takes what is left.
+        case .name: nil
+        case .defined: 150
+        case .size: 50
+        case .lines: 48
+        case .uses: 46
+        case .failed: 54
+        case .sessions: 70
+        case .lastUsed: 108
+        }
+    }
+    var help: String {
+        switch self {
+        case .size: "Sort by the size of the file that defines it (the one Claude Code takes, when there are several)"
+        case .lines: "Sort by the lines of the file that defines it (the one Claude Code takes, when there are several)"
+        default: "Sort by \(title.lowercased())"
+        }
+    }
 }
 
 /// The two sessions the Compare page holds side by side.

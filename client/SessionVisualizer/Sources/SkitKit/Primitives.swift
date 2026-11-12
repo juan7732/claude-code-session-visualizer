@@ -69,6 +69,8 @@ public struct PrimitivesReport: Codable, Sendable, Equatable {
         public var path: String?
         public var description: String?
         public var bytes: Int?
+        /// The lines of the file at `path`, when the definition is a file of its own.
+        public var lines: Int?
         public var modified: Date?
         /// A hook's event, matcher and command; a connector's transport and host or program; a plugin's version.
         public var detail: [String: String]?

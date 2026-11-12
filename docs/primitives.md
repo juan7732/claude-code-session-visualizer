@@ -46,6 +46,12 @@ What is never read out: what a memory or instructions file says (it is listed by
 arguments, environment and headers, which is where keys are put. A connector says only how it is reached: the transport,
 and the program's name or the host.
 
+A definition that is a file of its own (a skill's `SKILL.md`, an agent, a command, an instructions or memory file) says
+how big it is: `bytes` and `lines`. That is the file as it is on disk, which is what the model is given when the thing
+is loaded; a skill's other files are not added in. `skit primitives --json | jq` sorts by either, and the app's list has
+a column for each (click a heading to sort by it). A hook or a connector lives in a settings file among other things, so
+it has no size of its own.
+
 ## What counts as a use
 
 Counted from the transcripts, as measured on real ones (2026-11-10), not from Claude Code's own counter:

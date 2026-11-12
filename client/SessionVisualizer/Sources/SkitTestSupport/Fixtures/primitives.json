@@ -71,6 +71,7 @@
           "path": "/fixture/home/.claude/skills/synced/bucket/pdf/SKILL.md",
           "description": "Read and make PDF files",
           "bytes": 55,
+          "lines": 4,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],
@@ -99,6 +100,7 @@
           "path": "/fixture/home/.claude/skills/deploy/SKILL.md",
           "description": "Ship it, for every project",
           "bytes": 68,
+          "lines": 5,
           "modified": "2026-11-10T12:00:00Z",
           "calls": 2
         },
@@ -108,6 +110,7 @@
           "path": "/fixture/home/proj/.claude/skills/deploy/SKILL.md",
           "description": "Ship this project",
           "bytes": 59,
+          "lines": 5,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],
@@ -196,6 +199,7 @@
           "path": "/fixture/home/.claude/skills/tidy/SKILL.md",
           "description": "Tidy up after a change",
           "bytes": 44,
+          "lines": 3,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],
@@ -292,6 +296,7 @@
           "path": "/fixture/home/.claude/agents/reviewer.md",
           "description": "Reviews a change before it is committed",
           "bytes": 76,
+          "lines": 4,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],
@@ -466,6 +471,7 @@
           "scope": "user",
           "path": "/fixture/home/.claude/CLAUDE.md",
           "bytes": 17,
+          "lines": 2,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],
@@ -507,6 +513,7 @@
           "where": "/fixture/home/proj",
           "path": "/fixture/home/proj/CLAUDE.md",
           "bytes": 20,
+          "lines": 2,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],
@@ -548,6 +555,7 @@
           "where": "-fixture-proj",
           "path": "/fixture/home/.claude/projects/-fixture-proj/memory/a-note.md",
           "bytes": 8,
+          "lines": 1,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],
@@ -589,6 +597,7 @@
           "where": "-fixture-proj",
           "path": "/fixture/home/.claude/projects/-fixture-proj/memory/MEMORY.md",
           "bytes": 22,
+          "lines": 1,
           "modified": "2026-11-10T12:00:00Z"
         }
       ],

@@ -102,6 +102,10 @@ func TestInventory(t *testing.T) {
 	if d := deploy.Definitions[1]; d.Description != "Ship it, carefully." || d.Bytes == 0 || d.Modified == nil {
 		t.Errorf("a folded description: %+v", d)
 	}
+	// Its lines are counted from the file, to the end.
+	if d := deploy.Definitions[1]; d.Lines == 0 || d.Lines != fileLines(t, d.Path) {
+		t.Errorf("lines of %s: %d, the file has %d", d.Path, d.Lines, fileLines(t, d.Path))
+	}
 	if d := deploy.Definitions[2]; d.Where != filepath.Join(work, "repo") {
 		t.Errorf("a nested repository's skill belongs to that repository: %+v", d)
 	}
@@ -284,6 +288,24 @@ func TestHookMatches(t *testing.T) {
 		{"Edit, Write", "Write", true}, {"mcp__.*", "mcp__x__y", true}, {"^Bash$", "Bash", true}, {"Note.*", "Edit", false}, {"(", "Edit", false}} {
 		if got := hookMatches(c.matcher, c.tool); got != c.want {
 			t.Errorf("hookMatches(%q, %q) = %v", c.matcher, c.tool, got)
+		}
+	}
+}
+
+func fileLines(t *testing.T, path string) int {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return len(strings.Split(strings.TrimSuffix(string(b), "\n"), "\n"))
+}
+
+func TestCountLines(t *testing.T) {
+	long := strings.Repeat("a line of a long file\n", 9000) // more than one block of the reader
+	for text, want := range map[string]int{"": 0, "one": 1, "one\n": 1, "one\ntwo": 2, "one\n\n": 2, long: 9000, long + "and one more": 9001} {
+		if got := countLines(strings.NewReader(text)); got != want {
+			t.Errorf("countLines of %d bytes: %d, want %d", len(text), got, want)
 		}
 	}
 }

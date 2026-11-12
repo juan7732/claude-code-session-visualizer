@@ -10,7 +10,9 @@
 package primitives
 
 import (
+	"bytes"
 	"encoding/json"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -44,11 +46,16 @@ type Definition struct {
 	Scope string `json:"scope"`
 	// Where is the project directory for the project and local scopes, the
 	// plugin ("name@marketplace") for the plugin scope.
-	Where       string     `json:"where,omitempty"`
-	Path        string     `json:"path,omitempty"`
-	Description string     `json:"description,omitempty"`
-	Bytes       int64      `json:"bytes,omitempty"`
-	Modified    *time.Time `json:"modified,omitempty"`
+	Where       string `json:"where,omitempty"`
+	Path        string `json:"path,omitempty"`
+	Description string `json:"description,omitempty"`
+	Bytes       int64  `json:"bytes,omitempty"`
+	// Lines counts the lines of the file at Path, for a definition that is a
+	// file of its own (a skill, an agent, a command, an instructions or memory
+	// file): with Bytes, how much it adds to what the model reads. A settings
+	// file that holds a hook or a connector among other things is not counted.
+	Lines    int        `json:"lines,omitempty"`
+	Modified *time.Time `json:"modified,omitempty"`
 	// Detail holds what is particular to a kind: a hook's event, matcher and
 	// command; a connector's transport and host or program; a plugin's version.
 	Detail map[string]string `json:"detail,omitempty"`
@@ -485,19 +492,43 @@ func (d *discovery) plugins(claudeDir string) {
 	}
 }
 
-// readDefinition stats a markdown definition and reads its front matter.
+// readDefinition stats a markdown definition, reads its front matter and
+// counts its lines.
 func readDefinition(path, scope, where string) (map[string]string, Definition) {
 	def := Definition{Scope: scope, Where: where, Path: path}
 	def.Modified, def.Bytes = stat(path)
 	fm := map[string]string{}
 	if f, err := os.Open(path); err == nil {
 		buf := make([]byte, 64<<10)
-		n, _ := f.Read(buf)
-		f.Close()
+		n, _ := io.ReadFull(f, buf)
 		fm = frontMatter(string(buf[:n]))
+		// The front matter is in the first block; the lines are counted to the end.
+		def.Lines = countLines(io.MultiReader(bytes.NewReader(buf[:n]), f))
+		f.Close()
 	}
 	def.Description = clip(fm["description"], 600)
 	return fm, def
+}
+
+// countLines counts the lines of a text: its newlines, and one more for a
+// last line that does not end with one. Nothing read is kept.
+func countLines(r io.Reader) int {
+	buf := make([]byte, 64<<10)
+	lines, last := 0, byte('\n')
+	for {
+		n, err := r.Read(buf)
+		if n > 0 {
+			lines += bytes.Count(buf[:n], []byte{'\n'})
+			last = buf[n-1]
+		}
+		if err != nil {
+			break
+		}
+	}
+	if last != '\n' {
+		lines++
+	}
+	return lines
 }
 
 // frontMatter reads the "key: value" lines between the leading --- lines of a

@@ -21,7 +21,7 @@ struct PrimitivesPage: View {
                 .padding(.horizontal, 28).padding(.top, 22).padding(.bottom, 12)
                 .frame(maxWidth: .infinity)
             if case .loaded(let report) = loaded {
-                let rows = PrimitivesContent.rows(report, kind: state.kind, filter: state.filter, unusedOnly: state.unusedOnly)
+                let rows = PrimitivesContent.rows(report, kind: state.kind, filter: state.filter, unusedOnly: state.unusedOnly, sort: state.sort, ascending: state.ascending)
                 let selected = rows.first { $0.name == state.selected[state.kind] } ?? rows.first
                 HStack(alignment: .top, spacing: 14) {
                     list(rows, report, state, selected: selected)
@@ -89,7 +89,7 @@ struct PrimitivesPage: View {
         ScrollView {
             // One lazy stack: memory files alone can be hundreds of rows.
             LazyVStack(alignment: .leading, spacing: 0) {
-                ListHeader()
+                ListHeader(state: state, columns: PrimitivesContent.columns(state.kind))
                 if rows.isEmpty {
                     Text(PrimitivesContent.nothing(kind: state.kind, filtered: !state.filter.isEmpty || state.unusedOnly))
                         .font(.system(size: 12.5)).foregroundStyle(palette.muted).padding(.horizontal, 8).padding(.vertical, 14)
@@ -116,28 +116,36 @@ struct PrimitivesPage: View {
     }
 }
 
+/// The headings: a click sorts by that column, a second click turns the order round (as on the Stats page).
 private struct ListHeader: View {
     @Environment(\.palette) private var palette
+    var state: PrimitivesState
+    var columns: [PrimitivesColumn]
 
     var body: some View {
+        // A kind without sizes is in the order the page opens in, whatever was chosen for another kind.
+        let sort = columns.contains(state.sort) ? state.sort : .uses
         VStack(spacing: 0) {
-            HStack(spacing: 10) {
-                cell("NAME", nil, .leading)
-                cell("DEFINED", 170, .leading)
-                cell("USES", 56, .trailing)
-                cell("FAILED", 52, .trailing)
-                cell("SESSIONS", 64, .trailing)
-                cell("LAST USED", 118, .trailing)
+            HStack(spacing: 8) {
+                ForEach(columns) { column in
+                    let alignment: Alignment = column.numeric ? .trailing : .leading
+                    Button {
+                        // Numbers start with the most, words with A.
+                        if sort == column { state.ascending.toggle() } else { (state.sort, state.ascending) = (column, !column.numeric) }
+                    } label: {
+                        Text(column.title.uppercased() + (sort == column ? (state.ascending ? " ▴" : " ▾") : ""))
+                            .font(.caps).tracking(0.7).foregroundStyle(sort == column ? palette.ink : palette.muted).lineLimit(1)
+                            .frame(maxWidth: column.width == nil ? .infinity : nil, alignment: alignment)
+                            .frame(width: column.width, alignment: alignment)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help(column.help)
+                }
             }
             .padding(.horizontal, 8).padding(.bottom, 6)
             Rectangle().fill(palette.line2).frame(height: 1)
         }
-    }
-
-    private func cell(_ text: String, _ width: CGFloat?, _ alignment: Alignment) -> some View {
-        Text(text).font(.caps).tracking(0.7).foregroundStyle(palette.muted).lineLimit(1)
-            .frame(maxWidth: width == nil ? .infinity : nil, alignment: alignment)
-            .frame(width: width, alignment: alignment)
     }
 }
 
@@ -152,7 +160,7 @@ private struct ListRow: View {
     var body: some View {
         let used = item.usage.calls > 0
         Button(action: action) {
-            HStack(alignment: .firstTextBaseline, spacing: 10) {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
                 HStack(spacing: 7) {
                     // A path is told apart by its end, a name by its start.
                     Text(PrimitivesContent.name(item)).font(.system(size: 12.5, weight: .semibold)).lineLimit(1).truncationMode(item.kind == "instructions" ? .head : .tail)
@@ -161,11 +169,17 @@ private struct ListRow: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 Text(PrimitivesContent.place(item)).font(.system(size: 12)).foregroundStyle(item.installed ? palette.ink2 : palette.muted)
-                    .lineLimit(1).truncationMode(.middle).frame(width: 170, alignment: .leading)
-                Text(used ? "\(item.usage.calls)" : "").font(.system(size: 12.5)).monospacedDigit().frame(width: 56, alignment: .trailing)
-                Text(item.usage.errors > 0 ? "\(item.usage.errors)" : "").font(.system(size: 12.5)).monospacedDigit().foregroundStyle(palette.err).frame(width: 52, alignment: .trailing)
-                Text(used ? "\(item.usage.sessions)" : "").font(.system(size: 12.5)).monospacedDigit().frame(width: 64, alignment: .trailing)
-                Text(PrimitivesContent.lastUsed(item)).font(.system(size: 12)).foregroundStyle(palette.muted).lineLimit(1).frame(width: 118, alignment: .trailing)
+                    .lineLimit(1).truncationMode(.middle).frame(width: PrimitivesColumn.defined.width, alignment: .leading)
+                if PrimitivesContent.ownFile(item.kind) {
+                    Text(PrimitivesContent.size(item).map(FilesContent.bytes) ?? "").font(.system(size: 12.5)).monospacedDigit().lineLimit(1).frame(width: PrimitivesColumn.size.width, alignment: .trailing)
+                    Text(PrimitivesContent.lines(item).map { "\($0)" } ?? "").font(.system(size: 12.5)).monospacedDigit().lineLimit(1).frame(width: PrimitivesColumn.lines.width, alignment: .trailing)
+                }
+                Text(used ? "\(item.usage.calls)" : "").font(.system(size: 12.5)).monospacedDigit().frame(width: PrimitivesColumn.uses.width, alignment: .trailing)
+                if PrimitivesContent.columns(item.kind).contains(.failed) {
+                    Text(item.usage.errors > 0 ? "\(item.usage.errors)" : "").font(.system(size: 12.5)).monospacedDigit().foregroundStyle(palette.err).frame(width: PrimitivesColumn.failed.width, alignment: .trailing)
+                }
+                Text(used ? "\(item.usage.sessions)" : "").font(.system(size: 12.5)).monospacedDigit().frame(width: PrimitivesColumn.sessions.width, alignment: .trailing)
+                Text(PrimitivesContent.lastUsed(item)).font(.system(size: 12)).foregroundStyle(palette.muted).lineLimit(1).frame(width: PrimitivesColumn.lastUsed.width, alignment: .trailing)
             }
             .padding(.horizontal, 8).padding(.vertical, 6)
             .background(selected ? palette.accentSoft : hover ? palette.panel2.opacity(0.6) : index.isMultiple(of: 2) ? palette.panel2.opacity(0.35) : .clear,
@@ -331,8 +345,8 @@ private struct DefinitionRow: View {
             ForEach(PrimitivesContent.details(definition), id: \.self) { line in
                 Text(line).font(.system(size: 11.5, design: .monospaced)).foregroundStyle(palette.muted).lineLimit(3).textSelection(.enabled)
             }
-            if let modified = definition.modified, PrimitivesContent.ownFile(item.kind) {
-                Text("changed " + Format.dateTime(modified) + (definition.bytes.map { " · " + FilesContent.bytes($0) } ?? "")).font(.system(size: 11)).foregroundStyle(palette.muted)
+            if let facts = PrimitivesContent.fileFacts(definition, kind: item.kind) {
+                Text(facts).font(.system(size: 11)).foregroundStyle(palette.muted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -437,19 +451,83 @@ nonisolated enum PrimitivesContent {
         countsUnused(item.kind) && (item.installed || item.usage.offeredSessions > 0) && item.usage.calls == 0
     }
 
-    /// The items of a kind: the most used first, then what more sessions had on offer, then by name.
-    static func rows(_ report: PrimitivesReport, kind: String, filter: String, unusedOnly: Bool) -> [PrimitivesReport.Item] {
+    /// "changed Nov 10, 10:04 PM · 3 kB · 120 lines", for a definition that is a file of its own.
+    static func fileFacts(_ definition: PrimitivesReport.Definition, kind: String) -> String? {
+        guard ownFile(kind), let modified = definition.modified else { return nil }
+        var parts = ["changed " + Format.dateTime(modified)]
+        if let bytes = definition.bytes { parts.append(FilesContent.bytes(bytes)) }
+        if let lines = definition.lines { parts.append(count(lines, "line")) }
+        return parts.joined(separator: " · ")
+    }
+
+    /// The columns a kind's list has: the size and the lines only where a definition is a file of its
+    /// own, and no "failed" for a file that is only ever loaded (which leaves its name the room).
+    static func columns(_ kind: String) -> [PrimitivesColumn] {
+        PrimitivesColumn.allCases.filter { column in
+            switch column {
+            case .size, .lines: ownFile(kind)
+            case .failed: kind != "instructions" && kind != "memory"
+            default: true
+            }
+        }
+    }
+
+    /// The bytes of the file that defines an item: of the definition Claude Code takes when there are several.
+    static func size(_ item: PrimitivesReport.Item) -> Int? {
+        ownFile(item.kind) ? item.definitions.first?.bytes : nil
+    }
+
+    /// The lines of that file. An engine older than the column does not say.
+    static func lines(_ item: PrimitivesReport.Item) -> Int? {
+        ownFile(item.kind) ? item.definitions.first?.lines : nil
+    }
+
+    /// The items of a kind. As the page opens: the most used first, then what more sessions had on
+    /// offer, then by name. By a column: in that column's order, the opening order among equals; an
+    /// item with nothing in the column (no file, never used) comes last whichever way the order runs.
+    static func rows(_ report: PrimitivesReport, kind: String, filter: String, unusedOnly: Bool,
+                     sort: PrimitivesColumn = .uses, ascending: Bool = false) -> [PrimitivesReport.Item] {
         let needle = filter.trimmingCharacters(in: .whitespaces).lowercased()
+        func opening(_ a: PrimitivesReport.Item, _ b: PrimitivesReport.Item) -> Bool {
+            if a.usage.calls != b.usage.calls { return a.usage.calls > b.usage.calls }
+            if a.usage.offeredSessions != b.usage.offeredSessions { return a.usage.offeredSessions > b.usage.offeredSessions }
+            if a.installed != b.installed { return a.installed }
+            return name(a).localizedCaseInsensitiveCompare(name(b)) == .orderedAscending
+        }
+        // A kind without the chosen column keeps the opening order.
+        let column = columns(kind).contains(sort) ? sort : .uses
+        /// What an item has in the column, as a number or as words; nil when it has nothing there.
+        func number(_ item: PrimitivesReport.Item) -> Double? {
+            switch column {
+            case .size: size(item).map(Double.init)
+            case .lines: lines(item).map(Double.init)
+            case .uses: Double(item.usage.calls)
+            case .failed: Double(item.usage.errors)
+            case .sessions: Double(item.usage.sessions)
+            case .lastUsed: (item.usage.lastAt ?? item.lastUsedAt)?.timeIntervalSince1970
+            case .name, .defined: nil
+            }
+        }
+        func words(_ item: PrimitivesReport.Item) -> String { column == .name ? name(item) : place(item) }
         return report.items
             .filter { $0.kind == kind && (!unusedOnly || unused($0)) }
             .filter { item in
                 needle.isEmpty || ([item.name, item.title ?? "", item.description ?? "", place(item)] + item.definitions.compactMap(\.path)).contains { $0.lowercased().contains(needle) }
             }
             .sorted { a, b in
-                if a.usage.calls != b.usage.calls { return a.usage.calls > b.usage.calls }
-                if a.usage.offeredSessions != b.usage.offeredSessions { return a.usage.offeredSessions > b.usage.offeredSessions }
-                if a.installed != b.installed { return a.installed }
-                return name(a).localizedCaseInsensitiveCompare(name(b)) == .orderedAscending
+                // The page as it opens, untouched: uses, most first.
+                if column == .uses, !ascending { return opening(a, b) }
+                if column.numeric {
+                    switch (number(a), number(b)) {
+                    case let (x?, y?) where x != y: return ascending ? x < y : x > y
+                    case (_?, nil): return true
+                    case (nil, _?): return false
+                    default: return opening(a, b)
+                    }
+                }
+                let order = words(a).localizedCaseInsensitiveCompare(words(b))
+                if order != .orderedSame { return (order == .orderedAscending) == ascending }
+                return opening(a, b)
             }
     }
 

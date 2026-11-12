@@ -449,6 +449,8 @@ func TestPrimitives_InstalledOfferedAndUsed(t *testing.T) {
 				Scope string `json:"scope"`
 				Where string `json:"where"`
 				Calls int    `json:"calls"`
+				Bytes int    `json:"bytes"`
+				Lines int    `json:"lines"`
 			} `json:"definitions"`
 			Usage struct {
 				Calls  int `json:"calls"`
@@ -468,6 +470,14 @@ func TestPrimitives_InstalledOfferedAndUsed(t *testing.T) {
 	if it.Description != "Ship the thing" || len(it.Definitions) != 1 || it.Definitions[0].Scope != "project" || it.Definitions[0].Where != work ||
 		it.Definitions[0].Calls != 2 || it.Usage.Calls != 2 || it.Usage.ByUser != 1 || len(it.Sessions) != 1 || it.Sessions[0].Session != id || it.Sessions[0].Turn != 0 {
 		t.Fatalf("skill deploy: %+v", it)
+	}
+
+	// A definition that is a file of its own says how big it is, in bytes and in lines.
+	if d := it.Definitions[0]; d.Bytes == 0 || d.Lines == 0 {
+		t.Fatalf("skill deploy's size: %d bytes, %d lines", d.Bytes, d.Lines)
+	}
+	if res = h.Run("primitives", "skill", "deploy"); !strings.Contains(res.Stdout, fmt.Sprintf("%d B, %d line", it.Definitions[0].Bytes, it.Definitions[0].Lines)) {
+		t.Fatalf("skill deploy lacks its size:\n%s", res.Stdout)
 	}
 
 	res = h.Run("primitives", "skill", "--unused", "--json")

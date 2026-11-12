@@ -227,6 +227,10 @@ func printPrimitive(w io.Writer, it primitives.Item) {
 			if d.Path == "" {
 				line = fmt.Sprintf("  %-8s %s", d.Scope, d.Where)
 			}
+			if d.Lines > 0 {
+				// A file of its own: how much it adds to what the model reads.
+				line += fmt.Sprintf("  %s, %d line%s", humanBytes(d.Bytes), d.Lines, plural(d.Lines))
+			}
 			if d.Calls > 0 {
 				line += fmt.Sprintf("  (%d use%s of this one)", d.Calls, plural(d.Calls))
 			}

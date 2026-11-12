@@ -27,6 +27,54 @@ import Testing
         #expect(PrimitivesContent.stamp(report).contains("sessions kept here") && PrimitivesContent.lookedIn(report).hasPrefix("Found in: "))
     }
 
+    @Test func aColumnSortsTheList() throws {
+        let report = try report()
+        func skills(_ sort: PrimitivesColumn, ascending: Bool = false) -> [String] {
+            PrimitivesContent.rows(report, kind: "skill", filter: "", unusedOnly: false, sort: sort, ascending: ascending).map(\.name)
+        }
+        // The biggest file first: deploy by the definition Claude Code takes (68 B, not the project's 59). What has no
+        // file comes last, in the order the page opens in, and stays last when the order is turned round.
+        #expect(skills(.size) == ["deploy", "anthropic-skills:pdf", "tidy", "init", "old-skill"])
+        #expect(skills(.size, ascending: true) == ["tidy", "anthropic-skills:pdf", "deploy", "init", "old-skill"])
+        #expect(skills(.lines) == ["deploy", "anthropic-skills:pdf", "tidy", "init", "old-skill"])
+        #expect(skills(.lines, ascending: true) == ["tidy", "anthropic-skills:pdf", "deploy", "init", "old-skill"])
+        // Uses, most first, is the page as it opens; turned round, the unused lead, by name among themselves.
+        #expect(skills(.uses) == PrimitivesContent.rows(report, kind: "skill", filter: "", unusedOnly: false).map(\.name))
+        #expect(skills(.uses, ascending: true).last == "deploy")
+        #expect(skills(.name, ascending: true) == ["anthropic-skills:pdf", "deploy", "init", "old-skill", "tidy"])
+        #expect(skills(.name) == ["tidy", "old-skill", "init", "deploy", "anthropic-skills:pdf"])
+        // The filter and "only what was not used" still apply.
+        #expect(PrimitivesContent.rows(report, kind: "skill", filter: "", unusedOnly: true, sort: .size).map(\.name) == ["anthropic-skills:pdf", "tidy", "init"])
+
+        // Two memory files of one line each: equal in lines, so in the opening order; apart in size.
+        func memory(_ sort: PrimitivesColumn) -> [String] {
+            PrimitivesContent.rows(report, kind: "memory", filter: "", unusedOnly: false, sort: sort).map(PrimitivesContent.name)
+        }
+        #expect(memory(.size) == ["MEMORY.md", "a-note.md"] && memory(.lines) == memory(.uses))
+
+        // A hook lives in a settings file among other things: no size of its own, no such columns, and a
+        // sort by size chosen for another kind leaves its list as it opens.
+        #expect(PrimitivesContent.columns("skill").contains(.size) && PrimitivesContent.columns("memory").contains(.lines))
+        #expect(!PrimitivesContent.columns("hook").contains(.size) && !PrimitivesContent.columns("connector").contains(.lines))
+        // A file that is only ever loaded cannot fail; a skill, an agent or a connector's tool can.
+        #expect(!PrimitivesContent.columns("memory").contains(.failed) && !PrimitivesContent.columns("instructions").contains(.failed))
+        #expect(PrimitivesContent.columns("skill").contains(.failed) && PrimitivesContent.columns("connector").contains(.failed))
+        let hook = try #require(report.items.first { $0.kind == "hook" })
+        #expect(PrimitivesContent.size(hook) == nil && hook.definitions.first?.bytes != nil)
+        #expect(PrimitivesContent.rows(report, kind: "connector", filter: "", unusedOnly: false, sort: .size).map(\.name)
+            == PrimitivesContent.rows(report, kind: "connector", filter: "", unusedOnly: false).map(\.name))
+
+        // What the definition's card says of its file.
+        let deploy = try #require(report.items.first { $0.kind == "skill" && $0.name == "deploy" })
+        #expect(PrimitivesContent.size(deploy) == 68 && PrimitivesContent.lines(deploy) == 5)
+        #expect(PrimitivesContent.fileFacts(try #require(deploy.definitions.first), kind: "skill")?.hasSuffix(" · 68 B · 5 lines") == true)
+        #expect(PrimitivesContent.fileFacts(try #require(hook.definitions.first), kind: "hook") == nil)
+        // An engine from before the column says no lines: the cell is empty and the row sorts last.
+        var older = deploy
+        older.definitions[0].lines = nil
+        #expect(PrimitivesContent.lines(older) == nil && PrimitivesContent.fileFacts(older.definitions[0], kind: "skill")?.hasSuffix(" · 68 B") == true)
+    }
+
     @Test func whereAThingIsDefinedAndWhichComesFirst() throws {
         let report = try report()
         func item(_ kind: String, _ name: String) throws -> PrimitivesReport.Item { try #require(report.items.first { $0.kind == kind && $0.name == name }) }
