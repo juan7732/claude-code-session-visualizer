@@ -12,6 +12,8 @@ struct SummaryView: View {
     @AppStorage(SettingsKey.summaryDigest) private var showDigest = true
     @AppStorage(SettingsKey.summaryHours) private var showHours = true
     @AppStorage(SettingsKey.summaryMap) private var showMap = true
+    /// A part of the page a snapshot is taken of ("digest", "map", "hours"): brought to the top once it is there.
+    @Environment(\.snapshotSummaryPart) private var snapshotPart
     var session: SessionSummary
 
     var body: some View {
@@ -19,46 +21,54 @@ struct SummaryView: View {
         // The numbers of the open session come from /stats, which is computed
         // from the transcript as it is now; the list row may be a little older.
         let stats: SessionSummary = { if case .loaded(let s) = store.stats[session.id] { s } else { session } }()
-        ScrollView {
-            // A plain stack: see Digest for why nothing on this page is lazy.
-            VStack(alignment: .leading, spacing: 0) {
-                SummaryHead(session: session)
-                VStack(spacing: 12) {
-                    row {
-                        AboutCard(title: "What it is about", text: model?.firstPrompt?.text, model: model, target: model?.firstPrompt.flatMap { p in model?.doc.turns.first { $0.promptIndex == p.index } }.map { .turn($0.index) })
-                        AboutCard(title: "Where it ended", text: model?.ending?.text, model: model, target: model?.ending.map { .action($0.index) })
+        ScrollViewReader { proxy in
+            ScrollView {
+                // A plain stack: see Digest for why nothing on this page is lazy.
+                VStack(alignment: .leading, spacing: 0) {
+                    SummaryHead(session: session)
+                    VStack(spacing: 12) {
+                        row {
+                            AboutCard(title: "What it is about", text: model?.firstPrompt?.text, model: model, target: model?.firstPrompt.flatMap { p in model?.doc.turns.first { $0.promptIndex == p.index } }.map { .turn($0.index) })
+                            AboutCard(title: "Where it ended", text: model?.ending?.text, model: model, target: model?.ending.map { .action($0.index) })
+                        }
+                        row {
+                            SizeCard(stats: stats)
+                            OutcomeCard(stats: stats, model: model)
+                            ProblemsCard(stats: stats, model: model)
+                        }
+                        row {
+                            ContextCard(sessionID: session.id, live: store.isLive(session.id), model: model)
+                            ParallelCard(model: model)
+                            OutsideCard(model: model)
+                        }
+                        row {
+                            WhereCard(stats: stats, model: model)
+                            HowCard(stats: stats, model: model)
+                        }
                     }
-                    row {
-                        SizeCard(stats: stats)
-                        OutcomeCard(stats: stats, model: model)
-                        ProblemsCard(stats: stats, model: model)
+                    .padding(.top, 18)
+                    if let model {
+                        SessionSearchBox(model: model).padding(.top, 22)
+                        if showDigest { Digest(model: model).padding(.top, 22).id("digest") }
+                        if showMap { ArcsMap(model: model, layout: ArcsLayout(model: model)).padding(.top, 22).id("map") }
+                        if showHours, let grid = HoursGrid(turns: model.doc.turns) { HoursCard(model: model, grid: grid).padding(.top, 18).id("hours") }
+                    } else if case .failed(let why) = store.models[session.id] {
+                        Text("Could not read the session: \(why)").font(.system(size: 12)).foregroundStyle(palette.err).padding(.top, 18)
                     }
-                    row {
-                        ContextCard(sessionID: session.id, live: store.isLive(session.id), model: model)
-                        ParallelCard(model: model)
-                        OutsideCard(model: model)
-                    }
-                    row {
-                        WhereCard(stats: stats, model: model)
-                        HowCard(stats: stats, model: model)
-                    }
+                    SessionNote(sessionID: session.id).padding(.top, 18)
                 }
-                .padding(.top, 18)
-                if let model {
-                    SessionSearchBox(model: model).padding(.top, 22)
-                    if showDigest { Digest(model: model).padding(.top, 22) }
-                    if showMap { ArcsMap(model: model, layout: ArcsLayout(model: model)).padding(.top, 22) }
-                    if showHours, let grid = HoursGrid(turns: model.doc.turns) { HoursCard(model: model, grid: grid).padding(.top, 18) }
-                } else if case .failed(let why) = store.models[session.id] {
-                    Text("Could not read the session: \(why)").font(.system(size: 12)).foregroundStyle(palette.err).padding(.top, 18)
-                }
-                SessionNote(sessionID: session.id).padding(.top, 18)
+                .frame(maxWidth: Metric.wideColumn, alignment: .leading)
+                .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 60)
+                .frame(maxWidth: .infinity)
             }
-            .frame(maxWidth: Metric.wideColumn, alignment: .leading)
-            .padding(.horizontal, 28).padding(.top, 24).padding(.bottom, 60)
-            .frame(maxWidth: .infinity)
+            .background(palette.bg)
+            .task(id: model == nil) {
+                // The parts under the cards are there once the session has been read.
+                guard let snapshotPart, model != nil else { return }
+                try? await Task.sleep(for: .milliseconds(100))
+                proxy.scrollTo(snapshotPart, anchor: .top)
+            }
         }
-        .background(palette.bg)
     }
 
     /// Cards side by side, as wide as each other and as tall as the tallest.

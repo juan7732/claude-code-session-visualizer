@@ -54,6 +54,11 @@ The Summary is the picture at the top. The other four:
   </tr>
 </table>
 
+The Summary also draws the session as a map: each turn down a spine, tied to the files it touched and the services it
+reached. Thick strands are writes, thin ones are reads.
+
+![The Summary's map: five turns down a spine, with strands to the three files they read and wrote, a web search and GitHub](docs/launch/screenshots/summary-map.png)
+
 ### Every session together
 
 <table>
@@ -73,8 +78,9 @@ The Summary is the picture at the top. The other four:
       <br><b>Stats.</b> A year of days, tools and failures, models, the prompt cache, actions per prompt.
     </td>
     <td width="50%" valign="top">
-      <a href="docs/launch/screenshots/primitives.png"><img src="docs/launch/screenshots/primitives.png" alt="Primitives: skills with where each is defined and whether it was ever used"></a>
-      <br><b>Primitives.</b> Skills, agents, connectors, hooks: where each is defined, how much it is used, what never is.
+      <a href="docs/launch/screenshots/primitives.png"><img src="docs/launch/screenshots/primitives.png" alt="Primitives: skills with where each is defined, its size and lines, and whether it was ever used"></a>
+      <br><b>Primitives.</b> Skills, agents, connectors, hooks: where each is defined, how big it is, how much it is used,
+      what never is.
     </td>
   </tr>
 </table>

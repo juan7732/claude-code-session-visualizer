@@ -86,6 +86,10 @@ shot now --page now
 size=$size_all
 shot sessions --page sessions
 shot summary --page "session:$(id ratelimit)" --view summary
+# The map is under the cards and the digest: the page is scrolled to it, in a window as tall as the map.
+size=1440x${MAP_HEIGHT:-640}
+shot summary-map --page "session:$(id ratelimit)" --view summary --summary-part map
+size=$size_all
 shot transcript --page "session:$(id flaky)" --view transcript
 shot canvas --page "session:$(id ratelimit)" --view canvas
 shot canvas-score --page "session:$(id ratelimit)" --view canvas --set canvas.layout=score

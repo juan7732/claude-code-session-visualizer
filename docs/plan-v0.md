@@ -386,6 +386,10 @@ takes the zip instead installs `llama.cpp` themselves for search by meaning.
 First release, 2026-11-11: **v0.1.0**, a tag, a GitHub release with the notarised zip, and the cask. It is not 1.0:
 `/v0` and its shapes are not frozen, and the rest of this list stands.
 
+**v0.1.1**, 2026-11-12: the Transcript of a short session no longer freezes the window (a plain stack up to 150 rows,
+see the client's README), and the Primitives list sorts by any column, with the size and the lines of each definition's
+file (`lines` is new in `/v0/primitives`; nothing else in the shapes changed).
+
 Done when: the release, installed from nothing on Juan's other Mac, archives that Mac's sessions and answers a question
 about them, and removing it leaves nothing running.
 
