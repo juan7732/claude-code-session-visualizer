@@ -9,7 +9,7 @@ import SwiftUI
 /// [--tab details|io|note] [--query text] [--palette]
 /// [--open-calls] [--fold] [--where] [--files-tab files|context|images] [--lightbox N] [--claude-tab memory|flags|…]
 /// [--page primitives --primitives-kind skill|agent|… --primitives-select <name> --primitives-days 7|30|90 --primitives-unused]
-/// [--page now --now-minutes 1440]`
+/// [--page now --now-minutes 1440] [--view summary --summary-part digest|map|hours]`
 ///
 /// Renders one state of the app to a PNG and exits, without showing a window:
 /// the way a view is held against its mock (plan, "Judged against the mock").
@@ -47,6 +47,8 @@ struct SnapshotRequest {
     /// On the Files view: the list on show, and an image open large.
     var filesTab: FilesTab?
     var lightbox: Int?
+    /// On the Summary: the part under the cards to bring to the top of the picture.
+    var summaryPart: String?
 
     init?(arguments: [String]) {
         guard let at = arguments.firstIndex(of: "--snapshot"), at + 1 < arguments.count else { return nil }
@@ -105,6 +107,7 @@ struct SnapshotRequest {
         whereTime = arguments.contains("--where")
         filesTab = value("--files-tab").flatMap(FilesTab.init(rawValue:))
         lightbox = value("--lightbox").flatMap(Int.init)
+        summaryPart = value("--summary-part")
     }
 }
 #endif
@@ -299,8 +302,12 @@ extension Snapshot {
         let root = Themed { RootView(window: state, initialPage: request.page, initialView: request.view) }
             .environment(store)
             .environment(\.snapshotFlyout, request.flyout)
+            .environment(\.snapshotSummaryPart, request.summaryPart)
+        // A real toolbar blurs the page that has scrolled under it; drawn offscreen there is no blur and the
+        // page's text shows through. For a picture of a scrolled page the page ends where the toolbar begins.
+        let scrolled = request.summaryPart != nil
         let window = OffscreenWindow(contentRect: CGRect(origin: .zero, size: request.size),
-                                     styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
+                                     styleMask: scrolled ? [.titled, .closable, .miniaturizable, .resizable] : [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
                                      backing: .buffered, defer: false)
         let appearance = NSAppearance(named: request.appearance == "light" ? .aqua : .darkAqua)
         app.appearance = appearance
@@ -434,6 +441,7 @@ extension Snapshot {
             FileHandle.standardError.write(Data("scroll-through: no scroll view\n".utf8))
             return
         }
+        if ProcessInfo.processInfo.environment["SKIT_EXERCISE_WHEEL"] != nil { return await wheelThrough(window, scroll) }
         var y: CGFloat = 0
         var steps = 0
         let hover = ProcessInfo.processInfo.environment["SKIT_EXERCISE_HOVER"] != nil
@@ -455,6 +463,93 @@ extension Snapshot {
             y = min(limit, y + 90)
             steps += 1
             try? await Task.sleep(for: .milliseconds(16))
+        }
+        FileHandle.standardError.write(Data("scroll-through: reached the end after \(steps) steps\n".utf8))
+    }
+
+    /// `SKIT_EXERCISE_WHEEL`: scrolls with scroll events that have a phase (a gesture begins, moves,
+    /// ends), as a trackpad sends them, with the pointer put on the page and left there. Setting the
+    /// scroll position, as `scrollThrough` does, never froze the Transcript of a short session; this did
+    /// (2026-11-12).
+    ///
+    ///   SKIT_EXERCISE_WHEEL=1            down to the end
+    ///   SKIT_EXERCISE_WHEEL=updown       down, turning back now and then
+    ///   SKIT_EXERCISE_WHEEL=fuzz:<seed>  gestures of any size in both directions, the pointer moved to
+    ///                                    another row now and then; the same seed scrolls the same way
+    ///   SKIT_EXERCISE_GESTURES=<n>       how many gestures a fuzz makes (500)
+    static func wheelThrough(_ window: NSWindow, _ scroll: NSScrollView) async {
+        var point = CGPoint(x: window.frame.width * 0.45, y: window.frame.height * 0.4)
+        func send(_ dy: Int32, phase: Int64) {
+            guard let cg = CGEvent(scrollWheelEvent2Source: nil, units: .pixel, wheelCount: 1, wheel1: dy, wheel2: 0, wheel3: 0) else { return }
+            cg.setIntegerValueField(.scrollWheelEventIsContinuous, value: 1)
+            cg.setIntegerValueField(.scrollWheelEventScrollPhase, value: phase)
+            let onScreen = window.convertPoint(toScreen: point)
+            cg.location = CGPoint(x: onScreen.x, y: (NSScreen.screens.first?.frame.height ?? 0) - onScreen.y)
+            cg.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window.windowNumber))
+            cg.setIntegerValueField(.mouseEventWindowUnderMousePointerThatCanHandleThisEvent, value: Int64(window.windowNumber))
+            if let event = NSEvent(cgEvent: cg) { window.sendEvent(event) }
+        }
+        func rest() {
+            if let event = NSEvent.mouseEvent(with: .mouseMoved, location: point, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0, clickCount: 0, pressure: 0) {
+                window.sendEvent(event)
+            }
+        }
+        func place() -> (y: CGFloat, limit: CGFloat) {
+            (scroll.contentView.bounds.origin.y, max(0, (scroll.documentView?.frame.height ?? 0) - scroll.contentView.bounds.height))
+        }
+        rest()
+        let mode = ProcessInfo.processInfo.environment["SKIT_EXERCISE_WHEEL"] ?? ""
+        if mode.hasPrefix("fuzz") {
+            var seed = UInt64(mode.split(separator: ":").last.flatMap { UInt64($0) } ?? 1) &* 2654435761 &+ 1
+            func next(_ n: Int) -> Int {
+                seed = seed &* 6364136223846793005 &+ 1442695040888963407
+                return Int((seed >> 33) % UInt64(max(1, n)))
+            }
+            let gestures = Int(ProcessInfo.processInfo.environment["SKIT_EXERCISE_GESTURES"] ?? "") ?? 500
+            for gesture in 0..<gestures {
+                if next(5) == 0 {
+                    point = CGPoint(x: window.frame.width * (0.3 + 0.5 * CGFloat(next(100)) / 100), y: window.frame.height * (0.08 + 0.75 * CGFloat(next(100)) / 100))
+                    rest()
+                }
+                // Mostly small moves, sometimes a throw; down a little more often than up.
+                let size = [3, 8, 20, 45, 90, 160, 400][next(7)]
+                let dy = Int32(next(100) < 58 ? -size : size)
+                send(dy, phase: 1)
+                for _ in 0..<(2 + next(9)) {
+                    send(dy, phase: 2)
+                    try? await Task.sleep(for: .milliseconds(next(4) == 0 ? 2 : 16))
+                }
+                send(0, phase: 4)
+                try? await Task.sleep(for: .milliseconds(10 + next(60)))
+                let at = place()
+                FileHandle.standardError.write(Data(String(format: "scroll-through: fuzz, gesture %d, y %.0f of %.0f\n", gesture, at.y, at.limit).utf8))
+            }
+            FileHandle.standardError.write(Data("scroll-through: reached the end after \(gestures) gestures\n".utf8))
+            return
+        }
+        var steps = 0, still = 0, last: CGFloat = -1
+        while steps < 12000 {
+            // One gesture: it begins, moves ten times, ends. Every seventh goes back up when asked.
+            let dy: Int32 = mode == "updown" && (steps / 12) % 7 == 6 ? 70 : -90
+            send(dy, phase: 1)
+            for _ in 0..<10 {
+                send(dy, phase: 2)
+                steps += 1
+                try? await Task.sleep(for: .milliseconds(16))
+            }
+            send(0, phase: 4)
+            steps += 2
+            try? await Task.sleep(for: .milliseconds(40))
+            let at = place()
+            FileHandle.standardError.write(Data(String(format: "scroll-through: wheel, y %.0f of %.0f, step %d\n", at.y, at.limit, steps).utf8))
+            if at.y >= at.limit - 1 { break }
+            still = at.y == last ? still + 1 : 0
+            if still > 20 {
+                FileHandle.standardError.write(Data("scroll-through: the wheel does not move the page\n".utf8))
+                break
+            }
+            last = at.y
         }
         FileHandle.standardError.write(Data("scroll-through: reached the end after \(steps) steps\n".utf8))
     }
@@ -485,10 +580,20 @@ private struct SnapshotFlyoutKey: EnvironmentKey {
     static let defaultValue = false
 }
 
+private struct SnapshotSummaryPartKey: EnvironmentKey {
+    static let defaultValue: String? = nil
+}
+
 extension EnvironmentValues {
     /// Snapshots cannot hover: this opens the rail's flyout for them.
     var snapshotFlyout: Bool {
         get { self[SnapshotFlyoutKey.self] }
         set { self[SnapshotFlyoutKey.self] = newValue }
+    }
+
+    /// A snapshot of a part of the Summary that is below the first screen: the page scrolls to it.
+    var snapshotSummaryPart: String? {
+        get { self[SnapshotSummaryPartKey.self] }
+        set { self[SnapshotSummaryPartKey.self] = newValue }
     }
 }

@@ -68,6 +68,11 @@ enum Exercise {
         } else {
             return
         }
+        // SKIT_EXERCISE_FRAME=1512x949: the window at that size, for a fault that needs one.
+        if let frame = ProcessInfo.processInfo.environment["SKIT_EXERCISE_FRAME"]?.split(separator: "x").compactMap({ Double($0) }), frame.count == 2,
+           let shown = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) {
+            shown.setFrame(NSRect(x: 0, y: 0, width: frame[0], height: frame[1]), display: true)
+        }
         try? await Task.sleep(for: .milliseconds(1500))
         FileHandle.standardError.write(Data("exercise: \(what) of \(id) is up\n".utf8))
         if let shown = NSApp.windows.first(where: { $0.isVisible && $0.contentView != nil }) { await Snapshot.scrollThrough(shown) }

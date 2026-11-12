@@ -63,6 +63,11 @@ writes Markdown through the engine and builds and reads `skit-visualizer://` lin
 - **One lazy stack per scroll view, and none on the Summary.** A lazy stack inside another re-estimates its height as
   rows come and go; with rows that highlight under the pointer that became a loop on the main thread and the window
   froze while scrolling (2026-11-10). A snapshot cannot show this; `just client-exercise` can.
+- **A lazy stack only where the rows are many.** One lazy stack froze the same way by itself (2026-11-12): the
+  Transcript of a session with a few dozen rows of very different heights, where the estimate for the rows not yet
+  measured swings by thousands of points. The Transcript is a plain stack up to `TranscriptView.lazyAbove` rows and lazy
+  above it. The freeze came in bursts and only under scroll events that have a phase:
+  `SKIT_EXERCISE_WHEEL=fuzz:<seed> just client-exercise transcript <id>` showed it, on a short session.
 
 ## Engine at launch
 

@@ -10,6 +10,15 @@
 #   Scripts/exercise.sh host <session id>     does what "Open in VS Code" does for that running session, and quits
 #   Scripts/exercise.sh primitives <skill|agent|command|connector|hook|plugin|instructions|memory>
 #
+# In the environment:
+#   SKIT_EXERCISE_WHEEL=1 | updown | fuzz:<seed>   scroll with trackpad-like events (they have a phase) instead of
+#                                                  setting the scroll position; fuzz scrolls at random, both ways,
+#                                                  SKIT_EXERCISE_GESTURES times (500). Found the Transcript's freeze
+#                                                  of 2026-11-12, which setting the position never showed.
+#   SKIT_EXERCISE_FRAME=1512x949                   the window at that size
+#   SKIT_HOME=<dir>                                another engine's home, e.g. one serving a copy of a session cut
+#                                                  to the records it had when it froze
+#
 # A snapshot cannot show a freeze: it draws one frame offscreen. This runs the
 # live window (it appears on screen for a few seconds and quits by itself). If
 # the scroll stops advancing, the main thread is stuck: the script samples the

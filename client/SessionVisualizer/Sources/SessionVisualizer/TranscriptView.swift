@@ -13,17 +13,33 @@ struct TranscriptView: View {
     var model: SessionModel
     @FocusState private var keyboard: Bool
 
+    /// A session with more rows than this is drawn by a lazy stack; a shorter one by a plain stack.
+    ///
+    /// DECISION: a lazy stack places its rows from estimates of the ones it has not measured. With few
+    /// rows of very different heights (a session an hour old: a long prompt, a long answer, runs of
+    /// one-line tool calls) the estimate swings by thousands of points as rows come and go, and twice
+    /// on 2026-11-12 the stack never settled: one SwiftUI update placed the rows, estimated the height
+    /// again and sent a hover update, without end, and the window had to be force quit. A plain stack
+    /// measures every row once and has nothing to estimate. It also lays out every row before the first
+    /// frame, 2 to 3 ms a row in a debug build (240 ms for 110 rows, 1.2 s for 342, 2.8 s for 815)
+    /// against 70 to 95 ms for the lazy stack whatever the length, so the line is drawn where that
+    /// wait is still short. Long sessions stay lazy: the freeze was not seen in one, in about sixty
+    /// runs of `just client-exercise` over six of them, which is not proof that it cannot happen there.
+    static let lazyAbove = 150
+
     var body: some View {
         let state = window.transcript
         let rows = model.rows(folded: state.folded)
+        // By the session's length, not by what is folded now: folding must not swap the stack under the reader.
+        let lazy = model.items.count > Self.lazyAbove
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(rows) { item in
-                        TranscriptRow(model: model, item: item)
-                            .id(item.id)
-                            .onAppear { state.visible.insert(item.id) }
-                            .onDisappear { state.visible.remove(item.id) }
+                Group {
+                    if lazy {
+                        LazyVStack(alignment: .leading, spacing: 0) { list(rows, state, lazy: true) }
+                    } else {
+                        VStack(alignment: .leading, spacing: 0) { list(rows, state, lazy: false) }
+                            .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
                 .frame(maxWidth: 840)
@@ -56,6 +72,16 @@ struct TranscriptView: View {
                 state.foldApplied = true
                 if let key = window.selection ?? state.focus, let id = model.itemID(for: key) { proxy.scrollTo(id, anchor: .center) }
             }
+        }
+    }
+
+    private func list(_ rows: [TranscriptItem], _ state: TranscriptState, lazy: Bool) -> some View {
+        ForEach(rows) { item in
+            TranscriptRow(model: model, item: item)
+                .id(item.id)
+                .modifier(OnScreen(lazy: lazy) { shown in
+                    if shown { state.visible.insert(item.id) } else { state.visible.remove(item.id) }
+                })
         }
     }
 
@@ -173,6 +199,24 @@ extension TranscriptView {
         ("e / c", "open or close every call in the turn"),
         ("g / G", "top, bottom"), ("/", "find"), ("esc", "close the drawer"), ("?", "this list"),
     ]
+}
+
+/// Tells when a row of the Transcript comes on screen and when it leaves (for the scroll map and for
+/// where the keyboard starts). A lazy stack makes a row when it is about to show and drops it after,
+/// so appearing is being on screen. In a plain stack every row appears at once, and the scroll view
+/// is asked instead; before macOS 15 it cannot be asked, and there every row of a short session
+/// counts as on screen: the map frames all of it and the keyboard starts at the top.
+private struct OnScreen: ViewModifier {
+    var lazy: Bool
+    var change: (Bool) -> Void
+
+    func body(content: Content) -> some View {
+        if !lazy, #available(macOS 15, *) {
+            content.onScrollVisibilityChange(threshold: 0.001) { change($0) }.onDisappear { change(false) }
+        } else {
+            content.onAppear { change(true) }.onDisappear { change(false) }
+        }
+    }
 }
 
 /// The keys of a view, behind a small "? keys" at the bottom.
